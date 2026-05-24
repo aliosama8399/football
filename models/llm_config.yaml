@@ -15,7 +15,7 @@
 # ============================================================
 
 # ── Which provider to use by default ──────────────────────
-# Choices: ollama | openai | gemini | anthropic
+# Choices: ollama | openai | gemini | anthropic | huggingface
 default_provider: ollama
 
 # ── Provider-specific settings ────────────────────────────
@@ -50,7 +50,41 @@ providers:
     # Other models you can drop in:
     #   claude-opus-4-6 | claude-sonnet-4-6 | claude-haiku-4-5-20251001
 
+  huggingface:
+    # HuggingFace token — required if the repo is private
+    # Leave empty to read from HUGGINGFACE_HUB_TOKEN env var instead
+    hf_token:       ""
+    # Fully merged fine-tuned football model (no LoRA adapter needed)
+    model_id:       "aliosama8399/football-analysisN"
+    max_new_tokens: 2048
+    temperature:    0.7
+
 # ── LLM generation parameters ─────────────────────────────
 generation:
   temperature: 0.7
-  max_tokens: 1024
+  max_tokens: 2048
+
+# ── RAG System Configuration ──────────────────────────────
+rag:
+  # Which providers to use — switch by changing these values
+  kg_provider:     postgres       # neo4j | postgres
+  vector_provider: faiss       # faiss
+  llm_provider:    huggingface # huggingface | gemini | ollama | openai
+
+  # ── Neo4j ──────────────────────────────────────────────
+  neo4j_uri:      "bolt://localhost:7687"
+  neo4j_user:     "neo4j"
+  neo4j_password: "password"   # Change to your Neo4j password
+
+  # ── PostgreSQL ─────────────────────────────────────────
+  # Format: postgresql://<user>:<password>@<host>:<port>/<dbname>
+  postgres_dsn: "postgresql://postgres:123@localhost:5432/football_rag"
+
+  # ── FAISS ──────────────────────────────────────────────
+  faiss_index_path:    "rag/vector_store/faiss.index"
+  faiss_metadata_path: "rag/vector_store/faiss_metadata.json"
+  embed_model:         "sentence-transformers/all-MiniLM-L6-v2"
+
+  # ── Retrieval settings ─────────────────────────────────
+  vector_top_k:    5    # Number of FAISS results per query
+  kg_form_matches: 5    # Number of recent matches to retrieve per team

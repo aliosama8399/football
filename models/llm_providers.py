@@ -306,11 +306,24 @@ class AnthropicProvider(BaseLLMProvider):
 #    3. Add one line here:  'myprovider': MyProvider
 #  No other file needs changing.
 #
-LLM_REGISTRY: dict[str, type[BaseLLMProvider]] = {
-    "ollama":    OllamaProvider,
-    "openai":    OpenAIProvider,
-    "gemini":    GeminiProvider,
-    "anthropic": AnthropicProvider,
+#  HuggingFaceProvider is a standalone class (not a BaseLLMProvider subclass
+#  because it does local inference). It is imported here and registered under
+#  'huggingface' so get_llm_provider("huggingface") works seamlessly.
+#
+try:
+    from models.hf_provider import HuggingFaceProvider as _HFProvider
+    _HF_AVAILABLE = True
+except ImportError:
+    _HFProvider = None
+    _HF_AVAILABLE = False
+
+
+LLM_REGISTRY: dict[str, type] = {
+    "ollama":       OllamaProvider,
+    "openai":       OpenAIProvider,
+    "gemini":       GeminiProvider,
+    "anthropic":    AnthropicProvider,
+    "huggingface":  _HFProvider,   # Qwen3-0.6B + LoRA (aliosama8399/football-analysis)
 }
 
 
