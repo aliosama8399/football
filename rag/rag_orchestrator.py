@@ -27,6 +27,8 @@ import logging
 import re
 import yaml
 from pathlib import Path
+from typing import Optional
+
 
 from rag.providers.kg_provider     import get_kg_provider
 from rag.providers.vector_provider import get_vector_provider
@@ -181,21 +183,47 @@ class FootballRAGSystem:
             full_prompt = self._build_prompt(question, kg_context, vec_context)
             return self.llm.generate(full_prompt)
 
+    def _get_gnn_prediction(self, home_team: str, away_team: str) -> str:
+        if getattr(self, "gnn_model", None) is None:
+            try:
+                from models.explain_match import load_model_and_graph
+                model_path = _CFG_PATH.parent / "saved" / "gnn_edgeconv_tuned.pt"
+                logger.info("Loading GNN (Expert 1)...")
+                self.gnn_model, self.gnn_graph, self.gnn_builder = load_model_and_graph(model_path)
+            except Exception as e:
+                logger.error(f"Failed to load GNN (Expert 1): {e}")
+                return ""
+                
+        try:
+            home_idx = self.gnn_builder.team_to_idx.get(home_team)
+            away_idx = self.gnn_builder.team_to_idx.get(away_team)
+            if home_idx is None or away_idx is None:
+                logger.warning(f"Teams not found in GNN graph for {home_team} vs {away_team}")
+                return ""
+            
+            from models.explain_match import predict_match as gnn_predict_match
+            _, pred, probs = gnn_predict_match(self.gnn_model, self.gnn_graph, home_idx, away_idx)
+            return (
+                f"\n=== Expert 1 (Graph Neural Network) Prediction ===\n"
+                f"Predicted Outcome: {pred}\n"
+                f"Probabilities: Home Win={probs['H']:.1%} | Draw={probs['D']:.1%} | Away Win={probs['A']:.1%}\n"
+                f"=================================================="
+            )
+        except Exception as e:
+            logger.error(f"GNN Prediction failed: {e}")
+            return ""
+
     def predict_match(self, home_team: str, away_team: str) -> str:
         """
-        Structured match prediction with full RAG context.
-
-        Args:
-            home_team: Name of the home team (must match names in the database).
-            away_team: Name of the away team.
-
-        Returns:
-            Tactical analysis and prediction.
+        Structured match prediction with full RAG context and GNN ensemble.
         """
+        gnn_pred_text = self._get_gnn_prediction(home_team, away_team)
+        
         question = (
-            f"Analyze the upcoming match between {home_team} (Home) and {away_team} (Away). "
-            f"Consider their recent form, head-to-head history, and tactical styles "
-            f"(attack and defense). Provide a match prediction with reasoning."
+            f"You are Expert 2 (Fine-tuned LLM). Analyze the upcoming match between {home_team} (Home) and {away_team} (Away).\n"
+            f"Consider their recent form, head-to-head history, and tactical styles (attack and defense).\n"
+            f"{gnn_pred_text}\n\n"
+            f"Provide your final match prediction with reasoning, integrating your analysis with Expert 1's prediction."
         )
         return self.query(question)
 
@@ -237,6 +265,49 @@ class FootballRAGSystem:
             parts += ["## Retrieved Historical Analyses", vector_context, ""]
         parts += ["## Question", question]
         return "\n".join(parts)
+
+    def get_available_teams(self) -> list[str]:
+        """
+        Return a sorted list of all available team names from the cached known teams.
+        """
+        global _TEAM_CACHE
+        return sorted(list(_TEAM_CACHE))
+
+    def get_gnn_prediction_structured(self, home_team: str, away_team: str) -> Optional[dict]:
+        """
+        Return the structured prediction outcomes and probabilities from Expert 1 (GNN model).
+        Returns a dict with 'predicted_result' and 'probabilities' (H, D, A) or None if prediction fails.
+        """
+        if getattr(self, "gnn_model", None) is None:
+            try:
+                from models.explain_match import load_model_and_graph
+                model_path = _CFG_PATH.parent / "saved" / "gnn_edgeconv_tuned.pt"
+                logger.info("Loading GNN (Expert 1)...")
+                self.gnn_model, self.gnn_graph, self.gnn_builder = load_model_and_graph(model_path)
+            except Exception as e:
+                logger.error(f"Failed to load GNN (Expert 1): {e}")
+                return None
+                
+        try:
+            home_idx = self.gnn_builder.team_to_idx.get(home_team)
+            away_idx = self.gnn_builder.team_to_idx.get(away_team)
+            if home_idx is None or away_idx is None:
+                logger.warning(f"Teams not found in GNN graph for {home_team} vs {away_team}")
+                return None
+            
+            from models.explain_match import predict_match as gnn_predict_match
+            _, pred, probs = gnn_predict_match(self.gnn_model, self.gnn_graph, home_idx, away_idx)
+            return {
+                "predicted_result": pred,
+                "probabilities": {
+                    "H": float(probs.get("H", 0.0)),
+                    "D": float(probs.get("D", 0.0)),
+                    "A": float(probs.get("A", 0.0))
+                }
+            }
+        except Exception as e:
+            logger.error(f"GNN Prediction failed: {e}")
+            return None
 
     # ── Context Management ────────────────────────────────────────────────────
 

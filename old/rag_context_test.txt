@@ -1,0 +1,65 @@
+=== Arsenal KG Context ===
+=== Arsenal ===
+
+[Overview]
+  League         : Premier_League
+  Total Matches  : 114
+  Record         : W 64.9%  D 21.9%  L 13.2%
+  Clean Sheets   : 39.5%
+
+[Attack]
+  Avg Goals  (Home/Away) : 2.39 / 1.96
+  Avg xG                 : 2.06
+  Avg Shots              : 15.76
+  Avg Shots on Target    : 5.43
+  Avg Corners            : 6.40
+  Summary  : By committing so many players forward, they can be vulnerable to a swift, direct counter-attack that bypasses their midfield press.
+
+  [Attacking Style]
+  TACTICAL SYNTHESIS & WHAT COULD CHANGE THE OUTCOME:
+This match-up presents a classic offensive-force-meets-defensive-vulnerability scenario. Arsenal's entire game plan is built around quick ball circulation and penetrating runs to generate a high volume of shots, which plays directly into the weaknesses Wolverhampton have shown all season. The historical context reinforces this conclusion; the influence of recent matches where top sides like Liverpool and Manchester United dismantled Wolves at home is starkly relevant. It establishes a clear pattern of what happens when an elite, proactive attack meets Wolves' current defensive setup. For the outcome to change, Wolves would need to execute a perfect tactical rearguard action. They would have to abandon any pretense of building possession and instead absorb immense pressure with a deep, compact block, hoping to frustrate Arsenal. More critically, they would need to be clinical on the rare break they get, exploiting the space behind Arsenal's advanced full-backs. If they can score first against the run of play, they could force Arsenal into a state of impatience, but given the overwhelming data pointing towards a dominant Arsenal performance, such a scenario appears highly improbable.
+
+[Defense]
+  Avg xGA                : 1.03
+  Avg Shots Against      : 8.99
+  Avg SOT Against        : 3.01
+  Avg Fouls Committed    : 10.21
+  Avg Yellows            : 1.55
+  Summary  : Defensive Vulnerability:** The core of the matchup is Arsenal's league-best defense (1.8 SoT conceded/game) against a Palace side that gives up a high volume of shots (11.2 conceded/game).
+
+  [Defensive Style]
+  The tactical battle will therefore be a classic duel of possession versus transition. City will look to dominate the ball, using their full-backs and inverted wingers to stretch Arsenalâ€™s compact block and create the corner situations that have been so effective for them recently. The historical context of City's recent away trips to face Fulham, Brentford, and Crystal Palace is telling; all were against teams that sat deep and looked to hit on the counter. Arsenal will likely adopt a similar, albeit more talented, approach. For the outcome to shift away from a home win, Arsenal's counter-attack must be ruthlessly efficient. If they can exploit the space behind City's high line, they possess the quality to score. But if City net an early goal, they will force Arsenal to abandon their defensive shape, opening the game up and playing directly into the hands of the league's most dominant side.
+
+[Strengths]
+  • However, their greatest strength is a dangerous counter-attacking threat, as evidenced by their own impressive shots-on-target numbers.
+  • *   **Potent Attack:** Arsenal are not just solid defensively; they are a major attacking threat, scoring **2.20 goals per match**.
+  • *   **Potent Attack:** With **2.60 goals scored per match**, Arsenal has a clear and clinical attacking threat.
+  • *   **Effective, if Not Prolific, Attack:** With **1.80 goals scored per match**, they are finding the net consistently.
+
+[Weaknesses]
+  • **Weaknesses:**
+*   **Lack of Attack:** Scoring **0.80 goals per match** is poor.
+  • **Strengths & Weaknesses of Arsenal**
+Arsenal arrive on the south coast with a familiar identityâ€”ball dominationâ€”but a worrying new flaw: a lack of penetration.
+  • *   **Weaknesses:**
+    *   **Lack of Ruthlessness:** For a team that controls games so much, scoring only **1.80 goals per match** suggests a lack of clinical finishing.
+  • Leicester's 2.8 SOT will struggle to trouble a defense that only concedes 3.6 SOT.
+
+[Last 5 Matches]
+  2025-05-25 [AWAY] vs Southampton  1-2  [A]  | Premier_League
+    Rolling-5 -> Form:1.60  xG:2.03  xGA:1.82  Shots:15.20  SOT:5.60
+  2025-05-18 [HOME] vs Newcastle United  1-0  [H]  | Premier_League
+    Rolling-5 -> Form:1.20  xG:1.95  xGA:1.49  Shots:15.60  SOT:5.40
+  2025-05-11 [AWAY] vs Liverpool  2-2  [D]  | Premier_League
+    Rolling-5 -> Form:1.20  xG:1.79  xGA:1.19  Shots:15.40  SOT:5.00
+  2025-05-03 [HOME] vs Bournemouth  1-2  [A]  | Premier_League
+    Rolling-5 -> Form:1.80  xG:1.84  xGA:1.19  Shots:16.20  SOT:5.00
+  2025-04-23 [HOME] vs Crystal Palace  2-2  [D]  | Premier_League
+    Rolling-5 -> Form:2.20  xG:1.60  xGA:0.75  Shots:16.20  SOT:4.60
+
+=== Arsenal vs Chelsea H2H ===
+{'date': datetime.date(2025, 3, 16), 'home_team': 'Arsenal', 'away_team': 'Chelsea', 'home_goals': 1, 'away_goals': 0, 'result': 'H', 'home_xg': 0.695725, 'away_xg': 0.286036, 'league': 'Premier_League', 'season': '2425'}
+{'date': datetime.date(2024, 4, 23), 'home_team': 'Arsenal', 'away_team': 'Chelsea', 'home_goals': 5, 'away_goals': 0, 'result': 'H', 'home_xg': 3.45858, 'away_xg': 1.60343, 'league': 'Premier_League', 'season': '2324'}
+{'date': datetime.date(2023, 5, 2), 'home_team': 'Arsenal', 'away_team': 'Chelsea', 'home_goals': 3, 'away_goals': 1, 'result': 'H', 'home_xg': 2.7832, 'away_xg': 0.785202, 'league': 'Premier_League', 'season': '2223'}
+
+Premier League teams (24): Arsenal in list = "Arsenal" in ['Bournemouth', 'Wolverhampton Wanderers', 'Manchester City', 'West Ham United', 'Brighton and Hove Albion', 'Newcastle United', 'Sheffield United', 'Everton', 'Fulham', 'Brentford', 'Ipswich Town', '

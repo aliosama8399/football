@@ -1,0 +1,32 @@
+training:
+  max_seq_length: 1024        # Halved from 2048. Reduces VRAM usage & speeds up attention computation (~4x faster)
+  num_epochs: 1               # Changed from 0. 1 epoch is usually sufficient for ~1.4k samples + LoRA
+  learning_rate: 0.00005
+  batch_size: 2               # Per-device batch size. Safe for 4-6GB laptop GPUs
+  gradient_accumulation_steps: 4 # Keeps effective batch size at 8 for stable gradients
+  warmup_steps: 10            # Slightly increased for better early training stability
+  max_steps: -1               # Let num_epochs control training length cleanly
+  save_steps: 50              # Save less frequently to reduce I/O overhead
+  eval_steps: 0.5             # Evaluate every 50% of training instead of 10%
+  weight_decay: 0.001
+  random_seed: 3407
+  packing: true               # ⚡ Major speedup: removes padding overhead & packs sequences
+  train_on_completions: true
+  gradient_checkpointing: unsloth # Already optimal for laptop VRAM
+  optim: adamw_8bit           # Already optimal: halves optimizer memory
+  lr_scheduler_type: cosine
+
+lora:
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.02
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  use_rslora: false
+  use_loftq: false

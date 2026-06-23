@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football RAG - Tactical Cockpit</title>
+    <link rel="stylesheet" href="/ui/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body class="tech-theme">
+    <!-- Top HUD Header -->
+    <header class="hud-header">
+        <div class="hud-logo">
+            <span class="hud-icon">⚽</span>
+            <span class="hud-title">FOOTBALL <span class="accent-text">RAG</span></span>
+            <span class="hud-badge">V1.0-LIVE</span>
+        </div>
+        <div class="hud-status">
+            <span class="status-indicator online"></span>
+            <span id="connection-status">KG: POSTGRES | VECTOR: FAISS</span>
+        </div>
+        <div class="hud-auth" id="auth-section">
+            <span id="user-display">UNAUTHENTICATED</span>
+            <button id="quick-login-btn" class="tech-btn accent-border">QUICK LOGIN</button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="hud-container">
+        <!-- Sidebar Navigation -->
+        <nav class="hud-nav">
+            <button class="nav-item active" data-tab="predictions-tab">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">GNN PREDICT</span>
+            </button>
+            <button class="nav-item" data-tab="chat-tab">
+                <span class="nav-icon">💬</span>
+                <span class="nav-label">TACTICAL CHAT</span>
+            </button>
+            <button class="nav-item" data-tab="teams-tab">
+                <span class="nav-icon">🛡️</span>
+                <span class="nav-label">TEAM PROFILES</span>
+            </button>
+        </nav>
+
+        <!-- Dynamic Content Area -->
+        <section class="hud-main-panel">
+            <!-- TAB 1: Predictions -->
+            <div id="predictions-tab" class="tab-content active">
+                <div class="split-view">
+                    <!-- Left: Picker Form -->
+                    <div class="form-panel">
+                        <div class="panel-header">MATCH SANDBOX</div>
+                        <div class="panel-body">
+                            <div class="form-group">
+                                <label for="league-select">LEAGUE SELECT</label>
+                                <select id="league-select" class="tech-select">
+                                    <option value="Premier_League">Premier League (England)</option>
+                                    <option value="La_Liga">La Liga (Spain)</option>
+                                    <option value="Serie_A">Serie A (Italy)</option>
+                                    <option value="Bundesliga">Bundesliga (Germany)</option>
+                                    <option value="Ligue_1">Ligue 1 (France)</option>
+                                </select>
+                            </div>
+                            <div class="matchup-selector">
+                                <div class="form-group">
+                                    <label for="home-team-select">HOME TEAM</label>
+                                    <select id="home-team-select" class="tech-select"></select>
+                                </div>
+                                <div class="vs-divider">VS</div>
+                                <div class="form-group">
+                                    <label for="away-team-select">AWAY TEAM</label>
+                                    <select id="away-team-select" class="tech-select"></select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="match-date">MATCH DATE</label>
+                                <input type="date" id="match-date" class="tech-input" value="2026-06-23">
+                            </div>
+                            <button id="run-prediction-btn" class="tech-btn block-btn accent-fill">RUN HYBRID PREDICTION</button>
+                        </div>
+                    </div>
+
+                    <!-- Right: GNN Prediction Result -->
+                    <div class="result-panel">
+                        <div class="panel-header">PREDICTION FEED</div>
+                        <div class="panel-body" id="prediction-output-container">
+                            <div class="empty-state">
+                                <div class="empty-icon">📡</div>
+                                <div>AWAITING MATCH SELECTION</div>
+                                <div class="empty-desc">Select teams and run prediction to fetch live GNN + LLM analysis.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: Tactical Chat -->
+            <div id="chat-tab" class="tab-content">
+                <div class="chat-layout">
+                    <!-- Conversations Sidebar -->
+                    <div class="chat-sidebar">
+                        <button id="new-chat-btn" class="tech-btn block-btn accent-border">+ NEW THREAD</button>
+                        <div class="conversation-list" id="conv-list-container">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                    <!-- Active Chat Screen -->
+                    <div class="chat-screen">
+                        <div class="panel-header" id="active-chat-title">CHAT STREAM</div>
+                        <div class="chat-messages" id="chat-messages-container">
+                            <div class="empty-state">
+                                <div class="empty-icon">💬</div>
+                                <div>SELECT OR CREATE A TACTICAL THREAD</div>
+                            </div>
+                        </div>
+                        <div class="chat-input-area">
+                            <textarea id="chat-input" class="tech-textarea" placeholder="Ask about team tactics, comparisons, or match patterns... (e.g. 'How does Liverpool build up?')"></textarea>
+                            <button id="chat-send-btn" class="tech-btn accent-fill">SEND</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: Team Profiles -->
+            <div id="teams-tab" class="tab-content">
+                <div class="teams-layout">
+                    <div class="form-panel">
+                        <div class="panel-header">SELECT TEAM</div>
+                        <div class="panel-body">
+                            <div class="form-group">
+                                <label for="profile-league-select">LEAGUE</label>
+                                <select id="profile-league-select" class="tech-select">
+                                    <option value="Premier_League">Premier League</option>
+                                    <option value="La_Liga">La Liga</option>
+                                    <option value="Serie_A">Serie A</option>
+                                    <option value="Bundesliga">Bundesliga</option>
+                                    <option value="Ligue_1">Ligue 1</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-team-select">TEAM</label>
+                                <select id="profile-team-select" class="tech-select"></select>
+                            </div>
+                            <button id="load-profile-btn" class="tech-btn block-btn accent-fill">RETRIEVE PROFILE</button>
+                        </div>
+                    </div>
+                    <div class="result-panel" id="team-profile-container">
+                        <div class="panel-header">TACTICAL DOSSIER</div>
+                        <div class="panel-body">
+                            <div class="empty-state">
+                                <div class="empty-icon">🛡️</div>
+                                <div>SELECT A TEAM TO RETRIEVE DOSSIER</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+    <script src="/ui/app.js"></script>
+</body>
+</html>

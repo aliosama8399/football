@@ -14,6 +14,7 @@ import yaml
 import logging
 from pathlib import Path
 from typing import Optional
+from neo4j import GraphDatabase
 
 from rag.providers.base import BaseKGProvider
 
@@ -46,7 +47,6 @@ class Neo4jProvider(BaseKGProvider):
 
     # ── Connection ─────────────────────────────────────────────────────────
     def connect(self) -> None:
-        from neo4j import GraphDatabase
         self._driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
         logger.info("Neo4j connected → %s", self.uri)
 
@@ -192,8 +192,15 @@ class PostgreSQLProvider(BaseKGProvider):
         rows = self._query(
             """
             SELECT name, league, total_matches,
-                   avg_xg, avg_xga, avg_goals_home, avg_goals_away,
-                   attack_tactic, defense_tactic
+                   avg_goals_home, avg_goals_away,
+                   avg_xg, avg_xga,
+                   avg_shots, avg_shots_against,
+                   avg_sot, avg_sot_against,
+                   avg_corners, avg_fouls, avg_yellows,
+                   win_rate, draw_rate, loss_rate, clean_sheet_rate,
+                   attack_tactic, defense_tactic,
+                   attack_headline, defense_headline,
+                   strengths, weaknesses
             FROM teams
             WHERE name = %s
             """,
@@ -252,6 +259,37 @@ class PostgreSQLProvider(BaseKGProvider):
                 (home_team, away_team),
             )
         return rows[0] if rows else {}
+
+    def get_team_detailed_form(self, team_name: str, n: int = 5) -> list[dict]:
+        """
+        Return the last N matches for a team with all rolling-form columns.
+        Includes xG, xGA, shots, SOT, corners, fouls, yellows rolling averages.
+        """
+        return self._query(
+            """
+            SELECT date, home_team, away_team,
+                   home_goals, away_goals, result,
+                   home_xg, away_xg,
+                   home_shots, away_shots,
+                   home_sot, away_sot,
+                   home_corners, away_corners,
+                   home_form_5, away_form_5,
+                   home_gf_5, away_gf_5,
+                   home_ga_5, away_ga_5,
+                   home_xg_5, away_xg_5,
+                   home_xga_5, away_xga_5,
+                   home_shots_5, away_shots_5,
+                   home_sot_5, away_sot_5,
+                   home_corners_5, away_corners_5,
+                   home_yellows_5, away_yellows_5,
+                   league, season
+            FROM matches
+            WHERE home_team = %s OR away_team = %s
+            ORDER BY date DESC
+            LIMIT %s
+            """,
+            (team_name, team_name, n),
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -71,7 +71,7 @@ class FootballGraphBuilder:
         self.label_map = {'A': 0, 'D': 1, 'H': 2}
         self.class_names = ['A', 'D', 'H']
         
-        print(f"✓ Loaded {len(self.df)} matches, {self.num_teams} teams")
+        print(f"[OK] Loaded {len(self.df)} matches, {self.num_teams} teams")
     
     def _get_node_features(self, row, side='Home'):
         """Extract node features for a team from a match row."""
@@ -203,7 +203,7 @@ class FootballGraphBuilder:
             'num_tabular_features': len(self.TABULAR_FEATURES),
         }
         
-        print(f"\n✓ Graph built:")
+        print(f"\n[OK] Graph built:")
         print(f"  Nodes:            {self.num_teams}")
         print(f"  Total edges:      {edge_idx}")
         print(f"  Train edges:      {len(train_edge_indices)}")

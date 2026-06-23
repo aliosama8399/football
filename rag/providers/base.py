@@ -56,32 +56,110 @@ class BaseKGProvider(ABC):
 
     def format_team_context(self, team_name: str) -> str:
         """
-        High-level helper: returns a ready-to-inject text block with
-        team profile + recent form. Used by the RAG Orchestrator.
+        Rich multi-section context block for the RAG Orchestrator.
+        Includes all profile stats, tactical headlines, strengths/weaknesses,
+        and the last 5 matches with rolling-form detail where available.
         """
         profile = self.get_team_profile(team_name)
-        form    = self.get_recent_form(team_name, n=5)
 
-        lines = [f"=== {team_name} Profile ==="]
+        # Use detailed form if provider supports it, else fall back to simple form
+        if hasattr(self, "get_team_detailed_form"):
+            form = self.get_team_detailed_form(team_name, n=5)
+        else:
+            form = self.get_recent_form(team_name, n=5)
+
+        def _pct(v) -> str:
+            try:
+                return f"{float(v)*100:.1f}%"
+            except Exception:
+                return "N/A"
+
+        def _f(v, decimals=2) -> str:
+            try:
+                return f"{float(v):.{decimals}f}"
+            except Exception:
+                return "N/A"
+
+        lines = [f"=== {team_name} ==="]
+
         if profile:
-            lines.append(f"League          : {profile.get('league', 'N/A')}")
-            lines.append(f"Avg Goals (H)   : {profile.get('avg_goals_home', 'N/A'):.2f}")
-            lines.append(f"Avg Goals (A)   : {profile.get('avg_goals_away', 'N/A'):.2f}")
-            lines.append(f"Avg xG          : {profile.get('avg_xg', 'N/A'):.2f}")
-            lines.append(f"Avg xGA         : {profile.get('avg_xga', 'N/A'):.2f}")
-            lines.append(f"Total Matches   : {profile.get('total_matches', 'N/A')}")
-            if profile.get("attack_tactic"):
-                lines.append(f"\n[Attack Style]\n{profile['attack_tactic']}")
-            if profile.get("defense_tactic"):
-                lines.append(f"\n[Defense Style]\n{profile['defense_tactic']}")
+            # ── Overview ────────────────────────────────────────────────────
+            lines.append("\n[Overview]")
+            lines.append(f"  League         : {profile.get('league', 'N/A')}")
+            lines.append(f"  Total Matches  : {profile.get('total_matches', 'N/A')}")
+            lines.append(
+                f"  Record         : "
+                f"W {_pct(profile.get('win_rate'))}  "
+                f"D {_pct(profile.get('draw_rate'))}  "
+                f"L {_pct(profile.get('loss_rate'))}"
+            )
+            lines.append(f"  Clean Sheets   : {_pct(profile.get('clean_sheet_rate'))}")
 
+            # ── Attack ──────────────────────────────────────────────────────
+            lines.append("\n[Attack]")
+            lines.append(f"  Avg Goals  (Home/Away) : {_f(profile.get('avg_goals_home'))} / {_f(profile.get('avg_goals_away'))}")
+            lines.append(f"  Avg xG                 : {_f(profile.get('avg_xg'))}")
+            lines.append(f"  Avg Shots              : {_f(profile.get('avg_shots'))}")
+            lines.append(f"  Avg Shots on Target    : {_f(profile.get('avg_sot'))}")
+            lines.append(f"  Avg Corners            : {_f(profile.get('avg_corners'))}")
+            if profile.get("attack_headline"):
+                lines.append(f"  Summary  : {profile['attack_headline']}")
+            if profile.get("attack_tactic"):
+                lines.append(f"\n  [Attacking Style]\n  {profile['attack_tactic']}")
+
+            # ── Defense ─────────────────────────────────────────────────────
+            lines.append("\n[Defense]")
+            lines.append(f"  Avg xGA                : {_f(profile.get('avg_xga'))}")
+            lines.append(f"  Avg Shots Against      : {_f(profile.get('avg_shots_against'))}")
+            lines.append(f"  Avg SOT Against        : {_f(profile.get('avg_sot_against'))}")
+            lines.append(f"  Avg Fouls Committed    : {_f(profile.get('avg_fouls'))}")
+            lines.append(f"  Avg Yellows            : {_f(profile.get('avg_yellows'))}")
+            if profile.get("defense_headline"):
+                lines.append(f"  Summary  : {profile['defense_headline']}")
+            if profile.get("defense_tactic"):
+                lines.append(f"\n  [Defensive Style]\n  {profile['defense_tactic']}")
+
+            # ── Strengths ───────────────────────────────────────────────────
+            strengths = profile.get("strengths") or []
+            if strengths:
+                lines.append("\n[Strengths]")
+                for s in strengths:
+                    lines.append(f"  • {s}")
+
+            # ── Weaknesses ──────────────────────────────────────────────────
+            weaknesses = profile.get("weaknesses") or []
+            if weaknesses:
+                lines.append("\n[Weaknesses]")
+                for w in weaknesses:
+                    lines.append(f"  • {w}")
+
+        # ── Recent Form ─────────────────────────────────────────────────────
         if form:
-            lines.append("\n--- Last 5 Matches ---")
+            lines.append("\n[Last 5 Matches]")
             for m in form:
-                lines.append(
-                    f"  {m.get('date','?')} | {m.get('home_team','?')} {m.get('home_goals','?')}-"
-                    f"{m.get('away_goals','?')} {m.get('away_team','?')} [{m.get('result','?')}]"
+                is_home = m.get("home_team", "") == team_name
+                role    = "HOME" if is_home else "AWAY"
+                score   = f"{m.get('home_goals','?')}-{m.get('away_goals','?')}"
+                result  = m.get("result", "?")
+                opp     = m.get("away_team") if is_home else m.get("home_team")
+
+                # Rolling form values (if available from detailed form)
+                form_5  = m.get("home_form_5") if is_home else m.get("away_form_5")
+                xg_5    = m.get("home_xg_5")   if is_home else m.get("away_xg_5")
+                xga_5   = m.get("home_xga_5")  if is_home else m.get("away_xga_5")
+                shots_5 = m.get("home_shots_5") if is_home else m.get("away_shots_5")
+                sot_5   = m.get("home_sot_5")  if is_home else m.get("away_sot_5")
+
+                line = (
+                    f"  {m.get('date','?')} [{role}] vs {opp}  {score}  [{result}]"
+                    f"  | {m.get('league','?')}"
                 )
+                if form_5 is not None:
+                    line += (
+                        f"\n    Rolling-5 -> Form:{_f(form_5)}  xG:{_f(xg_5)}  "
+                        f"xGA:{_f(xga_5)}  Shots:{_f(shots_5)}  SOT:{_f(sot_5)}"
+                    )
+                lines.append(line)
 
         return "\n".join(lines)
 

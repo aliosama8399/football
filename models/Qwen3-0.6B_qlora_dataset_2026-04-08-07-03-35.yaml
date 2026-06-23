@@ -1,0 +1,31 @@
+training:
+  max_seq_length: 2048
+  num_epochs: 0
+  learning_rate: 0.00005
+  batch_size: 8
+  gradient_accumulation_steps: 1
+  warmup_steps: 5
+  max_steps: 100
+  save_steps: 30
+  eval_steps: 0.1
+  weight_decay: 0.001
+  random_seed: 3407
+  packing: false
+  train_on_completions: true
+  gradient_checkpointing: unsloth
+  optim: adamw_8bit
+  lr_scheduler_type: cosine
+lora:
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.02
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  use_rslora: false
+  use_loftq: false
