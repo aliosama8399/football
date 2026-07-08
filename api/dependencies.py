@@ -1,7 +1,7 @@
 import logging
 from typing import AsyncGenerator, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 
 from api.database import AsyncSessionLocal
 from api.graph_db import get_graph_db
@@ -56,6 +56,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         try:
             yield session
+        except HTTPException:
+            await session.rollback()
+            raise
         except Exception as e:
             await session.rollback()
             logger.error(f"Database session error, rolled back: {e}")

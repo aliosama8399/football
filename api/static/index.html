@@ -22,8 +22,8 @@
             <span id="connection-status">KG: POSTGRES | VECTOR: FAISS</span>
         </div>
         <div class="hud-auth" id="auth-section">
-            <span id="user-display">UNAUTHENTICATED</span>
-            <button id="quick-login-btn" class="tech-btn accent-border">QUICK LOGIN</button>
+            <span id="user-display" class="user-display-link" title="Account settings">UNAUTHENTICATED</span>
+            <button id="auth-btn" class="tech-btn accent-border">LOGIN / REGISTER</button>
         </div>
     </header>
 
@@ -42,6 +42,14 @@
             <button class="nav-item" data-tab="teams-tab">
                 <span class="nav-icon">🛡️</span>
                 <span class="nav-label">TEAM PROFILES</span>
+            </button>
+            <button class="nav-item" data-tab="contribute-tab">
+                <span class="nav-icon">📝</span>
+                <span class="nav-label">DATA CONTRIBUTE</span>
+            </button>
+            <button class="nav-item supervisor-only" data-tab="supervisor-tab" style="display: none;">
+                <span class="nav-icon">⚡</span>
+                <span class="nav-label">SUPERVISOR QUEUE</span>
             </button>
         </nav>
 
@@ -158,8 +166,250 @@
                     </div>
                 </div>
             </div>
+
+            <!-- TAB 4: Data Contribute -->
+            <div id="contribute-tab" class="tab-content">
+                <div class="contribute-layout">
+                    <!-- Section 1: Submit Match Record -->
+                    <div class="contribute-section">
+                        <div class="section-header" onclick="toggleSection(this)">▼ SUBMIT MATCH RECORD</div>
+                        <div class="section-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="match-league-select">LEAGUE</label>
+                                    <select id="match-league-select" class="tech-select">
+                                        <option value="Premier_League">Premier League</option>
+                                        <option value="La_Liga">La Liga</option>
+                                        <option value="Serie_A">Serie A</option>
+                                        <option value="Bundesliga">Bundesliga</option>
+                                        <option value="Ligue_1">Ligue 1</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="match-season">SEASON</label>
+                                    <input type="text" id="match-season" class="tech-input" placeholder="e.g. 2526" value="2526">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="match-home-team">HOME TEAM</label>
+                                    <select id="match-home-team" class="tech-select"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="match-away-team">AWAY TEAM</label>
+                                    <select id="match-away-team" class="tech-select"></select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="match-submit-date">MATCH DATE</label>
+                                <input type="date" id="match-submit-date" class="tech-input" value="2026-07-08">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="match-fthg">HOME GOALS</label>
+                                    <input type="number" id="match-fthg" class="tech-input" min="0" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="match-ftag">AWAY GOALS</label>
+                                    <input type="number" id="match-ftag" class="tech-input" min="0" value="0">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="match-hthg">HOME HT GOALS</label>
+                                    <input type="number" id="match-hthg" class="tech-input" min="0" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="match-htag">AWAY HT GOALS</label>
+                                    <input type="number" id="match-htag" class="tech-input" min="0" value="0">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="match-home-xg">HOME xG (opt)</label>
+                                    <input type="number" id="match-home-xg" class="tech-input" step="0.01" placeholder="optional">
+                                </div>
+                                <div class="form-group">
+                                    <label for="match-away-xg">AWAY xG (opt)</label>
+                                    <input type="number" id="match-away-xg" class="tech-input" step="0.01" placeholder="optional">
+                                </div>
+                            </div>
+                            <div class="stats-grid">
+                                <div class="stat-pair"><label>HS</label><input type="number" id="match-hs" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>AS</label><input type="number" id="match-as" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>HST</label><input type="number" id="match-hst" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>AST</label><input type="number" id="match-ast" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>HC</label><input type="number" id="match-hc" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>AC</label><input type="number" id="match-ac" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>HF</label><input type="number" id="match-hf" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>AF</label><input type="number" id="match-af" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>HY</label><input type="number" id="match-hy" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>AY</label><input type="number" id="match-ay" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>HR</label><input type="number" id="match-hr" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>AR</label><input type="number" id="match-ar" class="tech-input stat-input" min="0" value="0"></div>
+                            </div>
+                            <button id="submit-match-btn" class="tech-btn block-btn accent-fill">SUBMIT MATCH RECORD</button>
+                            <div id="match-submit-status" class="submit-status"></div>
+                        </div>
+                    </div>
+
+                    <!-- Section 2: Tactical Analysis -->
+                    <div class="contribute-section">
+                        <div class="section-header" onclick="toggleSection(this)">▼ WRITE TACTICAL ANALYSIS</div>
+                        <div class="section-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="tactical-home-team">HOME TEAM</label>
+                                    <select id="tactical-home-team" class="tech-select"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="tactical-away-team">AWAY TEAM</label>
+                                    <select id="tactical-away-team" class="tech-select"></select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="tactical-match-date">MATCH DATE</label>
+                                <input type="date" id="tactical-match-date" class="tech-input" value="2026-07-08">
+                            </div>
+                            <div class="form-group">
+                                <label for="tactical-analysis-text">TACTICAL WRITEUP</label>
+                                <textarea id="tactical-analysis-text" class="tech-textarea" rows="8" placeholder="Describe tactical patterns, formations, key moments, player roles... (min 20 chars)"></textarea>
+                            </div>
+                            <button id="submit-tactical-btn" class="tech-btn block-btn accent-fill">SUBMIT ANALYSIS</button>
+                            <div id="tactical-submit-status" class="submit-status"></div>
+                        </div>
+                    </div>
+
+                    <!-- Section 3: Edit Team Profile -->
+                    <div class="contribute-section">
+                        <div class="section-header" onclick="toggleSection(this)">▼ EDIT TEAM PROFILE</div>
+                        <div class="section-body">
+                            <div class="form-group">
+                                <label for="profile-edit-team">TEAM</label>
+                                <select id="profile-edit-team" class="tech-select"></select>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-attack-tactic">ATTACK TACTIC</label>
+                                <textarea id="profile-attack-tactic" class="tech-textarea" rows="3" placeholder="Describe attacking style..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-defense-tactic">DEFENSE TACTIC</label>
+                                <textarea id="profile-defense-tactic" class="tech-textarea" rows="3" placeholder="Describe defensive approach..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-attack-headline">ATTACK HEADLINE</label>
+                                <input type="text" id="profile-attack-headline" class="tech-input" placeholder="One-liner summary of attack">
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-defense-headline">DEFENSE HEADLINE</label>
+                                <input type="text" id="profile-defense-headline" class="tech-input" placeholder="One-liner summary of defense">
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-strengths">STRENGTHS (one per line)</label>
+                                <textarea id="profile-strengths" class="tech-textarea" rows="3" placeholder="High pressing efficiency&#10;Creative midfield build-up&#10;Set-piece threat"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="profile-weaknesses">WEAKNESSES (one per line)</label>
+                                <textarea id="profile-weaknesses" class="tech-textarea" rows="3" placeholder="Transition vulnerability&#10;Aerial duel weakness&#10;Wide defensive gaps"></textarea>
+                            </div>
+                            <button id="submit-profile-btn" class="tech-btn block-btn accent-fill">SUBMIT PROFILE EDIT</button>
+                            <div id="profile-submit-status" class="submit-status"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 5: Supervisor Queue (visible only to supervisors) -->
+            <div id="supervisor-tab" class="tab-content">
+                <div class="supervisor-layout">
+                    <div class="queue-header">
+                        <span id="queue-title">PENDING REVIEW QUEUE</span>
+                        <span id="queue-count" class="queue-badge">0 ITEMS</span>
+                    </div>
+                    <div class="queue-items" id="queue-container">
+                        <div class="empty-state">
+                            <div class="empty-icon">⚡</div>
+                            <div>NO PENDING SUBMISSIONS</div>
+                            <div class="empty-desc">All user submissions have been reviewed.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </section>
     </main>
+
+    <!-- Auth Modal Overlay -->
+    <div id="auth-modal" class="modal-overlay" style="display: none;">
+        <div class="tech-modal">
+            <div class="modal-header">
+                <span id="modal-title">ACCESS PORTAL</span>
+                <button id="close-modal-btn" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Toggle Tabs -->
+                <div class="modal-tabs">
+                    <button id="tab-login" class="modal-tab active">LOGIN</button>
+                    <button id="tab-register" class="modal-tab">REGISTER</button>
+                    <button id="tab-change-password" class="modal-tab" style="display: none;">CHANGE PASS</button>
+                </div>
+
+                <!-- Login Form -->
+                <form id="login-form" class="auth-form active">
+                    <div class="form-group">
+                        <label for="login-username">USERNAME OR EMAIL</label>
+                        <input type="text" id="login-username" class="tech-input" required autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">PASSWORD</label>
+                        <input type="password" id="login-password" class="tech-input" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="tech-btn block-btn accent-fill">AUTHENTICATE</button>
+                </form>
+
+                <!-- Register Form -->
+                <form id="register-form" class="auth-form" style="display: none;">
+                    <div class="form-group">
+                        <label for="reg-username">USERNAME</label>
+                        <input type="text" id="reg-username" class="tech-input" required autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-email">EMAIL ADDRESS</label>
+                        <input type="email" id="reg-email" class="tech-input" required autocomplete="email">
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-password">PASSWORD</label>
+                        <input type="password" id="reg-password" class="tech-input" required autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                        <label for="reg-role">SECURITY ROLE</label>
+                        <select id="reg-role" class="tech-select">
+                            <option value="user">USER (Standard Access)</option>
+                            <option value="supervisor">SUPERVISOR (Admin Override Access)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="tech-btn block-btn accent-fill">CREATE ACCOUNT</button>
+                </form>
+
+                <!-- Change Password Form -->
+                <form id="change-password-form" class="auth-form" style="display: none;">
+                    <div class="form-group">
+                        <label for="current-password">CURRENT PASSWORD</label>
+                        <input type="password" id="current-password" class="tech-input" required autocomplete="current-password">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-password">NEW PASSWORD</label>
+                        <input type="password" id="new-password" class="tech-input" required minlength="6" autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                        <label for="confirm-password">CONFIRM NEW PASSWORD</label>
+                        <input type="password" id="confirm-password" class="tech-input" required minlength="6" autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="tech-btn block-btn accent-fill">UPDATE PASSWORD</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script src="/ui/app.js"></script>
 </body>
 </html>

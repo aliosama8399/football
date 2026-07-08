@@ -14,10 +14,11 @@ let activeConversationId = null;
 
 // On startup
 document.addEventListener('DOMContentLoaded', () => {
-    initTabNavigation();
-    checkAuthStatus();
-    loadLeagueTeams(selectedLeague);
-    setupEventListeners();
+    try { initTabNavigation(); } catch(e) { console.error('initTabNavigation failed:', e); }
+    try { checkAuthStatus(); } catch(e) { console.error('checkAuthStatus failed:', e); }
+    try { loadLeagueTeams(selectedLeague); } catch(e) { console.error('loadLeagueTeams failed:', e); }
+    try { setupEventListeners(); } catch(e) { console.error('setupEventListeners failed:', e); }
+    console.log('DOMContentLoaded: all init functions attempted');
 });
 
 // Navigation handlers
@@ -36,15 +37,29 @@ function initTabNavigation() {
             if (currentTab === 'chat-tab') {
                 loadConversations();
             }
+            if (currentTab === 'contribute-tab') {
+                const contributeLeague = document.getElementById('match-league-select').value;
+                loadContributeTeams(contributeLeague);
+            }
+            if (currentTab === 'supervisor-tab') {
+                fetchSupervisorQueue();
+            }
         });
     });
 }
 
 // Authentication & Token management
 async function checkAuthStatus() {
-    const authSection = document.getElementById('auth-section');
     const userDisplay = document.getElementById('user-display');
-    const quickLoginBtn = document.getElementById('quick-login-btn');
+    const authBtn = document.getElementById('auth-btn');
+    const supervisorEls = document.querySelectorAll('.supervisor-only');
+    
+    const hideSupervisorElements = () => {
+        supervisorEls.forEach(el => { el.style.display = 'none'; });
+    };
+    const showSupervisorElements = () => {
+        supervisorEls.forEach(el => { el.style.display = ''; });
+    };
     
     if (token) {
         try {
@@ -54,9 +69,16 @@ async function checkAuthStatus() {
             if (res.ok) {
                 const user = await res.json();
                 userDisplay.textContent = `USER: ${user.username.toUpperCase()} (${user.role.toUpperCase()})`;
-                quickLoginBtn.textContent = 'LOGOUT';
-                quickLoginBtn.classList.remove('accent-border');
-                quickLoginBtn.classList.add('muted-btn');
+                userDisplay.classList.add('user-display-link');
+                authBtn.textContent = 'LOGOUT';
+                authBtn.classList.remove('accent-border');
+                authBtn.classList.add('muted-btn');
+                updateAuthModalTabs(true);
+                if (user.role === 'supervisor') {
+                    showSupervisorElements();
+                } else {
+                    hideSupervisorElements();
+                }
                 return;
             }
         } catch (e) {
@@ -68,27 +90,69 @@ async function checkAuthStatus() {
     localStorage.removeItem('access_token');
     token = null;
     userDisplay.textContent = 'UNAUTHENTICATED';
-    quickLoginBtn.textContent = 'QUICK LOGIN';
-    quickLoginBtn.classList.remove('muted-btn');
-    quickLoginBtn.classList.add('accent-border');
+    userDisplay.classList.remove('user-display-link');
+    authBtn.textContent = 'LOGIN / REGISTER';
+    authBtn.classList.remove('muted-btn');
+    authBtn.classList.add('accent-border');
+    updateAuthModalTabs(false);
+    hideSupervisorElements();
 }
 
-async function performQuickLogin() {
-    const quickLoginBtn = document.getElementById('quick-login-btn');
+function updateAuthModalTabs(isAuthenticated) {
+    const tabLogin = document.getElementById('tab-login');
+    const tabRegister = document.getElementById('tab-register');
+    const tabChangePassword = document.getElementById('tab-change-password');
+
+    tabLogin.style.display = isAuthenticated ? 'none' : '';
+    tabRegister.style.display = isAuthenticated ? 'none' : '';
+    tabChangePassword.style.display = isAuthenticated ? '' : 'none';
+}
+
+function showAuthModal(defaultTab = null) {
+    document.getElementById('auth-modal').style.display = 'flex';
     if (token) {
-        // Logout action
-        localStorage.removeItem('access_token');
-        token = null;
-        checkAuthStatus();
-        return;
+        switchAuthTab('changepass');
+    } else {
+        switchAuthTab(defaultTab || 'login');
     }
+}
+
+function hideAuthModal() {
+    document.getElementById('auth-modal').style.display = 'none';
+    document.getElementById('login-form').reset();
+    document.getElementById('register-form').reset();
+    document.getElementById('change-password-form').reset();
+}
+
+function switchAuthTab(tab) {
+    const tabLogin = document.getElementById('tab-login');
+    const tabRegister = document.getElementById('tab-register');
+    const tabChangePassword = document.getElementById('tab-change-password');
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const changePasswordForm = document.getElementById('change-password-form');
+
+    const tabs = { login: tabLogin, register: tabRegister, changepass: tabChangePassword };
+    const forms = { login: loginForm, register: registerForm, changepass: changePasswordForm };
+
+    Object.entries(tabs).forEach(([name, el]) => {
+        el.classList.toggle('active', name === tab);
+    });
+    Object.entries(forms).forEach(([name, el]) => {
+        const isActive = name === tab;
+        el.classList.toggle('active', isActive);
+        el.style.display = isActive ? 'block' : 'none';
+    });
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    const usernameInput = document.getElementById('login-username').value;
+    const passwordInput = document.getElementById('login-password').value;
     
-    quickLoginBtn.textContent = 'AUTHENTICATING...';
-    
-    // Call OAuth2 standard form-data login with default credentials
     const formData = new URLSearchParams();
-    formData.append('username', 'admin');
-    formData.append('password', 'AdminPass123!');
+    formData.append('username', usernameInput);
+    formData.append('password', passwordInput);
     
     try {
         const res = await fetch(`${API_BASE}/auth/login`, {
@@ -102,15 +166,82 @@ async function performQuickLogin() {
             token = data.access_token;
             localStorage.setItem('access_token', token);
             await checkAuthStatus();
+            hideAuthModal();
             // Reload context
             loadLeagueTeams(selectedLeague);
         } else {
-            alert('Failed to authenticate with default supervisor credentials.');
-            quickLoginBtn.textContent = 'QUICK LOGIN';
+            const err = await res.json();
+            alert(`Authentication failed: ${err.detail || 'Invalid credentials'}`);
         }
     } catch (e) {
         console.error(e);
-        quickLoginBtn.textContent = 'QUICK LOGIN';
+        alert('Error contacting authentication server.');
+    }
+}
+
+async function handleRegister(e) {
+    e.preventDefault();
+    const username = document.getElementById('reg-username').value;
+    const email = document.getElementById('reg-email').value;
+    const password = document.getElementById('reg-password').value;
+    const role = document.getElementById('reg-role').value;
+    
+    try {
+        const res = await fetch(`${API_BASE}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password, role })
+        });
+        
+        if (res.ok) {
+            alert('Registration successful! Please log in.');
+            switchAuthTab('login');
+            // Auto-fill login username
+            document.getElementById('login-username').value = username;
+        } else {
+            const err = await res.json();
+            alert(`Registration failed: ${err.detail || 'Unknown error'}`);
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Error contacting server during registration.');
+    }
+}
+
+async function handleChangePassword(e) {
+    e.preventDefault();
+    const currentPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+
+    if (newPassword !== confirmPassword) {
+        alert('New password and confirmation do not match.');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/auth/change-password`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword
+            })
+        });
+
+        if (res.ok) {
+            alert('Password updated successfully.');
+            hideAuthModal();
+        } else {
+            const err = await res.json();
+            alert(`Password change failed: ${err.detail || 'Unknown error'}`);
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Error contacting authentication server.');
     }
 }
 
@@ -172,8 +303,46 @@ function populateTeamSelects(teams) {
 
 // setup Event Listeners
 function setupEventListeners() {
-    // Quick login button
-    document.getElementById('quick-login-btn').addEventListener('click', performQuickLogin);
+    // Auth button click (login/register overlay or logout)
+    document.getElementById('auth-btn').addEventListener('click', () => {
+        if (token) {
+            // Logout action
+            localStorage.removeItem('access_token');
+            token = null;
+            checkAuthStatus();
+            // Reload context
+            loadLeagueTeams(selectedLeague);
+        } else {
+            showAuthModal();
+        }
+    });
+
+    // Open account modal (change password tab) when logged in
+    document.getElementById('user-display').addEventListener('click', () => {
+        if (token) {
+            showAuthModal('changepass');
+        }
+    });
+
+    // Close auth modal
+    document.getElementById('close-modal-btn').addEventListener('click', hideAuthModal);
+    
+    // Close modal on background click
+    document.getElementById('auth-modal').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('auth-modal')) {
+            hideAuthModal();
+        }
+    });
+
+    // Switch tabs
+    document.getElementById('tab-login').addEventListener('click', () => switchAuthTab('login'));
+    document.getElementById('tab-register').addEventListener('click', () => switchAuthTab('register'));
+    document.getElementById('tab-change-password').addEventListener('click', () => switchAuthTab('changepass'));
+
+    // Forms
+    document.getElementById('login-form').addEventListener('submit', handleLogin);
+    document.getElementById('register-form').addEventListener('submit', handleRegister);
+    document.getElementById('change-password-form').addEventListener('submit', handleChangePassword);
     
     // League picker in sandbox
     document.getElementById('league-select').addEventListener('change', (e) => {
@@ -216,6 +385,20 @@ function setupEventListeners() {
     
     // Retrieve profile button
     document.getElementById('load-profile-btn').addEventListener('click', loadTeamProfile);
+    
+    // Contribute tab: league change → reload team selects
+    document.getElementById('match-league-select').addEventListener('change', async (e) => {
+        loadContributeTeams(e.target.value);
+    });
+    
+    // Submit match record
+    document.getElementById('submit-match-btn').addEventListener('click', submitMatchRecord);
+    
+    // Submit tactical analysis
+    document.getElementById('submit-tactical-btn').addEventListener('click', submitTacticalAnalysis);
+    
+    // Submit team profile edit
+    document.getElementById('submit-profile-btn').addEventListener('click', submitTeamProfileEdit);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -265,12 +448,25 @@ async function runMatchPrediction() {
         
         // Formulate probability predictions: Mock outcome probabilities since actual backend might have different outputs
         // Typically GNN outputs a prediction result like H, D, or A.
-        const verdict = data.predicted_result === 'H' ? 'HOME WIN' : (data.predicted_result === 'A' ? 'AWAY WIN' : 'DRAW');
+        const rawRes = data.predicted_result;
+        const verdict = (rawRes === 'H' || rawRes === 'Home Win') ? 'HOME WIN' : ((rawRes === 'A' || rawRes === 'Away Win') ? 'AWAY WIN' : 'DRAW');
         
+        // Dynamically compute confidence rating based on highest probability
+        let maxProb = 0;
+        if (data.probabilities) {
+            maxProb = Math.max(data.probabilities.H || 0, data.probabilities.D || 0, data.probabilities.A || 0);
+        }
+        let confidenceRating = "Medium";
+        if (maxProb >= 0.60) {
+            confidenceRating = "High";
+        } else if (maxProb < 0.45) {
+            confidenceRating = "Low";
+        }
+
         // Parse the LLM response if it is structured JSON
         let analysis = {
             prediction_verdict: data.tactical_analysis,
-            confidence_rating: "Medium",
+            confidence_rating: confidenceRating,
             home_team_analysis: { strengths: ["Form continuity", "Expected tactical alignment"], weaknesses: ["Transition vulnerability"] },
             away_team_analysis: { strengths: ["High press efficiency", "Set piece delivery"], weaknesses: ["Defensive depth control"] },
             tactical_matchup_summary: data.tactical_analysis
@@ -286,6 +482,11 @@ async function runMatchPrediction() {
             // Keep original plain text if it failed to parse
         }
         
+        const probs = data.probabilities || { H: 0.33, D: 0.34, A: 0.33 };
+        const homePct = Math.round(probs.H * 100) + '%';
+        const drawPct = Math.round(probs.D * 100) + '%';
+        const awayPct = Math.round(probs.A * 100) + '%';
+        
         // Render Result UI
         container.innerHTML = `
             <div class="pred-header-card">
@@ -297,23 +498,23 @@ async function runMatchPrediction() {
                     <div class="prob-row">
                         <span class="prob-label">HOME</span>
                         <div class="prob-bar-wrapper">
-                            <div class="prob-bar-fill" style="width: ${data.predicted_result === 'H' ? '65%' : '15%'}"></div>
+                            <div class="prob-bar-fill" style="width: ${homePct}"></div>
                         </div>
-                        <span class="prob-val">${data.predicted_result === 'H' ? '65%' : '15%'}</span>
+                        <span class="prob-val">${homePct}</span>
                     </div>
                     <div class="prob-row">
                         <span class="prob-label">DRAW</span>
                         <div class="prob-bar-wrapper">
-                            <div class="prob-bar-fill" style="width: ${data.predicted_result === 'D' ? '60%' : '20%'}"></div>
+                            <div class="prob-bar-fill" style="width: ${drawPct}"></div>
                         </div>
-                        <span class="prob-val">${data.predicted_result === 'D' ? '60%' : '20%'}</span>
+                        <span class="prob-val">${drawPct}</span>
                     </div>
                     <div class="prob-row">
                         <span class="prob-label">AWAY</span>
                         <div class="prob-bar-wrapper">
-                            <div class="prob-bar-fill" style="width: ${data.predicted_result === 'A' ? '65%' : '15%'}"></div>
+                            <div class="prob-bar-fill" style="width: ${awayPct}"></div>
                         </div>
-                        <span class="prob-val">${data.predicted_result === 'A' ? '65%' : '15%'}</span>
+                        <span class="prob-val">${awayPct}</span>
                     </div>
                 </div>
             </div>
@@ -483,9 +684,59 @@ async function createNewConversation() {
 
 async function sendChatMessage() {
     const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send-btn');
     const content = input.value.trim();
-    if (!content || !activeConversationId) return;
+    if (!content) return;
     
+    if (!token) {
+        alert("Please login first to use the Tactical Chat.");
+        showAuthModal();
+        return;
+    }
+    
+    // Disable inputs immediately so user knows it is loading and can't double-submit
+    input.disabled = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = '...';
+    
+    // If no active thread, automatically initialize a new conversation first
+    if (!activeConversationId) {
+        const title = content.length > 25 ? content.substring(0, 25) + "..." : content;
+        try {
+            const res = await fetch(`${API_BASE}/chat/conversations`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    title: title,
+                    mode: 'general'
+                })
+            });
+            if (res.ok) {
+                const newConv = await res.json();
+                activeConversationId = newConv.id;
+                await loadConversations();
+                selectConversation(newConv.id);
+            } else {
+                alert("Failed to initialize a new conversation thread.");
+                input.disabled = false;
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'SEND';
+                return;
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error creating conversation thread.");
+            input.disabled = false;
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'SEND';
+            return;
+        }
+    }
+    
+    // Clear input
     input.value = '';
     
     // Add user message to UI immediately for feedback
@@ -496,10 +747,10 @@ async function sendChatMessage() {
     messagesContainer.appendChild(userDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     
-    // Add temporary loading indicator
+    // Add temporary pulsing typing indicator
     const loaderDiv = document.createElement('div');
-    loaderDiv.className = 'chat-msg assistant';
-    loaderDiv.innerHTML = '<span class="accent-text">Analyzing database and streaming response...</span>';
+    loaderDiv.className = 'chat-msg assistant typing-indicator';
+    loaderDiv.innerHTML = '<span></span><span></span><span></span>';
     messagesContainer.appendChild(loaderDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     
@@ -514,15 +765,25 @@ async function sendChatMessage() {
         });
         if (res.ok) {
             const data = await res.json();
-            // Remove loader and insert actual response
+            // Remove typing indicator class and insert actual response text
+            loaderDiv.classList.remove('typing-indicator');
             loaderDiv.textContent = data.content;
         } else {
+            loaderDiv.classList.remove('typing-indicator');
             loaderDiv.textContent = "[Error: Failed to fetch response]";
         }
     } catch (e) {
         console.error(e);
+        loaderDiv.classList.remove('typing-indicator');
         loaderDiv.textContent = `[Error: ${e.message}]`;
     }
+    
+    // Re-enable inputs
+    input.disabled = false;
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'SEND';
+    input.focus();
+    
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
@@ -650,5 +911,270 @@ async function loadTeamProfile() {
                 </div>
             </div>
         `;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contribute Tab — Submission Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+function toggleSection(headerEl) {
+    const body = headerEl.nextElementSibling;
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    headerEl.textContent = (isOpen ? '▶' : '▼') + ' ' + headerEl.textContent.substring(2);
+}
+
+async function loadContributeTeams(league) {
+    const selects = [
+        'match-home-team', 'match-away-team',
+        'tactical-home-team', 'tactical-away-team',
+        'profile-edit-team'
+    ];
+    const query = `query GetTeams($league: String!) { leagueTeams(league: $league) }`;
+    const data = await graphqlQuery(query, { league });
+    const teams = data ? data.leagueTeams : [];
+    selects.forEach(sid => {
+        const sel = document.getElementById(sid);
+        if (!sel) return;
+        sel.innerHTML = '';
+        teams.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t.replace(/_/g, ' ');
+            sel.appendChild(opt);
+        });
+    });
+}
+
+async function submitMatchRecord() {
+    console.log('submitMatchRecord CALLED');
+    if (!token) {
+        console.log('No token — showing auth modal');
+        alert("Login required.");
+        showAuthModal();
+        return;
+    }
+    const statusEl = document.getElementById('match-submit-status');
+    const btn = document.getElementById('submit-match-btn');
+    if (!statusEl) { console.error('match-submit-status element NOT FOUND'); return; }
+    if (!btn) { console.error('submit-match-btn NOT FOUND'); return; }
+    btn.disabled = true;
+    btn.textContent = 'SUBMITTING...';
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = '<div style="color:#0096ff;padding:8px;border:1px solid #0096ff">⏳ Processing...</div>';
+    const get = id => { const el = document.getElementById(id); if(!el){console.error('Missing element:',id);return '';} return el.value; };
+    const getInt = id => { const el = document.getElementById(id); if(!el){return 0;} const v = parseInt(el.value); return isNaN(v) ? 0 : v; };
+    const getFloat = id => { const v = get(id); return v ? parseFloat(v) : null; };
+    const payload = {
+        home_team: get('match-home-team'), away_team: get('match-away-team'),
+        match_date: get('match-submit-date'),
+        league: get('match-league-select'), season: get('match-season'),
+        home_goals: getInt('match-fthg'), away_goals: getInt('match-ftag'),
+        home_ht_goals: getInt('match-hthg'), away_ht_goals: getInt('match-htag'),
+        home_xg: getFloat('match-home-xg'), away_xg: getFloat('match-away-xg'),
+        home_shots: getInt('match-hs'), away_shots: getInt('match-as'),
+        home_sot: getInt('match-hst'), away_sot: getInt('match-ast'),
+        home_corners: getInt('match-hc'), away_corners: getInt('match-ac'),
+        home_fouls: getInt('match-hf'), away_fouls: getInt('match-af'),
+        home_yellows: getInt('match-hy'), away_yellows: getInt('match-ay'),
+        home_reds: getInt('match-hr'), away_reds: getInt('match-ar'),
+    };
+    console.log('Submitting payload:', payload);
+    try {
+        const res = await fetch(`${API_BASE}/submissions/match`, {
+            method: 'POST', headers: {'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+            body: JSON.stringify(payload)
+        });
+        console.log('Response status:', res.status);
+        if (res.ok) {
+            const data = await res.json();
+            console.log('Success data:', data);
+            statusEl.innerHTML = `<div class="status-banner success">✓ MATCH RECORD SUBMITTED — PENDING ADMIN REVIEW<br><small>ID #${data.id} | ${data.home_team} vs ${data.away_team} | ${data.match_date}</small></div>`;
+        } else {
+            const text = await res.text();
+            console.error('Error response:', text);
+            let errMsg = text.substring(0, 200);
+            try { const err = JSON.parse(text); errMsg = err.detail || errMsg; } catch (_) {}
+            statusEl.innerHTML = `<div class="status-banner error">✗ ${errMsg}</div>`;
+        }
+    } catch(e) {
+        console.error('Network error:', e);
+        statusEl.innerHTML = `<div class="status-banner error">✗ Network error: ${e.message}</div>`;
+    }
+    btn.disabled = false;
+    btn.textContent = 'SUBMIT MATCH RECORD';
+}
+
+async function submitTacticalAnalysis() {
+    if (!token) { alert("Login required."); showAuthModal(); return; }
+    const get = id => document.getElementById(id).value;
+    const analysisText = get('tactical-analysis-text');
+    const statusEl = document.getElementById('tactical-submit-status');
+    const btn = document.getElementById('submit-tactical-btn');
+    if (analysisText.length < 20) {
+        statusEl.innerHTML = '<div class="status-banner error">✗ Analysis must be at least 20 characters</div>';
+        return;
+    }
+    const payload = {
+        home_team: get('tactical-home-team'), away_team: get('tactical-away-team'),
+        match_date: get('tactical-match-date'), analysis_text: analysisText
+    };
+    btn.disabled = true; btn.textContent = 'SUBMITTING...';
+    statusEl.innerHTML = '<span style="color:#0096ff">⏳ Processing...</span>';
+    try {
+        const res = await fetch(`${API_BASE}/submissions/tactical-analysis`, {
+            method: 'POST', headers: {'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            statusEl.innerHTML = `<div class="status-banner success">✓ TACTICAL ANALYSIS SUBMITTED — PENDING ADMIN REVIEW<br><small>ID #${data.id} | ${data.home_team} vs ${data.away_team}</small></div>`;
+        } else {
+            let errMsg = 'Submission failed';
+            try { const err = await res.json(); errMsg = err.detail || errMsg; } catch (_) {}
+            statusEl.innerHTML = `<div class="status-banner error">✗ ${errMsg}</div>`;
+        }
+    } catch(e) { statusEl.innerHTML = `<div class="status-banner error">✗ Network error: ${e.message}</div>`; }
+    btn.disabled = false; btn.textContent = 'SUBMIT ANALYSIS';
+}
+
+async function submitTeamProfileEdit() {
+    if (!token) { alert("Login required."); showAuthModal(); return; }
+    const get = id => document.getElementById(id).value || null;
+    const payload = {
+        team_name: get('profile-edit-team'),
+        suggested_attack_tactic: get('profile-attack-tactic'),
+        suggested_defense_tactic: get('profile-defense-tactic'),
+        suggested_attack_headline: get('profile-attack-headline'),
+        suggested_defense_headline: get('profile-defense-headline'),
+        suggested_strengths: get('profile-strengths'),
+        suggested_weaknesses: get('profile-weaknesses'),
+    };
+    const hasField = (payload.suggested_attack_tactic || payload.suggested_defense_tactic
+        || payload.suggested_attack_headline || payload.suggested_defense_headline
+        || payload.suggested_strengths || payload.suggested_weaknesses);
+    if (!hasField) {
+        document.getElementById('profile-submit-status').innerHTML = '<div class="status-banner error">✗ Fill at least one tactical field</div>';
+        return;
+    }
+    const statusEl = document.getElementById('profile-submit-status');
+    const btn = document.getElementById('submit-profile-btn');
+    btn.disabled = true; btn.textContent = 'SUBMITTING...';
+    statusEl.innerHTML = '<span style="color:#0096ff">⏳ Processing...</span>';
+    try {
+        const res = await fetch(`${API_BASE}/submissions/team-profile`, {
+            method: 'POST', headers: {'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            statusEl.innerHTML = `<div class="status-banner success">✓ TEAM PROFILE EDIT SUBMITTED — PENDING ADMIN REVIEW<br><small>ID #${data.id} | Team: ${data.team_name}</small></div>`;
+        } else {
+            let errMsg = 'Submission failed';
+            try { const err = await res.json(); errMsg = err.detail || errMsg; } catch (_) {}
+            statusEl.innerHTML = `<div class="status-banner error">✗ ${errMsg}</div>`;
+        }
+    } catch(e) { statusEl.innerHTML = `<div class="status-banner error">✗ Network error: ${e.message}</div>`; }
+    btn.disabled = false; btn.textContent = 'SUBMIT PROFILE EDIT';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Supervisor Queue
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function fetchSupervisorQueue() {
+    if (!token) return;
+    const container = document.getElementById('queue-container');
+    const countEl = document.getElementById('queue-count');
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div>LOADING QUEUE...</div></div>';
+    try {
+        const res = await fetch(`${API_BASE}/supervisor/submissions`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) {
+            const errText = await res.text();
+            const msg = res.status === 403 ? 'PERMISSION DENIED — Supervisor role required'
+                       : res.status === 401 ? 'SESSION EXPIRED — Please login again'
+                       : `SERVER ERROR ${res.status}: ${errText.substring(0, 100)}`;
+            container.innerHTML = `<div class="empty-state" style="color:#ff3333"><div class="empty-icon">❌</div><div>${msg}</div></div>`;
+            return;
+        }
+        const items = await res.json();
+        countEl.textContent = `${items.length} ITEM${items.length !== 1 ? 'S' : ''}`;
+        if (items.length === 0) {
+            container.innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div><div>NO PENDING SUBMISSIONS</div><div class="empty-desc">All user submissions have been reviewed.</div></div>';
+            return;
+        }
+        renderQueueCards(items);
+    } catch(e) { container.innerHTML = `<div class="empty-state" style="color:#ff3333"><div class="empty-icon">❌</div><div>ERROR</div><div class="empty-desc">${e.message}</div></div>`; }
+}
+
+function renderQueueCards(items) {
+    const container = document.getElementById('queue-container');
+    container.innerHTML = '';
+    items.forEach(item => {
+        const typeLabel = item.type === 'match_submission' ? 'MATCH RECORD'
+            : item.type === 'tactical_analysis' ? 'TACTICAL ANALYSIS' : 'TEAM PROFILE';
+        const typeClass = item.type === 'match_submission' ? 'match'
+            : item.type === 'tactical_analysis' ? 'tactical' : 'profile';
+        const detailsHtml = Object.entries(item.details || {}).filter(([,v]) => v != null).map(([k,v]) => `<div class="detail-row"><span class="detail-key">${k.replace(/_/g,' ').toUpperCase()}</span><span class="detail-val">${String(v).substring(0,120)}</span></div>`).join('');
+
+        const card = document.createElement('div');
+        card.className = 'queue-card';
+        card.id = `queue-card-${item.id}`;
+        card.innerHTML = `
+            <div class="card-header">
+                <span class="type-badge ${typeClass}">${typeLabel}</span>
+                <span class="card-summary">${item.summary}</span>
+                <span class="card-by">by <b>${item.username}</b></span>
+            </div>
+            <div class="card-details">${detailsHtml}</div>
+            <div class="review-actions">
+                <textarea class="tech-textarea admin-notes" placeholder="Admin notes (optional)..." rows="2"></textarea>
+                <div class="review-btns">
+                    <button class="tech-btn approve-btn" data-id="${item.id}" data-type="${item.type}">✓ APPROVE</button>
+                    <button class="tech-btn reject-btn" data-id="${item.id}" data-type="${item.type}">✗ REJECT</button>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+
+        card.querySelector('.approve-btn').addEventListener('click', () => handleReview(item.id, item.type, 'approved', card));
+        card.querySelector('.reject-btn').addEventListener('click', () => handleReview(item.id, item.type, 'rejected', card));
+    });
+}
+
+async function handleReview(submissionId, submissionType, status, cardEl) {
+    const notesTa = cardEl.querySelector('.admin-notes');
+    const adminNotes = notesTa ? notesTa.value || null : null;
+    try {
+        const res = await fetch(`${API_BASE}/supervisor/submissions/${submissionId}/review?type=${submissionType}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ status, admin_notes: adminNotes })
+        });
+        if (res.ok) {
+            cardEl.style.opacity = '0';
+            setTimeout(() => {
+                cardEl.remove();
+                const remaining = document.querySelectorAll('.queue-card').length;
+                document.getElementById('queue-count').textContent = `${remaining} ITEM${remaining !== 1 ? 'S' : ''}`;
+                if (remaining === 0) {
+                    document.getElementById('queue-container').innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div><div>NO PENDING SUBMISSIONS</div><div class="empty-desc">All user submissions have been reviewed.</div></div>';
+                }
+            }, 300);
+        } else {
+            const err = await res.json();
+            const errDiv = document.createElement('div');
+            errDiv.className = 'review-error';
+            errDiv.textContent = `Error: ${err.detail || 'Review failed'}`;
+            cardEl.appendChild(errDiv);
+        }
+    } catch(e) {
+        const errDiv = document.createElement('div');
+        errDiv.className = 'review-error';
+        errDiv.textContent = `Error: ${e.message}`;
+        cardEl.appendChild(errDiv);
     }
 }

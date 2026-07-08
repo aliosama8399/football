@@ -69,10 +69,16 @@ class HuggingFaceProvider:
         self._model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
             dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto",
+            device_map="auto" if torch.cuda.is_available() else None,
             trust_remote_code=True,
             token=self.hf_token,
         )
+        
+        # Force move to CUDA if loaded on CPU but CUDA is available
+        if torch.cuda.is_available() and next(self._model.parameters()).device.type == "cpu":
+            logger.info("Forcing model to CUDA device...")
+            self._model = self._model.to("cuda")
+            
         self._model.eval()
 
         self._loaded = True

@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 
@@ -5,6 +6,25 @@ from api.schemas import ConversationCreate, ConversationResponse, MessageCreate,
 from api.dependencies import get_chat_repo, get_async_rag
 from api.auth import get_current_user
 from api.database import User
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove all markdown formatting from model responses for clean plain-text display."""
+    # Remove headers: ### Header, ## Header, # Header
+    text = re.sub(r'#{1,6}\s*', '', text)
+    # Remove bold: **text**
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    # Remove italic: *text*
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    # Remove bold/italic combo: ***text***
+    text = re.sub(r'\*{3}(.+?)\*{3}', r'\1', text)
+    # Remove inline code: `text`
+    text = re.sub(r'`(.+?)`', r'\1', text)
+    # Remove horizontal rules: --- or ===
+    text = re.sub(r'^[\-=]{3,}\s*$', '', text, flags=re.MULTILINE)
+    # Collapse multiple blank lines into one
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 router = APIRouter(prefix="/chat", tags=["Conversations & Chatbot"])
 
@@ -123,7 +143,10 @@ async def post_message(
 
         reply_content = await rag_wrapper.query(question=full_prompt)
 
-    # 5. Save and return assistant message reply
+    # 5. Strip markdown bold formatting from model response
+    reply_content = _strip_markdown(reply_content)
+
+    # 6. Save and return assistant message reply
     assistant_msg = await chat_repo.save_message(
         conversation_id=conversation_id,
         sender="assistant",

@@ -1,8 +1,21 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from api.schemas import MatchPredictionRequest, MatchPredictionResponse
 from api.dependencies import get_feedback_repo, get_async_rag
 from api.auth import get_current_user
 from api.database import User
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove all markdown formatting from model responses for clean plain-text display."""
+    text = re.sub(r'#{1,6}\s*', '', text)
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'\*{3}(.+?)\*{3}', r'\1', text)
+    text = re.sub(r'`(.+?)`', r'\1', text)
+    text = re.sub(r'^[\-=]{3,}\s*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 router = APIRouter(prefix="/predictions", tags=["Predictions"])
 
@@ -32,6 +45,12 @@ async def predict_match(
     # 1. Query PostgreSQL for prediction override
     override = await feedback_repo.get_prediction_override(home_team=home, away_team=away, match_date=date_val)
     if override:
+        # Mock probabilities for override: 100% for the predicted result, 0% for others
+        mock_probs = {"H": 0.0, "D": 0.0, "A": 0.0}
+        if override.predicted_result in mock_probs:
+            mock_probs[override.predicted_result] = 1.0
+        else:
+            mock_probs["D"] = 1.0 # fallback
         return MatchPredictionResponse(
             home_team=override.home_team,
             away_team=override.away_team,
@@ -40,15 +59,18 @@ async def predict_match(
             predicted_home_goals=override.predicted_home_goals,
             predicted_away_goals=override.predicted_away_goals,
             tactical_analysis=override.tactical_analysis,
-            source="override"
+            source="override",
+            probabilities=mock_probs
         )
 
     # 2. Run GNN model to get structured prediction outcome
     gnn_prediction = await rag_wrapper.get_gnn_prediction_structured(home, away)
     predicted_res = gnn_prediction["predicted_result"] if gnn_prediction else "D"
+    probs = gnn_prediction["probabilities"] if gnn_prediction else {"H": 0.33, "D": 0.34, "A": 0.33}
 
     # 3. Run LLM model to get full tactical analysis
     analysis_text = await rag_wrapper.predict_match(home, away)
+    analysis_text = _strip_markdown(analysis_text)
 
     return MatchPredictionResponse(
         home_team=home,
@@ -58,5 +80,6 @@ async def predict_match(
         predicted_home_goals=None,
         predicted_away_goals=None,
         tactical_analysis=analysis_text,
-        source="live_model"
+        source="live_model",
+        probabilities=probs
     )

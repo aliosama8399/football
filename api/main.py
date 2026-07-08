@@ -1,8 +1,10 @@
 import logging
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from strawberry.fastapi import GraphQLRouter
 
 
@@ -16,7 +18,8 @@ from api.routes import (
     chat_router,
     predictions_router,
     feedback_router,
-    supervisor_router
+    supervisor_router,
+    submissions_router
 )
 from api.graphql import schema
 
@@ -93,6 +96,7 @@ app.include_router(chat_router, prefix="/api/v1")
 app.include_router(predictions_router, prefix="/api/v1")
 app.include_router(feedback_router, prefix="/api/v1")
 app.include_router(supervisor_router, prefix="/api/v1")
+app.include_router(submissions_router, prefix="/api/v1")
 
 # Mount Strawberry GraphQL endpoint
 graphql_app = GraphQLRouter(schema)
@@ -114,9 +118,24 @@ async def root():
 async def get_ui():
     """Serve the main Tactical Dashboard HTML interface."""
     import os
+    import time as _t
     index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
     with open(index_path, "r", encoding="utf-8") as f:
-        return f.read()
+        html = f.read()
+    html = html.replace('src="/ui/app.js"', f'src="/ui/app.js?nocache={int(_t.time()*1000)}"')
+    html = html.replace('href="/ui/style.css"', f'href="/ui/style.css?nocache={int(_t.time()*1000)}"')
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+            "Pragma": "no-cache",
+            "Expires": "Thu, 01 Jan 1970 00:00:00 GMT",
+            "Surrogate-Control": "no-store",
+            "ETag": "",
+            "Last-Modified": "Thu, 01 Jan 1970 00:00:00 GMT"
+        }
+    )
+
 
 @app.get("/ui/style.css", tags=["User Interface"])
 async def get_ui_css():
@@ -124,13 +143,28 @@ async def get_ui_css():
     import os
     css_path = os.path.join(os.path.dirname(__file__), "static", "style.css")
     with open(css_path, "r", encoding="utf-8") as f:
-        return Response(content=f.read(), media_type="text/css")
+        return Response(
+            content=f.read(), media_type="text/css",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "Thu, 01 Jan 1970 00:00:00 GMT"
+            }
+        )
+
 
 @app.get("/ui/app.js", tags=["User Interface"])
-async def get_ui_js():
+async def get_ui_js(nocache: str = ""):
     """Serve the Tactical Dashboard client-side application logic."""
     import os
     js_path = os.path.join(os.path.dirname(__file__), "static", "app.js")
     with open(js_path, "r", encoding="utf-8") as f:
-        return Response(content=f.read(), media_type="application/javascript")
+        return Response(
+            content=f.read(), media_type="application/javascript",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "Thu, 01 Jan 1970 00:00:00 GMT"
+            }
+        )
 

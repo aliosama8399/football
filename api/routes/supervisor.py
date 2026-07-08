@@ -2,7 +2,10 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 
-from api.schemas import UserCreate, UserResponse, FeedbackResponse, FeedbackReviewRequest
+from api.schemas import (
+    UserCreate, UserResponse, FeedbackResponse, FeedbackReviewRequest,
+    MatchSubmissionResponse, TacticalAnalysisResponse, SubmissionReviewRequest
+)
 from api.dependencies import get_user_repo, get_feedback_repo
 from api.auth import require_supervisor
 from api.database import User
@@ -145,5 +148,89 @@ async def review_feedback(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Could not apply tactics. Check if team '{feedback.team_name}' exists in the database."
                 )
+        elif feedback.type == "team_profile_edit":
+            success = await feedback_repo.approve_team_profile_edit(feedback)
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not apply team profile edits. Check if team '{feedback.team_name}' exists in the database."
+                )
 
     return reviewed_feedback
+
+
+# ── Unified Submission Queue ──────────────────────────────────────────────────
+
+@router.get("/submissions")
+async def list_all_pending_submissions(
+    current_supervisor: User = Depends(require_supervisor),
+    feedback_repo = Depends(get_feedback_repo)
+):
+    """Retrieve a unified queue of all pending user submissions (matches, tactical analyses, team profiles)."""
+    return await feedback_repo.list_all_pending_submissions()
+
+
+@router.post("/submissions/{submission_id}/review")
+async def review_submission(
+    submission_id: int,
+    payload: SubmissionReviewRequest,
+    type: str,
+    current_supervisor: User = Depends(require_supervisor),
+    feedback_repo = Depends(get_feedback_repo)
+):
+    """
+    Approve or reject any pending submission type.
+    Query param `type` must be one of: match_submission, tactical_analysis, team_profile_edit
+    """
+    if type not in ("match_submission", "tactical_analysis", "team_profile_edit"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid type. Must be 'match_submission', 'tactical_analysis', or 'team_profile_edit'."
+        )
+    if payload.status not in ("approved", "rejected"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="status must be 'approved' or 'rejected'."
+        )
+
+    if type == "match_submission":
+        submission = await feedback_repo.get_match_submission(submission_id)
+        if not submission:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match submission not found.")
+        if submission.status != "pending":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Already reviewed.")
+        reviewed = await feedback_repo.update_match_submission_status(
+            submission, payload.status, payload.admin_notes, current_supervisor.id
+        )
+        if payload.status == "approved":
+            await feedback_repo.approve_match_submission(submission)
+        return MatchSubmissionResponse.model_validate(reviewed)
+
+    elif type == "tactical_analysis":
+        analysis = await feedback_repo.get_tactical_analysis(submission_id)
+        if not analysis:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tactical analysis not found.")
+        if analysis.status != "pending":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Already reviewed.")
+        reviewed = await feedback_repo.update_tactical_analysis_status(
+            analysis, payload.status, payload.admin_notes, current_supervisor.id
+        )
+        return TacticalAnalysisResponse.model_validate(reviewed)
+
+    elif type == "team_profile_edit":
+        feedback = await feedback_repo.get_feedback(submission_id)
+        if not feedback:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team profile edit not found.")
+        if feedback.status != "pending":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Already reviewed.")
+        reviewed = await feedback_repo.update_feedback_status(
+            feedback, payload.status, payload.admin_notes, current_supervisor.id
+        )
+        if payload.status == "approved":
+            success = await feedback_repo.approve_team_profile_edit(feedback)
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not apply team profile edits. Check if team '{feedback.team_name}' exists in the database."
+                )
+        return FeedbackResponse.model_validate(reviewed)

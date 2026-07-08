@@ -54,6 +54,13 @@ class UserRepository:
         await self.db.refresh(user)
         return user
 
+    async def update_password(self, user: User, hashed_password: str) -> User:
+        user.hashed_password = hashed_password
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
+
     async def list_users(self) -> List[User]:
         stmt = select(User).order_by(User.id)
         result = await self.db.execute(stmt)

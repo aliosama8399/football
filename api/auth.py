@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.future import select
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,19 +14,25 @@ from api.database import User
 
 logger = logging.getLogger(__name__)
 
-# Password hashing context (bcrypt)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 # OAuth2 Password Bearer Scheme pointing to our login route
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify plain password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify plain password against its hash (truncated to 72 bytes for bcrypt)."""
+    try:
+        plain_bytes = plain_password.encode("utf-8")[:72]
+        hash_bytes = hashed_password.encode("utf-8")
+        return bcrypt.checkpw(plain_bytes, hash_bytes)
+    except Exception as e:
+        logger.error(f"Password verification failed: {e}")
+        return False
 
 def get_password_hash(password: str) -> str:
-    """Generate a hashed password."""
-    return pwd_context.hash(password)
+    """Generate a hashed password (truncated to 72 bytes for bcrypt)."""
+    plain_bytes = password.encode("utf-8")[:72]
+    salt = bcrypt.gensalt()
+    hashed_bytes = bcrypt.hashpw(plain_bytes, salt)
+    return hashed_bytes.decode("utf-8")
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token with optional expiry."""

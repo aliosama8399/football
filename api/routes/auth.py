@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from api.schemas import UserActivate, UserResponse, TokenResponse
+from api.schemas import UserActivate, UserResponse, TokenResponse, UserRegister, UserChangePassword
 from api.dependencies import get_user_repo
 from api.auth import (
     verify_password, get_password_hash, create_access_token, get_current_user
@@ -9,6 +9,52 @@ from api.auth import (
 from api.database import User
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+@router.post("/register", response_model=UserResponse)
+async def register(
+    payload: UserRegister,
+    user_repo = Depends(get_user_repo)
+):
+    """
+    Directly register a new user with a password (no token required).
+    Sets user to active state directly.
+    Checks and elevates privileges to 'supervisor' if admin credentials match configuration.
+    """
+    from api.config import settings
+
+    # Check username or email uniqueness
+    existing_username = await user_repo.get_by_username(payload.username)
+    if existing_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already registered."
+        )
+    existing_email = await user_repo.get_by_email(payload.email)
+    if existing_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address already registered."
+        )
+
+    # Check for admin credentials
+    is_admin = (
+        payload.username in (settings.football_admin_username, settings.football_admin_email)
+        or payload.email in (settings.football_admin_username, settings.football_admin_email)
+    )
+    
+    role = "supervisor" if is_admin else payload.role
+
+    # Create active user directly
+    user = await user_repo.create_pending_user(
+        username=payload.username,
+        email=payload.email,
+        role=role,
+        activation_token=None
+    )
+    
+    hashed_password = get_password_hash(payload.password)
+    activated_user = await user_repo.activate_user(user, hashed_password)
+    return activated_user
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
@@ -18,8 +64,34 @@ async def login(
     """
     Log in using username/email and password.
     Supports form-data input for native Swagger UI OAuth2 workflow compatibility.
+    Also checks against configured admin credentials from environment/config.
     """
+    from api.config import settings
+
+    # Check if credentials match the configured admin account
+    is_admin_login = (
+        form_data.username in (settings.football_admin_username, settings.football_admin_email)
+        and form_data.password == settings.football_admin_password
+    )
+
     user = await user_repo.get_by_username_or_email(form_data.username)
+
+    if is_admin_login:
+        # Auto-create admin if they don't exist yet
+        if not user:
+            user = await user_repo.create_pending_user(
+                username=settings.football_admin_username,
+                email=settings.football_admin_email,
+                role="supervisor",
+                activation_token=None
+            )
+            hashed_pw = get_password_hash(settings.football_admin_password)
+            user = await user_repo.activate_user(user, hashed_pw)
+        
+        # Log them in regardless of their database role (force supervisor access for the config admin)
+        access_token = create_access_token(data={"sub": user.username})
+        return {"access_token": access_token, "token_type": "bearer"}
+
     if not user or not user.hashed_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -57,7 +129,8 @@ async def activate(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired activation token"
         )
-        
+
+    # get_password_hash already truncates to 72 bytes for bcrypt
     hashed_password = get_password_hash(payload.password)
     activated_user = await user_repo.activate_user(user, hashed_password)
     return activated_user
@@ -68,3 +141,31 @@ async def me(current_user: User = Depends(get_current_user)):
     Get profile information for the currently authenticated user.
     """
     return current_user
+
+@router.post("/change-password", response_model=UserResponse)
+async def change_password(
+    payload: UserChangePassword,
+    current_user: User = Depends(get_current_user),
+    user_repo = Depends(get_user_repo),
+):
+    """
+    Change the authenticated user's password.
+    Requires the current password for verification.
+    """
+    if not current_user.hashed_password or not verify_password(
+        payload.current_password, current_user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    if verify_password(payload.new_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password",
+        )
+
+    hashed_password = get_password_hash(payload.new_password)
+    updated_user = await user_repo.update_password(current_user, hashed_password)
+    return updated_user

@@ -55,6 +55,16 @@ class User(Base):
         foreign_keys="[Feedback.user_id]",
         cascade="all, delete-orphan"
     )
+    match_submissions: Mapped[List["MatchSubmission"]] = relationship(
+        back_populates="user",
+        foreign_keys="[MatchSubmission.user_id]",
+        cascade="all, delete-orphan"
+    )
+    tactical_analyses: Mapped[List["TacticalAnalysis"]] = relationship(
+        back_populates="user",
+        foreign_keys="[TacticalAnalysis.user_id]",
+        cascade="all, delete-orphan"
+    )
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -105,7 +115,7 @@ class Feedback(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    type: Mapped[str] = mapped_column(String(50), nullable=False)  # "prediction_override", "tactic_modification"
+    type: Mapped[str] = mapped_column(String(50), nullable=False)  # "prediction_override", "tactic_modification", "team_profile_edit"
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # "pending", "approved", "rejected"
 
     # Prediction fields
@@ -121,6 +131,12 @@ class Feedback(Base):
     team_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     suggested_attack_tactic: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     suggested_defense_tactic: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Extended team profile fields
+    suggested_attack_headline: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    suggested_defense_headline: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    suggested_strengths: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    suggested_weaknesses: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reviewed_by_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -132,8 +148,166 @@ class Feedback(Base):
     user: Mapped["User"] = relationship(back_populates="feedbacks", foreign_keys=[user_id])
     reviewer: Mapped[Optional["User"]] = relationship(foreign_keys=[reviewed_by_id])
 
+
+class MatchSubmission(Base):
+    __tablename__ = "match_submissions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # "pending", "approved", "rejected"
+
+    # Core identifiers
+    home_team: Mapped[str] = mapped_column(String(100), nullable=False)
+    away_team: Mapped[str] = mapped_column(String(100), nullable=False)
+    match_date: Mapped[date] = mapped_column(Date, nullable=False)
+    league: Mapped[str] = mapped_column(String(50), nullable=False)
+    season: Mapped[str] = mapped_column(String(10), nullable=False)
+
+    # Full-time result (raw — system computes H/A/D)
+    home_goals: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_goals: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Half-time
+    home_ht_goals: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_ht_goals: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Expected goals (optional)
+    home_xg: Mapped[Optional[float]] = mapped_column(nullable=True)
+    away_xg: Mapped[Optional[float]] = mapped_column(nullable=True)
+
+    # Match statistics
+    home_shots: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_shots: Mapped[int] = mapped_column(Integer, nullable=False)
+    home_sot: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_sot: Mapped[int] = mapped_column(Integer, nullable=False)
+    home_corners: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_corners: Mapped[int] = mapped_column(Integer, nullable=False)
+    home_fouls: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_fouls: Mapped[int] = mapped_column(Integer, nullable=False)
+    home_yellows: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_yellows: Mapped[int] = mapped_column(Integer, nullable=False)
+    home_reds: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_reds: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Admin review
+    admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="match_submissions", foreign_keys=[user_id])
+    reviewer: Mapped[Optional["User"]] = relationship(foreign_keys=[reviewed_by_id])
+
+
+class TacticalAnalysis(Base):
+    __tablename__ = "tactical_analyses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # "pending", "approved", "rejected"
+
+    home_team: Mapped[str] = mapped_column(String(100), nullable=False)
+    away_team: Mapped[str] = mapped_column(String(100), nullable=False)
+    match_date: Mapped[date] = mapped_column(Date, nullable=False)
+    analysis_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="tactical_analyses", foreign_keys=[user_id])
+    reviewer: Mapped[Optional["User"]] = relationship(foreign_keys=[reviewed_by_id])
+
 async def init_db():
     logger.info("Initializing database schema...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_run_migrations)
     logger.info("Database schema initialized successfully.")
+
+
+def _run_migrations(connection):
+    from sqlalchemy import text as sa_text
+    logger.info("Running schema migrations...")
+
+    connection.execute(sa_text("""
+        DO $$ BEGIN
+            ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS suggested_attack_headline TEXT;
+        EXCEPTION WHEN duplicate_column THEN NULL;
+        END $$;
+    """))
+    connection.execute(sa_text("""
+        DO $$ BEGIN
+            ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS suggested_defense_headline TEXT;
+        EXCEPTION WHEN duplicate_column THEN NULL;
+        END $$;
+    """))
+    connection.execute(sa_text("""
+        DO $$ BEGIN
+            ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS suggested_strengths TEXT;
+        EXCEPTION WHEN duplicate_column THEN NULL;
+        END $$;
+    """))
+    connection.execute(sa_text("""
+        DO $$ BEGIN
+            ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS suggested_weaknesses TEXT;
+        EXCEPTION WHEN duplicate_column THEN NULL;
+        END $$;
+    """))
+
+    connection.execute(sa_text("""
+        CREATE TABLE IF NOT EXISTS match_submissions (
+            id              SERIAL PRIMARY KEY,
+            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status          VARCHAR(20) DEFAULT 'pending' NOT NULL,
+            home_team       VARCHAR(100) NOT NULL,
+            away_team       VARCHAR(100) NOT NULL,
+            match_date      DATE NOT NULL,
+            league          VARCHAR(50) NOT NULL,
+            season          VARCHAR(10) NOT NULL,
+            home_goals      INTEGER NOT NULL,
+            away_goals      INTEGER NOT NULL,
+            home_ht_goals   INTEGER NOT NULL,
+            away_ht_goals   INTEGER NOT NULL,
+            home_xg         FLOAT,
+            away_xg         FLOAT,
+            home_shots      INTEGER NOT NULL,
+            away_shots      INTEGER NOT NULL,
+            home_sot        INTEGER NOT NULL,
+            away_sot        INTEGER NOT NULL,
+            home_corners    INTEGER NOT NULL,
+            away_corners    INTEGER NOT NULL,
+            home_fouls      INTEGER NOT NULL,
+            away_fouls      INTEGER NOT NULL,
+            home_yellows    INTEGER NOT NULL,
+            away_yellows    INTEGER NOT NULL,
+            home_reds       INTEGER NOT NULL,
+            away_reds       INTEGER NOT NULL,
+            admin_notes     TEXT,
+            reviewed_by_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at      TIMESTAMP DEFAULT NOW(),
+            updated_at      TIMESTAMP DEFAULT NOW()
+        );
+    """))
+
+    connection.execute(sa_text("""
+        CREATE TABLE IF NOT EXISTS tactical_analyses (
+            id              SERIAL PRIMARY KEY,
+            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status          VARCHAR(20) DEFAULT 'pending' NOT NULL,
+            home_team       VARCHAR(100) NOT NULL,
+            away_team       VARCHAR(100) NOT NULL,
+            match_date      DATE NOT NULL,
+            analysis_text   TEXT NOT NULL,
+            admin_notes     TEXT,
+            reviewed_by_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at      TIMESTAMP DEFAULT NOW(),
+            updated_at      TIMESTAMP DEFAULT NOW()
+        );
+    """))
+    logger.info("Migrations applied successfully.")
