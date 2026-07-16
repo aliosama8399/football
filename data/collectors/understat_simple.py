@@ -1,6 +1,11 @@
 """
-Simplified Understat xG Data Collector
-Uses synchronous requests with robust JSON extraction
+Simplified Understat xG Data Collector (sync, OPTIONAL FALLBACK).
+Uses synchronous requests with robust JSON extraction.
+
+This is the 2-league custom sync scraper (EPL + La Liga). The canonical
+path is understat_scraper.py (soccerdata-based, covers all 5 leagues).
+
+Leagues and years are loaded from data/config.yaml via data._config.
 """
 
 import pandas as pd
@@ -10,16 +15,25 @@ import re
 import json
 import time
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from data._config import load_config
 
 
-# Understat league URLs
-LEAGUES = {
-    'EPL': 'https://understat.com/league/EPL',
-    'La_liga': 'https://understat.com/league/La_liga'
-}
-
-# Last 3 seasons
-YEARS = [2022, 2023, 2024]
+def _get_league_years():
+    """Read leagues/years from config. This scraper only supports EPL+La Liga."""
+    cfg = load_config()
+    # understat URL convention uses 'EPL' and 'La_liga' — distinct from the slug
+    supported = {"epl": ("EPL", "https://understat.com/league/EPL"),
+                 "la_liga": ("La_liga", "https://understat.com/league/La_liga")}
+    leagues = {}
+    for code, info in cfg["leagues"].items():
+        slug = info["understat_slug"]
+        if slug in supported:
+            leagues[supported[slug][0]] = supported[slug][1]
+    years = cfg["understat_years"]
+    return leagues, years
 
 
 def fetch_page(url: str) -> str:
@@ -62,7 +76,8 @@ def get_league_matches(league: str, year: int) -> list:
     """
     Get all match data for a league and season
     """
-    url = f"{LEAGUES[league]}/{year}"
+    leagues_dict, _ = _get_league_years()
+    url = f"{leagues_dict[league]}/{year}"
     print(f"Fetching: {url}")
     
     try:
@@ -110,17 +125,19 @@ def get_league_matches(league: str, year: int) -> list:
 
 def collect_xg_data(output_dir: str = "data/raw") -> pd.DataFrame:
     """
-    Collect all xG data for Premier League and La Liga
+    Collect all xG data for the leagues/years in data/config.yaml.
+    This scraper only supports EPL + La Liga (custom sync fallback).
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
+    leagues_dict, years = _get_league_years()
     all_matches = []
-    
-    for league in LEAGUES:
+
+    for league in leagues_dict:
         league_name = 'Premier_League' if league == 'EPL' else 'La_Liga'
-        
-        for year in YEARS:
+
+        for year in years:
             matches = get_league_matches(league, year)
             
             for match in matches:

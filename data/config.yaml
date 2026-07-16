@@ -1,0 +1,75 @@
+# =============================================================================
+# Football Data Pipeline — Single Source of Truth Config
+# =============================================================================
+# This file is loaded by data/_config.py:load_config(). It replaces all
+# hard-coded SEASONS / LEAGUES constants that were scattered across 5 files.
+#
+# To change collection scope (seasons count, leagues, window sizes) edit
+# THIS file only — collectors and preprocess.py will pick it up on next run.
+# =============================================================================
+
+# --- Seasons (10 seasons: 2015-16 through 2024-25) ---------------------------
+# football-data.co.uk format: 4-char YYYY where first 2 = start YY, last 2 = end YY
+seasons: ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
+
+# Understat format (calendar year of season start)
+understat_years: [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+
+# soccerdata format (YYYY-YYYY)
+soccerdata_seasons:
+  - '2015-2016'
+  - '2016-2017'
+  - '2017-2018'
+  - '2018-2019'
+  - '2019-2020'
+  - '2020-2021'
+  - '2021-2022'
+  - '2022-2023'
+  - '2023-2024'
+  - '2024-2025'
+
+# --- Leagues -----------------------------------------------------------------
+# Each league has identifiers for each data source we use.
+#   fduk_code : football-data.co.uk CSV filename code (e.g. 'E0' -> E0.csv)
+#   understat_slug : understat.com URL slug (e.g. 'epl' -> understat.com/league/EPL)
+#   soccerdata_id : soccerdata library league identifier
+leagues:
+  E0:  {name: 'Premier_League', fduk_code: 'E0',  understat_slug: 'epl',        soccerdata_id: 'ENG-Premier League'}
+  SP1: {name: 'La_Liga',        fduk_code: 'SP1', understat_slug: 'la_liga',    soccerdata_id: 'ESP-La Liga'}
+  D1:  {name: 'Bundesliga',     fduk_code: 'D1',  understat_slug: 'bundesliga',  soccerdata_id: 'GER-Bundesliga'}
+  I1:  {name: 'Serie_A',        fduk_code: 'I1',  understat_slug: 'serie_a',    soccerdata_id: 'ITA-Serie A'}
+  F1:  {name: 'Ligue_1',        fduk_code: 'F1',  understat_slug: 'ligue_1',    soccerdata_id: 'FRA-Ligue 1'}
+
+# --- Feature engineering parameters ------------------------------------------
+rolling_window: 5        # rolling 5-match form window
+h2h_window: 5            # head-to-head lookback matches
+
+# --- Weather / Stadium enrichment --------------------------------------------
+# Open-Meteo Archive API rate limit sleep per call (seconds)
+# ~17000 matches × 0.2s ≈ 1 hour total — the long-pole wait time
+weather_rate_limit_sec: 0.2
+# Hour of day to sample weather for (15 = typical 3pm kick-off)
+weather_hour: 15
+
+# --- Output paths (relative to data/ parent) ---------------------------------
+paths:
+  raw: 'data/raw'
+  processed: 'data/processed'
+  features: 'data/features'
+  finetune: 'data/finetune'
+
+# --- Memory-safety: chunk size for streamed reads ----------------------------
+# Used by preprocess.py and rag/build_postgres_db.py when reading the combined CSV
+chunk_size: 50000
+
+# --- Dtype dict for memory-efficient raw CSV loading -------------------------
+# Applied at pd.read_csv time to avoid per-chunk dtype inference memory spike.
+# 'category' reduces frame footprint ~30% for low-cardinality string cols.
+dtypes:
+  Div: 'category'
+  HomeTeam: 'category'
+  AwayTeam: 'category'
+  League: 'category'
+  Referee: 'category'
+  FTR: 'category'
+  HTR: 'category'

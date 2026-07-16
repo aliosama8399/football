@@ -1,8 +1,13 @@
 """
-Training Pipeline for 6 GNN Models — Football Match Prediction
+Training Pipeline for 7 GNN Models — Football Match Prediction
 ===============================================================
 Transductive edge classification: train/test on the same graph,
 using masks to split edges by season.
+
+Models trained: GCN, GraphSAGE, GAT, GIN, EdgeConv, Hybrid, TEA-GNN.
+- Hybrid   needs per-edge `tabular_features` tensor
+- TEA-GNN  needs per-edge `edge_time` (years ago) + per-node `league_id`
+All other models use the standard `model(x, edge_index, edge_attr)` call.
 """
 
 import sys
@@ -18,7 +23,8 @@ import time
 import warnings
 from pathlib import Path
 from datetime import datetime
-from sklearn.metrics import accuracy_score, f1_score, log_loss, confusion_matrix, classification_report
+from sklearn.metrics import (accuracy_score, f1_score, log_loss, confusion_matrix,
+                             classification_report, roc_auc_score)
 
 import matplotlib
 matplotlib.use('Agg')
@@ -27,6 +33,10 @@ import seaborn as sns
 
 from data.graph_builder import FootballGraphBuilder
 from models.gnn_models import get_model
+from models.plotting import (
+    ensure_per_model_dir, plot_all_per_model,
+    plot_per_class_f1_comparison, write_master_summary,
+)
 
 warnings.filterwarnings('ignore')
 
@@ -67,7 +77,8 @@ def ranked_probability_score(y_true, y_prob):
 
 
 def evaluate(y_true, y_pred, y_prob, class_names):
-    return {
+    """Compute all classification metrics including one-vs-rest macro AUC."""
+    metrics = {
         'accuracy': accuracy_score(y_true, y_pred),
         'f1_macro': f1_score(y_true, y_pred, average='macro'),
         'f1_weighted': f1_score(y_true, y_pred, average='weighted'),
@@ -77,6 +88,14 @@ def evaluate(y_true, y_pred, y_prob, class_names):
         'per_class_f1': {c: f1_score(y_true, y_pred, average=None, labels=[i])[0] 
                          for i, c in enumerate(class_names)},
     }
+    try:
+        metrics['auc_macro'] = float(
+            roc_auc_score(y_true, y_prob, multi_class='ovr', average='macro',
+                          labels=[0, 1, 2])
+        )
+    except Exception:
+        metrics['auc_macro'] = None
+    return metrics
 
 
 # ═══════════════════════════════════════════════════════════
@@ -84,7 +103,13 @@ def evaluate(y_true, y_pred, y_prob, class_names):
 # ═══════════════════════════════════════════════════════════
 
 def train_one_model(model_name, graph_data):
-    """Train a single GNN model using transductive edge classification."""
+    """Train a single GNN model using transductive edge classification.
+    
+    Dispatches on model_name:
+      - 'Hybrid'  : forward(x, ei, ea, tabular_features=tabular)
+      - 'TEA-GNN' : forward(x, ei, ea, edge_time=edge_time, league_id=league_id)
+      - others    : forward(x, ei, ea)
+    """
     
     print(f"\n{'─' * 50}")
     print(f"  Training: {model_name}")
@@ -94,9 +119,12 @@ def train_one_model(model_name, graph_data):
     num_ef = graph_data['num_edge_features']
     
     is_hybrid = (model_name == 'Hybrid')
+    is_tea_gnn = (model_name == 'TEA-GNN')
     extra_kwargs = {}
     if is_hybrid:
         extra_kwargs['num_tabular_features'] = graph_data['num_tabular_features']
+    if is_tea_gnn:
+        extra_kwargs['num_leagues'] = graph_data.get('num_leagues', 5)
     
     model = get_model(model_name, num_nf, num_ef,
                       hidden_dim=HIDDEN_DIM, num_classes=3, dropout=DROPOUT, **extra_kwargs)
@@ -110,6 +138,22 @@ def train_one_model(model_name, graph_data):
     train_mask = graph_data['train_mask'].to(DEVICE)
     test_mask = graph_data['test_mask'].to(DEVICE)
     tabular = graph_data['tabular_features'].to(DEVICE) if is_hybrid else None
+    # TEA-GNN extras
+    edge_time = graph_data.get('edge_time')
+    if edge_time is not None:
+        edge_time = edge_time.to(DEVICE)
+    league_id = graph_data.get('league_id')
+    if league_id is not None:
+        league_id = league_id.to(DEVICE)
+    
+    # Unified forward dispatch
+    def _forward(m):
+        if is_hybrid:
+            return m(x, ei, ea, tabular_features=tabular)
+        elif is_tea_gnn:
+            return m(x, ei, ea, edge_time=edge_time, league_id=league_id)
+        else:
+            return m(x, ei, ea)
     
     # Class weights
     train_labels = ey[train_mask]
@@ -133,10 +177,7 @@ def train_one_model(model_name, graph_data):
         # ── Train ──
         model.train()
         optimizer.zero_grad()
-        if is_hybrid:
-            out = model(x, ei, ea, tabular_features=tabular)
-        else:
-            out = model(x, ei, ea)  # Predictions for ALL edges
+        out = _forward(model)  # Predictions for ALL edges
         
         # Loss only on TRAIN edges
         loss = criterion(out[train_mask], ey[train_mask])
@@ -148,10 +189,7 @@ def train_one_model(model_name, graph_data):
         # ── Eval on test edges ──
         model.eval()
         with torch.no_grad():
-            if is_hybrid:
-                val_out = model(x, ei, ea, tabular_features=tabular)
-            else:
-                val_out = model(x, ei, ea)
+            val_out = _forward(model)
             val_loss = criterion(val_out[test_mask], ey[test_mask])
         
         scheduler.step(val_loss)
@@ -184,10 +222,7 @@ def train_one_model(model_name, graph_data):
     
     model.eval()
     with torch.no_grad():
-        if is_hybrid:
-            final_out = model(x, ei, ea, tabular_features=tabular)
-        else:
-            final_out = model(x, ei, ea)
+        final_out = _forward(model)
         test_logits = final_out[test_mask]
         y_prob = F.softmax(test_logits, dim=1).cpu().numpy()
         y_pred = test_logits.argmax(dim=1).cpu().numpy()
@@ -199,21 +234,31 @@ def train_one_model(model_name, graph_data):
     metrics['train_time'] = train_time
     metrics['epochs'] = epoch
     metrics['train_losses'] = train_losses
+    # Save raw arrays for plotting
+    metrics['y_true'] = y_true
+    metrics['y_prob'] = y_prob
     
     print(f"\n  ✓ Results ({model_name}):")
     print(f"    Accuracy:  {metrics['accuracy']:.4f}")
     print(f"    Macro F1:  {metrics['f1_macro']:.4f}")
     print(f"    Log Loss:  {metrics['log_loss']:.4f}")
     print(f"    RPS:       {metrics['rps']:.4f}")
+    if metrics.get('auc_macro') is not None:
+        print(f"    AUC macro:  {metrics['auc_macro']:.4f}")
     print(f"    Per-class: A={metrics['per_class_f1']['A']:.3f} "
           f"D={metrics['per_class_f1']['D']:.3f} H={metrics['per_class_f1']['H']:.3f}")
     print(f"    Time:      {train_time:.1f}s ({epoch} epochs)")
     
     # Save
     model_path = MODELS_DIR / f'gnn_{model_name.lower()}.pt'
-    torch.save({'model_state': best_state or model.state_dict(),
-                'model_name': model_name, 'hidden_dim': HIDDEN_DIM,
-                'num_node_features': num_nf, 'num_edge_features': num_ef}, model_path)
+    save_payload = {
+        'model_state': best_state or model.state_dict(),
+        'model_name': model_name, 'hidden_dim': HIDDEN_DIM,
+        'num_node_features': num_nf, 'num_edge_features': num_ef,
+    }
+    if is_tea_gnn:
+        save_payload['num_leagues'] = graph_data.get('num_leagues', 5)
+    torch.save(save_payload, model_path)
     
     return metrics
 
@@ -223,19 +268,25 @@ def train_one_model(model_name, graph_data):
 # ═══════════════════════════════════════════════════════════
 
 def plot_comparison(df):
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     metrics = [('accuracy', 'Accuracy ↑', '#2ecc71'),
                ('f1_macro', 'Macro F1 ↑', '#3498db'),
                ('log_loss', 'Log Loss ↓', '#e74c3c'),
-               ('rps', 'RPS ↓', '#f39c12')]
+               ('rps', 'RPS ↓', '#f39c12'),
+               ('auc_macro', 'AUC macro ↑', '#9b59b6'),
+               ('f1_D', 'Draw F1 ↑ (hardest class)', '#1abc9c')]
     
     for ax, (m, title, color) in zip(axes.flatten(), metrics):
+        if m not in df.columns:
+            ax.axis('off')
+            continue
         data = df.sort_values(m, ascending=(m in ['log_loss', 'rps']))
         bars = ax.barh(data['model'], data[m], color=color, alpha=0.8)
         ax.set_title(title, fontsize=12, fontweight='bold')
         for bar, val in zip(bars, data[m]):
-            ax.text(val + 0.002, bar.get_y() + bar.get_height()/2,
-                    f'{val:.4f}', va='center', fontsize=9)
+            if pd.notna(val):
+                ax.text(val + 0.002, bar.get_y() + bar.get_height()/2,
+                        f'{val:.4f}', va='center', fontsize=9)
     
     plt.suptitle('GNN Model Comparison — Football Match Prediction', fontsize=14, fontweight='bold')
     plt.tight_layout()
@@ -335,10 +386,12 @@ def main():
         data_path=str(BASE_DIR / "data" / "processed" / "processed_matches.csv"))
     graph_data = builder.build_train_test_graphs()
     
-    models_to_train = ['GCN', 'GraphSAGE', 'GAT', 'GIN', 'EdgeConv', 'Hybrid']
+    models_to_train = ['GCN', 'GraphSAGE', 'GAT', 'GIN', 'EdgeConv', 'Hybrid', 'TEA-GNN']
     
     all_results = {}
     rows = []
+    
+    per_model_dir = ensure_per_model_dir(RESULTS_DIR)
     
     for i, name in enumerate(models_to_train, 1):
         print(f"\n{'=' * 70}")
@@ -352,10 +405,21 @@ def main():
                 'model': name, 'accuracy': m['accuracy'],
                 'f1_macro': m['f1_macro'], 'f1_weighted': m['f1_weighted'],
                 'log_loss': m['log_loss'], 'rps': m['rps'],
+                'auc_macro': m.get('auc_macro', None),
                 'train_time_s': round(m['train_time'], 1), 'epochs': m['epochs'],
                 'f1_A': m['per_class_f1']['A'], 'f1_D': m['per_class_f1']['D'],
                 'f1_H': m['per_class_f1']['H'],
             })
+            
+            # ── Per-model plotting (5 PNGs) ──
+            print(f"  → Saving per-model reports to {per_model_dir}...")
+            try:
+                plot_all_per_model(
+                    name, m, m.get('y_true'), m.get('y_prob'),
+                    class_names=['A', 'D', 'H'], save_dir=per_model_dir
+                )
+            except Exception as e:
+                print(f"    [warn] per-model plotting failed for {name}: {e}")
         except Exception as e:
             print(f"  ✗ {name} failed: {e}")
             import traceback; traceback.print_exc()
@@ -367,16 +431,40 @@ def main():
     
     df = pd.DataFrame(rows).sort_values('accuracy', ascending=False).reset_index(drop=True)
     df.index += 1
-    print(df[['model','accuracy','f1_macro','log_loss','rps','f1_D','train_time_s']].to_string())
+    show_cols = ['model', 'accuracy', 'f1_macro', 'log_loss', 'rps', 'auc_macro',
+                 'f1_D', 'train_time_s']
+    show_cols = [c for c in show_cols if c in df.columns]
+    print(df[show_cols].to_string())
     
     df.to_csv(RESULTS_DIR / 'gnn_comparison.csv', index=False)
     print(f"\n✓ Saved to {RESULTS_DIR / 'gnn_comparison.csv'}")
     
-    # Plots
+    # ── Plots: existing comparisons ──
     plot_comparison(df)
     plot_confusion(all_results, ['A','D','H'])
     plot_curves(all_results)
     plot_vs_traditional(df)
+    
+    # ── NEW plots from shared plotting.py ──
+    print("\n  → Saving per-class F1 comparison + master summary...")
+    try:
+        plot_per_class_f1_comparison(
+            all_results, class_names=['A', 'D', 'H'],
+            save_path=RESULTS_DIR / 'gnn_per_class_f1.png'
+        )
+        print(f"✓ Saved gnn_per_class_f1.png")
+    except Exception as e:
+        print(f"  [warn] per-class comparison failed: {e}")
+    
+    try:
+        write_master_summary(
+            all_results,
+            RESULTS_DIR / 'gnn_master_summary.txt',
+            title='GNN Baseline Master Summary'
+        )
+        print(f"✓ Saved gnn_master_summary.txt")
+    except Exception as e:
+        print(f"  [warn] master summary failed: {e}")
     
     best = df.iloc[0]
     print(f"\n{'=' * 70}")
@@ -384,6 +472,8 @@ def main():
     print(f"     Accuracy:  {best['accuracy']:.4f}")
     print(f"     Macro F1:  {best['f1_macro']:.4f}")
     print(f"     RPS:       {best['rps']:.4f}")
+    if 'auc_macro' in df.columns and pd.notna(best.get('auc_macro')):
+        print(f"     AUC macro: {best['auc_macro']:.4f}")
     print(f"     Draw F1:   {best['f1_D']:.4f}")
     print(f"{'=' * 70}\n")
     

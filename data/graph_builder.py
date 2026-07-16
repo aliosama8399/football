@@ -4,12 +4,16 @@ Graph Builder for Football Match Prediction
 Converts processed match data into PyTorch Geometric graph format.
 
 DESIGN:
-- Nodes: Teams (119 unique) with rolling stat features
+- Nodes: Teams (147 unique across 5 leagues) with rolling + cumulative stat features
 - Historical edges: Past matches form the graph structure, carrying
   match-stat features (shots, corners, fouls, cards — NOT goals/result)
 - Prediction: For each match to predict, we use the graph state BEFORE
   that match. The prediction edge has NO edge features (match hasn't happened).
   Instead, we use home/away node embeddings + H2H features from graph structure.
+
+TEA-GNN EXTRAS:
+- edge_time: FloatTensor [num_edges], years-ago per match (for learned temporal decay)
+- league_id: LongTensor [num_nodes], 0..4 per team (for cross-league context pooling)
 """
 
 import pandas as pd
@@ -22,13 +26,31 @@ from sklearn.preprocessing import StandardScaler
 class FootballGraphBuilder:
     """Build temporal graphs from football match data."""
     
-    # Node features: rolling averages per team
+    # League → integer id (TEA-GNN cross-league context needs this)
+    LEAGUE_TO_ID = {
+        'Premier_League': 0,
+        'La_Liga': 1,
+        'Serie_A': 2,
+        'Bundesliga': 3,
+        'Ligue_1': 4,
+    }
+    
+    # Node features: rolling averages + cumulative averages per team.
+    # Read from df as 'Home{suffix}' and 'Away{suffix}' columns.
     NODE_FEATURE_SUFFIXES = [
+        # Rolling 5-match window (15)
         'Form_5', 'GF_5', 'GA_5', 'xG_5', 'xGA_5',
         'Shots_5', 'ShotsAgainst_5', 'SOT_5', 'SOTAgainst_5',
         'Corners_5', 'CornersAgainst_5', 'Fouls_5', 'FoulsAgainst_5',
         'Yellows_5', 'Reds_5',
-    ]
+        # Cumulative season-to-date (15)
+        'cum_Form', 'cum_GF', 'cum_GA', 'cum_xG', 'cum_xGA',
+        'cum_Shots', 'cum_ShotsAgainst', 'cum_SOT', 'cum_SOTAgainst',
+        'cum_Corners', 'cum_CornersAgainst', 'cum_Fouls', 'cum_FoulsAgainst',
+        'cum_Yellows', 'cum_Reds',
+        # Season context (2)
+        'season_progress', 'form_vs_season',
+    ]  # 32 features per team
     
     # Edge features for HISTORICAL matches (no goals — they'd leak the result)
     HIST_EDGE_FEATURE_COLS = [
@@ -38,21 +60,42 @@ class FootballGraphBuilder:
         'HF', 'AF',          # Fouls  
         'HY', 'AY',          # Yellow cards
         'HR', 'AR',          # Red cards
-    ]
+    ]  # 12 features (kept unchanged — no leakage)
     
-    # Tabular features for Hybrid model (same as traditional ML PRE_MATCH_FEATURES)
+    # Tabular features for Hybrid model (per-edge, pre-match, no leakage).
+    # Mirrors rolling + cumulative node features + H2H + referee + weather + stadium.
     TABULAR_FEATURES = [
+        # Rolling 5 (Home + Away = 30)
         'HomeForm_5', 'HomeGF_5', 'HomeGA_5', 'HomexG_5', 'HomexGA_5',
+        'HomeShots_5', 'HomeShotsAgainst_5', 'HomeSOT_5', 'HomeSOTAgainst_5',
+        'HomeCorners_5', 'HomeCornersAgainst_5', 'HomeFouls_5', 'HomeFoulsAgainst_5',
+        'HomeYellows_5', 'HomeReds_5',
         'AwayForm_5', 'AwayGF_5', 'AwayGA_5', 'AwayxG_5', 'AwayxGA_5',
-        'HomeShots_5', 'HomeShotsAgainst_5', 'AwayShots_5', 'AwayShotsAgainst_5',
-        'HomeSOT_5', 'HomeSOTAgainst_5', 'AwaySOT_5', 'AwaySOTAgainst_5',
-        'HomeCorners_5', 'HomeCornersAgainst_5', 'AwayCorners_5', 'AwayCornersAgainst_5',
-        'HomeFouls_5', 'HomeFoulsAgainst_5', 'AwayFouls_5', 'AwayFoulsAgainst_5',
-        'HomeYellows_5', 'HomeReds_5', 'AwayYellows_5', 'AwayReds_5',
+        'AwayShots_5', 'AwayShotsAgainst_5', 'AwaySOT_5', 'AwaySOTAgainst_5',
+        'AwayCorners_5', 'AwayCornersAgainst_5', 'AwayFouls_5', 'AwayFoulsAgainst_5',
+        'AwayYellows_5', 'AwayReds_5',
+        # Cumulative season-to-date (Home + Away = 30)
+        'Homecum_Form', 'Homecum_GF', 'Homecum_GA', 'Homecum_xG', 'Homecum_xGA',
+        'Homecum_Shots', 'Homecum_ShotsAgainst', 'Homecum_SOT', 'Homecum_SOTAgainst',
+        'Homecum_Corners', 'Homecum_CornersAgainst', 'Homecum_Fouls', 'Homecum_FoulsAgainst',
+        'Homecum_Yellows', 'Homecum_Reds',
+        'Awaycum_Form', 'Awaycum_GF', 'Awaycum_GA', 'Awaycum_xG', 'Awaycum_xGA',
+        'Awaycum_Shots', 'Awaycum_ShotsAgainst', 'Awaycum_SOT', 'Awaycum_SOTAgainst',
+        'Awaycum_Corners', 'Awaycum_CornersAgainst', 'Awaycum_Fouls', 'Awaycum_FoulsAgainst',
+        'Awaycum_Yellows', 'Awaycum_Reds',
+        # Season context (Home + Away = 4)
+        'Homeseason_progress', 'Homeform_vs_season',
+        'Awayseason_progress', 'Awayform_vs_season',
+        # H2H (6)
         'H2H_Matches', 'H2H_HomeWins', 'H2H_AwayWins', 'H2H_Draws',
         'H2H_HomeGoals', 'H2H_AwayGoals',
+        # Referee (3)
         'Ref_AvgYellows', 'Ref_AvgReds', 'Ref_Strictness',
-    ]
+        # Weather (5)
+        'temperature', 'precipitation', 'rain', 'wind_speed', 'humidity',
+        # Stadium location (2) — numeric only (stadium_name is a string, excluded)
+        'stadium_lat', 'stadium_lon',
+    ]  # 80 features per match edge
     
     def __init__(self, data_path: str = None):
         if data_path is None:
@@ -67,11 +110,27 @@ class FootballGraphBuilder:
         self.idx_to_team = {idx: team for team, idx in self.team_to_idx.items()}
         self.num_teams = len(all_teams)
         
+        # Per-team league id via majority vote (for TEA-GNN cross-league context)
+        self.team_to_league_idx = self._compute_team_league_ids()
+        
         # Encode target: A=0, D=1, H=2
         self.label_map = {'A': 0, 'D': 1, 'H': 2}
         self.class_names = ['A', 'D', 'H']
         
-        print(f"[OK] Loaded {len(self.df)} matches, {self.num_teams} teams")
+        print(f"[OK] Loaded {len(self.df)} matches, {self.num_teams} teams, {self.df['League'].nunique()} leagues")
+    
+    def _compute_team_league_ids(self) -> torch.LongTensor:
+        """Assign each team its league id via majority vote across all its matches."""
+        league_idx = torch.zeros(self.num_teams, dtype=torch.long)
+        for team, idx in self.team_to_idx.items():
+            home_leagues = self.df.loc[self.df['HomeTeam'] == team, 'League']
+            away_leagues = self.df.loc[self.df['AwayTeam'] == team, 'League']
+            all_leagues = pd.concat([home_leagues, away_leagues])
+            if len(all_leagues) == 0:
+                continue
+            top_league = all_leagues.value_counts().idxmax()
+            league_idx[idx] = self.LEAGUE_TO_ID.get(top_league, 0)
+        return league_idx
     
     def _get_node_features(self, row, side='Home'):
         """Extract node features for a team from a match row."""
@@ -104,29 +163,33 @@ class FootballGraphBuilder:
         
         APPROACH: Transductive edge classification
         - Build ONE graph with all matches as edges
-        - Train on edges from 2022-24 seasons
+        - Train on edges from 2015-2024 seasons (9 seasons)
         - Test on edges from 2024-25 season
-        - Edge features: match stats (NO goals/result to prevent leakage)
-        - Node features: latest rolling team stats
+        - Edge features: match stats (NO goals/result to prevent leakage),
+          StandardScaler-normalized (fit on train edges)
+        - Node features: latest rolling + cumulative team stats
         - The classifier uses: node_embed(home) + node_embed(away) only
           (edge features are used by NNConv in graph convolution but NOT
            in the final classifier for the target edge)
         
+        TEA-GNN extras built here:
+        - edge_time: FloatTensor[num_edges], years-ago per match (recency signal)
+        - league_id: LongTensor[num_nodes], 0..4 (cross-league context)
+        
         This is fair because:
-        - Node features (rolling stats) are known BEFORE the match
+        - Node features (rolling + cumulative stats) are known BEFORE the match
         - Graph structure from training edges is known
         - We predict labels on held-out test edges
         """
-        train_seasons = [2223, 2324]
+        train_seasons = [1516, 1617, 1718, 1819, 1920, 2021, 2122, 2223, 2324]
         test_seasons = [2425]
         
         train_mask = self.df['Season'].isin(train_seasons)
         test_mask = self.df['Season'].isin(test_seasons)
         
-        # ── Node features: use latest rolling stats per team from TRAINING data ──
+        # ── Node features: use latest rolling+cumulative stats per team from TRAINING data ──
         node_features = torch.zeros(self.num_teams, len(self.NODE_FEATURE_SUFFIXES))
         
-        # Update node features from training matches
         for _, row in self.df[train_mask].iterrows():
             hi = self.team_to_idx[row['HomeTeam']]
             ai = self.team_to_idx[row['AwayTeam']]
@@ -137,6 +200,7 @@ class FootballGraphBuilder:
         all_src, all_dst = [], []
         all_edge_feats = []
         all_tabular_feats = []
+        all_edge_dates = []   # for TEA-GNN edge_time computation
         train_edge_indices = []
         test_edge_indices = []
         all_labels = []
@@ -154,6 +218,7 @@ class FootballGraphBuilder:
             all_dst.append(ai)
             all_edge_feats.append(self._get_hist_edge_features(row))
             all_tabular_feats.append(self._get_tabular_features(row))
+            all_edge_dates.append(row['Date'])
             
             label = self.label_map.get(row['FTR'], -1)
             all_labels.append(label)
@@ -165,7 +230,7 @@ class FootballGraphBuilder:
             
             edge_idx += 1
         
-        # Also update node features from test data (rolling stats are pre-match, so valid)
+        # Also update node features from test data (rolling+cum stats are pre-match, so valid)
         test_node_features = node_features.clone()
         for _, row in self.df[test_mask].iterrows():
             hi = self.team_to_idx[row['HomeTeam']]
@@ -174,25 +239,39 @@ class FootballGraphBuilder:
             test_node_features[ai] = torch.tensor(self._get_node_features(row, 'Away'), dtype=torch.float)
         
         edge_index = torch.tensor([all_src, all_dst], dtype=torch.long)
-        edge_attr = torch.tensor(all_edge_feats, dtype=torch.float)
+        edge_attr_raw = torch.tensor(all_edge_feats, dtype=torch.float)
         edge_y = torch.tensor(all_labels, dtype=torch.long)
         train_mask_t = torch.zeros(edge_idx, dtype=torch.bool)
         test_mask_t = torch.zeros(edge_idx, dtype=torch.bool)
         train_mask_t[train_edge_indices] = True
         test_mask_t[test_edge_indices] = True
         
+        # Scale edge_attr (12 match stats) using StandardScaler fit on TRAIN edges only
+        edge_scaler = StandardScaler()
+        edge_scaler.fit(edge_attr_raw[train_mask_t.numpy()].numpy())
+        edge_attr_scaled = torch.tensor(
+            edge_scaler.transform(edge_attr_raw.numpy()), dtype=torch.float
+        )
+        
         # Tabular features: scale using training data
         tabular_np = np.array(all_tabular_feats, dtype=np.float32)
-        scaler = StandardScaler()
-        scaler.fit(tabular_np[train_mask_t.numpy()])
-        tabular_scaled = scaler.transform(tabular_np)
+        tabular_scaler = StandardScaler()
+        tabular_scaler.fit(tabular_np[train_mask_t.numpy()])
+        tabular_scaled = tabular_scaler.transform(tabular_np)
         tabular_tensor = torch.tensor(tabular_scaled, dtype=torch.float)
+        
+        # ── TEA-GNN: edge_time = years-ago per edge (recent = small value = less decay) ──
+        # Inline computation (avoids circular import with models/tea_gnn.py)
+        dates_series = pd.to_datetime(pd.Series(all_edge_dates))
+        reference_date = dates_series.max()
+        years_ago = (reference_date - dates_series).dt.days / 365.0
+        edge_time = torch.tensor(years_ago.values, dtype=torch.float32)
         
         graph_data = {
             'x': node_features,                  # Node features (train)
             'x_test': test_node_features,         # Node features (updated for test)
             'edge_index': edge_index,             # All edges
-            'edge_attr': edge_attr,               # Edge features (no goals!)
+            'edge_attr': edge_attr_scaled,        # Edge features (scaled, no goals!)
             'edge_y': edge_y,                     # Labels
             'train_mask': train_mask_t,            # Which edges are training
             'test_mask': test_mask_t,              # Which edges are testing
@@ -201,6 +280,10 @@ class FootballGraphBuilder:
             'num_node_features': len(self.NODE_FEATURE_SUFFIXES),
             'num_edge_features': len(self.HIST_EDGE_FEATURE_COLS),
             'num_tabular_features': len(self.TABULAR_FEATURES),
+            # TEA-GNN extras:
+            'edge_time': edge_time,                # [num_edges] years-ago per match
+            'league_id': self.team_to_league_idx,  # [num_nodes] league 0..4 per team
+            'num_leagues': len(self.LEAGUE_TO_ID), # 5
         }
         
         print(f"\n[OK] Graph built:")
@@ -208,9 +291,11 @@ class FootballGraphBuilder:
         print(f"  Total edges:      {edge_idx}")
         print(f"  Train edges:      {len(train_edge_indices)}")
         print(f"  Test edges:       {len(test_edge_indices)}")
-        print(f"  Node features:    {len(self.NODE_FEATURE_SUFFIXES)}")
-        print(f"  Edge features:    {len(self.HIST_EDGE_FEATURE_COLS)} (no goals!)")
+        print(f"  Node features:    {len(self.NODE_FEATURE_SUFFIXES)} (rolling + cumulative + season)")
+        print(f"  Edge features:    {len(self.HIST_EDGE_FEATURE_COLS)} (scaled, no goals!)")
         print(f"  Tabular features: {len(self.TABULAR_FEATURES)} (for Hybrid)")
+        print(f"  Edge time:        [num_edges] years-ago (for TEA-GNN)")
+        print(f"  League id:        [{self.num_teams}] per team (for TEA-GNN, {len(self.LEAGUE_TO_ID)} leagues)")
         print(f"  Train label dist: {torch.bincount(edge_y[train_mask_t], minlength=3).tolist()}")
         print(f"  Test label dist:  {torch.bincount(edge_y[test_mask_t], minlength=3).tolist()}")
         
@@ -225,3 +310,6 @@ if __name__ == '__main__':
     print(f"Edge index shape:  {data['edge_index'].shape}")
     print(f"Edge attr shape:   {data['edge_attr'].shape}")
     print(f"Edge labels shape: {data['edge_y'].shape}")
+    print(f"Edge time shape:   {data['edge_time'].shape}")
+    print(f"League id shape:   {data['league_id'].shape}")
+    print(f"Edge attr mean/std: {data['edge_attr'].mean():.4f} / {data['edge_attr'].std():.4f}")

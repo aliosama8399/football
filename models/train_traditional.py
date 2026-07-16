@@ -17,6 +17,94 @@ Models:
   10. Voting Classifier   (Meta-ensemble)
 """
 
+# ── Workaround for threadpoolctl "NoneType has no 'split' attribute" ──
+# Must be applied BEFORE any imports that might trigger sklearn → threadpoolctl.
+# threadpoolctl (used by scikit-learn inside cross_validate / kneighbors /
+# KNN.predict / SVM.predict) calls get_config().split() on loaded BLAS DLLs.
+# On some Windows conda installs, _OpenBLASModule.get_version uses a lambda
+# that returns None then calls .split() on it (BUG in threadpoolctl 3.x).
+# _BLISModule.get_version has same issue with .decode(None).
+# Fix: monkeypatch ALL _Module subclasses' get_version to guard against None.
+import threadpoolctl
+# Patch base class
+_orig_base_get_version = threadpoolctl._Module.get_version
+def _safe_base_get_version(self):
+    try:
+        return _orig_base_get_version(self)
+    except (AttributeError, TypeError):
+        return '0.0.0'
+threadpoolctl._Module.get_version = _safe_base_get_version
+
+# Patch _OpenBLASModule (the main culprit: lambda returns None then .split())
+if hasattr(threadpoolctl, '_OpenBLASModule'):
+    _orig_openblas_get_version = threadpoolctl._OpenBLASModule.get_version
+    def _safe_openblas_get_version(self):
+        try:
+            return _orig_openblas_get_version(self)
+        except (AttributeError, TypeError):
+            return '0.0.0'
+    threadpoolctl._OpenBLASModule.get_version = _safe_openblas_get_version
+
+# Patch _BLISModule (lambda returns None then .decode() crashes)
+if hasattr(threadpoolctl, '_BLISModule'):
+    _orig_blis_get_version = threadpoolctl._BLISModule.get_version
+    def _safe_blis_get_version(self):
+        try:
+            return _orig_blis_get_version(self)
+        except (AttributeError, TypeError):
+            return '0.0.0'
+    threadpoolctl._BLISModule.get_version = _safe_blis_get_version
+
+# Patch _MKLModule and _OpenMPModule for consistency
+for cls_name in ('_MKLModule', '_OpenMPModule'):
+    if hasattr(threadpoolctl, cls_name):
+        cls = getattr(threadpoolctl, cls_name)
+        if hasattr(cls, 'get_version'):
+            orig = cls.get_version
+            def make_safe(orig_fn):
+                def _safe(self):
+                    try:
+                        return orig_fn(self)
+                    except (AttributeError, TypeError):
+                        return '0.0.0'
+                return _safe
+            cls.get_version = make_safe(orig)
+
+# Also patch _OpenBLASModule._get_extra_info / get_threading_layer / get_architecture
+# to handle missing OpenBLAS functions (older versions don't have openblas_get_parallel)
+if hasattr(threadpoolctl, '_OpenBLASModule'):
+    cls = threadpoolctl._OpenBLASModule
+    # Patch get_threading_layer
+    if hasattr(cls, 'get_threading_layer'):
+        orig_tl = cls.get_threading_layer
+        def _safe_get_threading_layer(self):
+            try:
+                return orig_tl(self)
+            except (AttributeError, TypeError, OSError):
+                return "unknown"
+        cls.get_threading_layer = _safe_get_threading_layer
+    
+    # Patch get_architecture
+    if hasattr(cls, 'get_architecture'):
+        orig_arch = cls.get_architecture
+        def _safe_get_architecture(self):
+            try:
+                return orig_arch(self)
+            except (AttributeError, TypeError, OSError):
+                return "unknown"
+        cls.get_architecture = _safe_get_architecture
+    
+    # Patch _get_extra_info
+    if hasattr(cls, '_get_extra_info'):
+        orig_extra = cls._get_extra_info
+        def _safe_get_extra_info(self):
+            try:
+                return orig_extra(self)
+            except (AttributeError, TypeError, OSError):
+                self.threading_layer = "unknown"
+                self.architecture = "unknown"
+        cls._get_extra_info = _safe_get_extra_info
+
 import pandas as pd
 import numpy as np
 import warnings
@@ -25,8 +113,6 @@ import os
 import time
 from pathlib import Path
 from datetime import datetime
-
-# Scikit-learn
 from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import (
@@ -83,7 +169,7 @@ warnings.filterwarnings('ignore')
 
 BASE_DIR = Path(__file__).parent.parent
 DATA_PATH = BASE_DIR / "data" / "processed" / "processed_matches.csv"
-RESULTS_DIR = BASE_DIR / "models" / "results"
+RESULTS_DIR = BASE_DIR / "models" / "results" / "traditional"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Features that are SAFE to use (known before kickoff)
@@ -214,7 +300,7 @@ def get_models():
     # 2. Random Forest
     models['Random Forest'] = RandomForestClassifier(
         n_estimators=300, max_depth=12, min_samples_split=10,
-        min_samples_leaf=5, n_jobs=-1, random_state=RANDOM_STATE
+        min_samples_leaf=5, n_jobs=1, random_state=RANDOM_STATE  # n_jobs=1: threadpoolctl crash workaround
     )
 
     # 3. XGBoost
@@ -330,7 +416,7 @@ def run_cross_validation(model, X, y, n_folds=5):
     }
     cv_results = cross_validate(
         model, X, y, cv=skf, scoring=scoring,
-        return_train_score=False, n_jobs=-1
+        return_train_score=False, n_jobs=1  # n_jobs=1 to avoid threadpoolctl crash on Windows
     )
     return {
         'cv_accuracy': cv_results['test_accuracy'].mean(),
@@ -495,7 +581,7 @@ def main():
 
         if len(estimators) >= 2:
             voting_clf = VotingClassifier(
-                estimators=estimators, voting='soft', n_jobs=-1
+                estimators=estimators, voting='soft', n_jobs=1  # n_jobs=1: threadpoolctl crash workaround
             )
             eval_res = evaluate_model(voting_clf, X_train, y_train, X_test, y_test, class_names)
             all_results['Voting (Top-3)'] = eval_res

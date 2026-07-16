@@ -1,13 +1,17 @@
 """
 GNN Model Architectures for Football Match Prediction
 =====================================================
-6 different graph neural network architectures for edge classification
+7 different graph neural network architectures for edge classification
 (predicting match outcome: Home Win / Draw / Away Win).
 
 All models follow the same pattern:
 1. GNN layers process node features using graph structure
 2. For each edge (match), concatenate source + target node embeddings + edge features
 3. MLP classifier predicts outcome probabilities
+
+The 7th model (TEA-GNN) is implemented in models/tea_gnn.py and adds three
+novel components beyond the baselines: edge-conditioned attention, learned
+temporal decay via edge_time, and cross-league context pooling via league_id.
 """
 
 import torch
@@ -17,6 +21,11 @@ from torch_geometric.nn import (
     GCNConv, SAGEConv, GATConv, GINConv, NNConv,
     global_mean_pool
 )
+
+# TEA-GNN: novel architecture with edge-conditioned temporal attention
+# + cross-league context. tea_gnn.py imports EdgeClassifier from this module
+# below, so the import is placed AFTER EdgeClassifier is defined. See bottom.
+
 
 
 class EdgeClassifier(nn.Module):
@@ -279,6 +288,10 @@ class Hybrid_Model(nn.Module):
 # Factory
 # ═══════════════════════════════════════════════════════════
 
+# Import TEA-GNN AFTER EdgeClassifier + baselines are defined.
+# tea_gnn.py imports EdgeClassifier from this module (must exist first).
+from models.tea_gnn import TEA_GNN_Model
+
 MODEL_REGISTRY = {
     'GCN': GCN_Model,
     'GraphSAGE': SAGE_Model,
@@ -286,6 +299,7 @@ MODEL_REGISTRY = {
     'GIN': GIN_Model,
     'EdgeConv': EdgeConv_Model,
     'Hybrid': Hybrid_Model,
+    'TEA-GNN': TEA_GNN_Model,
 }
 
 

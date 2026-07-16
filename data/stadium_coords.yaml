@@ -1,0 +1,197 @@
+# =============================================================================
+# Stadium coordinates for 5 leagues × 10 seasons of teams.
+# Loaded by data/collectors/weather_api.py to enrich matches with weather data
+# from the Open-Meteo Archive API (free, no key required).
+#
+# Keys are the CANONICAL team names from data/team_registry.py. This ensures
+# that any team-name alias resolved by the registry will find its coordinates
+# here without needing a per-alias entry.
+# =============================================================================
+
+# --- Premier League (E0) -----------------------------------------------------
+Premier_League:
+  Arsenal:                    {lat: 51.5549, lon: -0.1084, stadium: 'Emirates Stadium'}
+  Aston Villa:                {lat: 52.5092, lon: -1.8846, stadium: 'Villa Park'}
+  Bournemouth:                {lat: 50.7352, lon: -1.8384, stadium: 'Vitality Stadium'}
+  Brentford:                  {lat: 51.4907, lon: -0.2886, stadium: 'Gtech Community Stadium'}
+  Brighton:                   {lat: 50.8619, lon: -0.0837, stadium: 'Amex Stadium'}
+  Burnley:                    {lat: 53.7890, lon: -2.2304, stadium: 'Turf Moor'}
+  Chelsea:                    {lat: 51.4817, lon: -0.1909, stadium: 'Stamford Bridge'}
+  Crystal Palace:             {lat: 51.3984, lon: -0.0855, stadium: 'Selhurst Park'}
+  Everton:                    {lat: 53.4389, lon: -2.9664, stadium: 'Goodison Park'}
+  Fulham:                     {lat: 51.4749, lon: -0.2217, stadium: 'Craven Cottage'}
+  Ipswich:                    {lat: 52.0545, lon:  1.1449, stadium: 'Portman Road'}
+  Leeds:                      {lat: 53.7780, lon: -1.5720, stadium: 'Elland Road'}
+  Leicester:                  {lat: 52.6204, lon: -1.1422, stadium: 'King Power Stadium'}
+  Liverpool:                  {lat: 53.4308, lon: -2.9608, stadium: 'Anfield'}
+  Luton:                      {lat: 51.8842, lon: -0.4317, stadium: 'Kenilworth Road'}
+  Manchester City:            {lat: 53.4831, lon: -2.2004, stadium: 'Etihad Stadium'}
+  Manchester United:          {lat: 53.4631, lon: -2.2913, stadium: 'Old Trafford'}
+  Newcastle United:           {lat: 54.9756, lon: -1.6217, stadium: 'St James Park'}
+  Nottingham Forest:          {lat: 52.9400, lon: -1.1328, stadium: 'City Ground'}
+  Sheffield United:           {lat: 53.3703, lon: -1.4709, stadium: 'Bramall Lane'}
+  Southampton:                {lat: 50.9058, lon: -1.3910, stadium: 'St Marys Stadium'}
+  Tottenham:                  {lat: 51.6042, lon: -0.0662, stadium: 'Tottenham Hotspur Stadium'}
+  West Ham:                  {lat: 51.5387, lon: -0.0166, stadium: 'London Stadium'}
+  Wolverhampton Wanderers:    {lat: 52.5903, lon: -2.1306, stadium: 'Molineux'}
+  Norwich City:              {lat: 52.6220, lon:  1.3087, stadium: 'Carrow Road'}
+  Watford:                   {lat: 51.6500, lon: -0.4017, stadium: 'Vicarage Road'}
+  West Bromwich Albion:      {lat: 52.5092, lon: -1.9646, stadium: 'The Hawthorns'}
+  Swansea City:              {lat: 51.6422, lon: -3.9344, stadium: 'Liberty Stadium'}
+  Stoke City:                {lat: 52.9854, lon: -2.1757, stadium: 'Bet365 Stadium'}
+  Huddersfield Town:          {lat: 53.6522, lon: -1.7875, stadium: 'John Smiths Stadium'}
+  Cardiff City:              {lat: 51.4741, lon: -3.2030, stadium: 'Cardiff City Stadium'}
+  Hull City:                 {lat: 53.7456, lon: -0.3686, stadium: 'MKM Stadium'}
+  Queens Park Rangers:        {lat: 51.5093, lon: -0.2321, stadium: 'Loftus Road'}
+  Sunderland:                {lat: 54.9144, lon: -1.3881, stadium: 'Stadium of Light'}
+  Middlesbrough:             {lat: 54.5781, lon: -1.2173, stadium: 'Riverside Stadium'}
+  Birmingham City:           {lat: 52.4756, lon: -1.8683, stadium: 'St Andrews'}
+  Blackburn Rovers:          {lat: 53.7351, lon: -2.4901, stadium: 'Ewood Park'}
+  Bolton Wanderers:          {lat: 53.5780, lon: -2.5386, stadium: 'Toughsheet Stadium'}
+
+# --- La Liga (SP1) ----------------------------------------------------------
+La_Liga:
+  Alaves:                     {lat: 42.8371, lon: -2.6880, stadium: 'Mendizorrotza'}
+  Almeria:                    {lat: 36.8401, lon: -2.4362, stadium: 'Power Horse Stadium'}
+  Athletic Club:              {lat: 43.2641, lon: -2.9493, stadium: 'San Mames'}
+  Atletico Madrid:            {lat: 40.4362, lon: -3.5994, stadium: 'Wanda Metropolitano'}
+  Barcelona:                  {lat: 41.3809, lon:  2.1228, stadium: 'Camp Nou'}
+  Cadiz:                      {lat: 36.5027, lon: -6.2728, stadium: 'Nuevo Mirandilla'}
+  Celta Vigo:                 {lat: 42.2119, lon: -8.7394, stadium: 'Balaidos'}
+  Elche:                      {lat: 38.2671, lon: -0.6632, stadium: 'Martinez Valero'}
+  Espanyol:                   {lat: 41.3479, lon:  2.0757, stadium: 'RCDE Stadium'}
+  Getafe:                     {lat: 40.3256, lon: -3.7148, stadium: 'Coliseum Alfonso Perez'}
+  Girona:                     {lat: 41.9619, lon:  2.8287, stadium: 'Estadi Montilivi'}
+  Granada:                    {lat: 37.1530, lon: -3.5956, stadium: 'Nuevo Los Carmenes'}
+  Las Palmas:                 {lat: 28.1004, lon: -15.4567, stadium: 'Gran Canaria'}
+  Leganes:                    {lat: 40.3575, lon: -3.7595, stadium: 'Butarque'}
+  Levante:                    {lat: 39.4954, lon: -0.3640, stadium: 'Ciutat de Valencia'}
+  Mallorca:                   {lat: 39.5901, lon:  2.6312, stadium: 'Visit Mallorca Estadi'}
+  Osasuna:                    {lat: 42.7967, lon: -1.6368, stadium: 'El Sadar'}
+  Rayo Vallecano:             {lat: 40.3920, lon: -3.6587, stadium: 'Campo de Vallecas'}
+  Real Betis:                 {lat: 37.3566, lon: -5.9817, stadium: 'Benito Villamarin'}
+  Real Madrid:                {lat: 40.4530, lon: -3.6883, stadium: 'Santiago Bernabeu'}
+  Real Sociedad:              {lat: 43.3013, lon: -1.9736, stadium: 'Reale Arena'}
+  Real Valladolid:            {lat: 41.6444, lon: -4.7612, stadium: 'Jose Zorrilla'}
+  Sevilla:                    {lat: 37.3840, lon: -5.9705, stadium: 'Ramon Sanchez Pizjuan'}
+  Valencia:                   {lat: 39.4745, lon: -0.3583, stadium: 'Mestalla'}
+  Villarreal:                 {lat: 39.9441, lon: -0.1037, stadium: 'Estadio de la Ceramica'}
+  Deportivo La Coruna:        {lat: 43.3609, lon: -8.4103, stadium: 'Riazor'}
+  Sporting Gijon:             {lat: 43.5362, lon: -5.6373, stadium: 'El Molinon'}
+  Oviedo:                    {lat: 43.3196, lon: -5.8643, stadium: 'Carlos Tartiere'}
+  Huesca:                    {lat: 42.1356, lon: -0.4123, stadium: 'El Alcoraz'}
+  Malaga:                    {lat: 36.7189, lon: -4.4239, stadium: 'La Rosaleda'}
+  Racing Santander:           {lat: 43.4609, lon: -3.8044, stadium: 'El Sardinero'}
+  Zaragoza:                  {lat: 41.6106, lon: -0.9417, stadium: 'La Romareda'}
+
+# --- Bundesliga (D1) --------------------------------------------------------
+Bundesliga:
+  Augsburg:                   {lat: 48.3238, lon: 10.8839, stadium: 'WWK Arena'}
+  Bayer Leverkusen:           {lat: 51.0383, lon:  7.0023, stadium: 'BayArena'}
+  Bayern Munich:              {lat: 48.2188, lon: 11.6247, stadium: 'Allianz Arena'}
+  Bochum:                     {lat: 51.4893, lon:  7.2231, stadium: 'Vonovia Ruhrstadion'}
+  Borussia Dortmund:          {lat: 51.4926, lon:  7.4516, stadium: 'Signal Iduna Park'}
+  Borussia M.Gladbach:        {lat: 51.1694, lon:  6.3494, stadium: 'Borussia-Park'}
+  Braunschweig:              {lat: 52.2644, lon: 10.5218, stadium: 'Eintracht-Stadion'}
+  Darmstadt:                 {lat: 49.8706, lon:  8.6600, stadium: 'Merck-Stadion am Bollenfalltor'}
+  Eintracht Frankfurt:        {lat: 50.0686, lon:  8.6455, stadium: 'Deutsche Bank Park'}
+  FC Cologne:                {lat: 50.9333, lon:  6.8747, stadium: 'RheinEnergieStadion'}
+  FC Heidenheim:             {lat: 48.6789, lon: 10.1517, stadium: 'Voith-Arena'}
+  Freiburg:                  {lat: 47.9891, lon:  7.8930, stadium: 'Europa-Park Stadion'}
+  Greuther Furth:            {lat: 49.4747, lon: 11.0186, stadium: 'Sportpark Ronhof'}
+  Hamburger SV:              {lat: 53.5860, lon:  9.8825, stadium: 'Volksparkstadion'}
+  Hertha Berlin:             {lat: 52.6146, lon: 13.2402, stadium: 'Olympiastadion'}
+  Hoffenheim:                {lat: 49.2342, lon:  9.1592, stadium: 'PreZero Arena'}
+  Holstein Kiel:             {lat: 54.3287, lon: 10.1171, stadium: 'Holstein-Stadion'}
+  Ingolstadt:               {lat: 48.7833, lon: 11.4556, stadium: 'Audi Sportpark'}
+  Kaiserslautern:           {lat: 49.4286, lon:  7.7797, stadium: 'Fritz-Walter-Stadion'}
+  Karlsruher SC:            {lat: 49.0825, lon:  8.5044, stadium: 'Wildparkstadion'}
+  Mainz 05:                 {lat: 49.9842, lon:  8.2244, stadium: 'Mewa Arena'}
+  Paderborn:                {lat: 51.7222, lon:  8.6694, stadium: 'Benteler-Arena'}
+  Nurnberg:                 {lat: 49.4268, lon: 11.1300, stadium: 'Max-Morlock-Stadion'}
+  Hannover 96:              {lat: 52.3650, lon:  9.8001, stadium: 'HDI Arena'}
+  Arminia Bielefeld:        {lat: 51.9989, lon:  8.5686, stadium: 'SchucoArena'}
+  Fortuna Dusseldorf:       {lat: 51.2614, lon:  6.7347, stadium: 'Merkur Spiel-Arena'}
+  RasenBallsport Leipzig:    {lat: 51.3450, lon: 12.3644, stadium: 'Red Bull Arena'}
+  Schalke 04:               {lat: 51.5547, lon:  7.0697, stadium: 'Veltins-Arena'}
+  St. Pauli:               {lat: 53.5669, lon:  9.9689, stadium: 'Millerntor-Stadion'}
+  VfB Stuttgart:            {lat: 48.7931, lon:  9.2301, stadium: 'MHPArena'}
+  Union Berlin:             {lat: 52.4494, lon: 13.5407, stadium: 'An der Alten Forsterei'}
+  Werder Bremen:            {lat: 53.0855, lon:  8.8436, stadium: 'Weserstadion'}
+  Wolfsburg:                {lat: 52.4312, lon: 10.8022, stadium: 'Volkswagen Arena'}
+  Energie Cottbus:          {lat: 51.7308, lon: 14.3275, stadium: 'Stadion der Freundschaft'}
+
+# --- Serie A (I1) ------------------------------------------------------------
+Serie_A:
+  AC Milan:                  {lat: 45.4781, lon:  9.1240, stadium: 'San Siro'}
+  Atalanta:                  {lat: 45.7089, lon:  9.6814, stadium: 'Gewiss Stadium'}
+  Bologna:                   {lat: 44.4900, lon: 11.2981, stadium: 'Stadio Renato Dall Ara'}
+  Cagliari:                  {lat: 39.2003, lon:  9.1377, stadium: 'Unipol Domus'}
+  Chievo:                    {lat: 45.4436, lon: 11.0186, stadium: "Stadio Marc'Antonio Bentegodi"}
+  Como:                      {lat: 45.8105, lon:  9.0806, stadium: 'Stadio Giuseppe Sinigaglia'}
+  Cremonese:                 {lat: 45.1356, lon: 10.0292, stadium: 'Stadio Giovanni Zini'}
+  Crotone:                   {lat: 39.0789, lon: 17.1331, stadium: 'Stadio Ezio Scida'}
+  Empoli:                   {lat: 43.7186, lon: 10.9383, stadium: 'Stadio Carlo Castellani'}
+  Fiorentina:               {lat: 43.7808, lon: 11.2823, stadium: 'Stadio Artemio Franchi'}
+  Frosinone:                {lat: 41.6361, lon: 13.3558, stadium: 'Stadio Benito Stirpe'}
+  Genoa:                    {lat: 44.4268, lon:  8.9575, stadium: 'Stadio Luigi Ferraris'}
+  Inter:                    {lat: 45.4781, lon:  9.1240, stadium: 'San Siro'}
+  Juventus:                 {lat: 45.1097, lon:  7.6413, stadium: 'Allianz Stadium'}
+  Lazio:                    {lat: 41.9341, lon: 12.4547, stadium: 'Stadio Olimpico'}
+  Lecce:                    {lat: 40.3547, lon: 18.1743, stadium: 'Stadio Via del Mare'}
+  Monza:                    {lat: 45.5794, lon:  9.2722, stadium: 'Stadio Brianteo'}
+  Napoli:                   {lat: 40.8280, lon: 14.1931, stadium: 'Stadio Diego Armando Maradona'}
+  Parma Calcio 1913:        {lat: 44.6925, lon: 10.3283, stadium: 'Stadio Ennio Tardini'}
+  Pescara:                  {lat: 42.4616, lon: 14.2186, stadium: 'Stadio Adriatico'}
+  Palermo:                  {lat: 38.1516, lon: 13.3492, stadium: 'Stadio Renzo Barbera'}
+  Roma:                     {lat: 41.9341, lon: 12.4547, stadium: 'Stadio Olimpico'}
+  Salernitana:              {lat: 40.6786, lon: 14.7978, stadium: 'Stadio Arechi'}
+  Sampdoria:                {lat: 44.4268, lon:  8.9575, stadium: 'Stadio Luigi Ferraris'}
+  Sassuolo:                 {lat: 44.6417, lon: 10.9236, stadium: 'Mapei Stadium'}
+  Spezia:                   {lat: 44.1150, lon:  9.6972, stadium: 'Stadio Alberto Picco'}
+  SPAL:                     {lat: 44.8607, lon: 11.5981, stadium: 'Stadio Paolo Mazza'}
+  Torino:                   {lat: 45.4519, lon:  7.6678, stadium: 'Stadio Olimpico Grande Torino'}
+  Udinese:                  {lat: 45.5997, lon: 13.2389, stadium: 'Bluenergy Stadium'}
+  Venezia:                  {lat: 45.4128, lon: 12.2167, stadium: 'Stadio Pier Luigi Penzo'}
+  Verona:                   {lat: 45.4436, lon: 11.0186, stadium: "Stadio Marc'Antonio Bentegodi"}
+  Vicenza:                  {lat: 45.5389, lon: 11.5411, stadium: 'Stadio Romeo Menti'}
+  Benevento:               {lat: 41.2070, lon: 14.7639, stadium: 'Stadio Ciro Vigorito'}
+  Brescia:                 {lat: 45.5275, lon: 10.2308, stadium: 'Stadio Mario Rigamonti'}
+  Carpi:                   {lat: 44.8856, lon: 10.8861, stadium: 'Stadio Sandro Cabassi'}
+
+# --- Ligue 1 (F1) ------------------------------------------------------------
+Ligue_1:
+  Ajaccio:                  {lat: 41.9198, lon:  8.7919, stadium: 'Stade Francois Coty'}
+  Amiens:                   {lat: 49.8814, lon:  2.2892, stadium: 'Stade de la Licorne'}
+  Angers:                   {lat: 47.4881, lon: -0.5228, stadium: 'Stade Raymond Kopa'}
+  Auxerre:                  {lat: 47.9064, lon:  3.5289, stadium: 'Stade de l Abbe-Deschamps'}
+  Bastia:                   {lat: 42.7028, lon:  9.4533, stadium: 'Stade Armand Cesari'}
+  Bordeaux:                 {lat: 44.8956, lon: -0.6036, stadium: 'Matmut Atlantique'}
+  Brest:                    {lat: 48.0914, lon: -4.4458, stadium: 'Stade Francis Le Ble'}
+  Caen:                     {lat: 49.1844, lon: -0.3617, stadium: 'Stade Michel d Ornano'}
+  Clermont Foot:            {lat: 45.7836, lon:  3.1789, stadium: 'Stade Gabriel Montpied'}
+  Dijon:                    {lat: 47.3214, lon:  5.0300, stadium: 'Stade Gaston Gerard'}
+  Evian Thonon Gaillard:    {lat: 46.3700, lon:  6.4764, stadium: 'Parc des Sports'}
+  Guingamp:                 {lat: 48.5639, lon: -3.1486, stadium: 'Stade du Roudourou'}
+  Le Havre:                 {lat: 49.4978, lon:  0.1150, stadium: 'Stade Oceane'}
+  Lens:                     {lat: 50.4333, lon:  2.8181, stadium: 'Stade Bollaert-Delelis'}
+  Lille:                    {lat: 50.6120, lon:  3.1303, stadium: 'Stade Pierre Mauroy'}
+  Lorient:                  {lat: 47.7489, lon: -3.3700, stadium: 'Stade du Moustoir'}
+  Lyon:                     {lat: 45.7653, lon:  4.9822, stadium: 'Groupama Stadium'}
+  Marseille:                {lat: 43.2700, lon:  5.3958, stadium: 'Orange Velodrome'}
+  Metz:                     {lat: 49.1244, lon:  6.1758, stadium: 'Stade Saint-Symphorien'}
+  Monaco:                   {lat: 43.7277, lon:  7.4153, stadium: 'Stade Louis II'}
+  Montpellier:              {lat: 43.6216, lon:  3.8122, stadium: 'Stade de la Mosson'}
+  Nancy:                    {lat: 48.6894, lon:  6.1819, stadium: 'Stade Marcel Picot'}
+  Nantes:                   {lat: 47.2573, lon: -1.5217, stadium: 'Stade de la Beaujoire'}
+  Nice:                     {lat: 43.7050, lon:  7.1922, stadium: 'Allianz Riviera'}
+  Nimes:                    {lat: 43.8386, lon:  4.3589, stadium: 'Stade des Costieres'}
+  Paris Saint Germain:      {lat: 48.8414, lon:  2.2531, stadium: 'Parc des Princes'}
+  Reims:                    {lat: 49.2592, lon:  4.0258, stadium: 'Stade Auguste Delaune'}
+  Rennes:                   {lat: 48.1117, lon: -1.7117, stadium: 'Roazhon Park'}
+  Saint-Etienne:            {lat: 45.7431, lon:  4.3283, stadium: 'Stade Geoffroy Guichard'}
+  Sochaux:                  {lat: 47.5167, lon:  6.8250, stadium: 'Stade Auguste Bonal'}
+  Strasbourg:               {lat: 48.5600, lon:  7.7558, stadium: 'Stade de la Meinau'}
+  Toulouse:                 {lat: 43.5833, lon:  1.4344, stadium: 'Stadium de Toulouse'}
+  Troyes:                   {lat: 48.3000, lon:  4.0667, stadium: 'Stade de l Aube'}
+  Valenciennes:             {lat: 50.3581, lon:  3.5236, stadium: 'Stade du Hainaut'}

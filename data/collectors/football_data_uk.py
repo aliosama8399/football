@@ -1,6 +1,8 @@
 """
 Football-Data.co.uk Data Collector
-Downloads historical match data with betting odds for Premier League and La Liga
+Downloads historical match data with betting odds for 5 leagues x 10 seasons.
+
+Seasons and leagues are loaded from data/config.yaml via data._config.load_config().
 """
 
 import pandas as pd
@@ -8,18 +10,11 @@ import requests
 from io import StringIO
 from pathlib import Path
 import time
+import sys
 
-# League codes for football-data.co.uk
-LEAGUES = {
-    'E0': 'Premier_League',
-    'SP1': 'La_Liga',
-    'D1': 'Bundesliga',
-    'I1': 'Serie_A',
-    'F1': 'Ligue_1'
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from data._config import load_config
 
-# Last 3 seasons (2022-23, 2023-24, 2024-25)
-SEASONS = ['2223', '2324', '2425']
 
 def download_season(league_code: str, season: str) -> pd.DataFrame:
     """
@@ -40,30 +35,35 @@ def download_season(league_code: str, season: str) -> pd.DataFrame:
         response.raise_for_status()
         
         df = pd.read_csv(StringIO(response.text), encoding='utf-8', on_bad_lines='skip')
-        print(f"  ✓ Downloaded {len(df)} matches")
+        print(f"  OK Downloaded {len(df)} matches")
         return df
     except Exception as e:
-        print(f"  ✗ Error downloading {league_code} {season}: {e}")
+        print(f"  ERR Downloading {league_code} {season}: {e}")
         return pd.DataFrame()
 
 
 def download_all_data(output_dir: str = "data/raw") -> pd.DataFrame:
     """
-    Download all match data for specified leagues and seasons
-    
+    Download all match data for the leagues and seasons defined in data/config.yaml
+
     Args:
         output_dir: Directory to save the CSV files
-        
+         
     Returns:
         Combined DataFrame with all matches
     """
+    cfg = load_config()
+    leagues_cfg = cfg["leagues"]
+    seasons = cfg["seasons"]
+    leagues = {code: info["name"] for code, info in leagues_cfg.items()}
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
     all_matches = []
     
-    for league_code, league_name in LEAGUES.items():
-        for season in SEASONS:
+    for league_code, league_name in leagues.items():
+        for season in seasons:
             df = download_season(league_code, season)
             
             if not df.empty:
@@ -139,10 +139,11 @@ def get_column_descriptions() -> dict:
 
 
 if __name__ == "__main__":
+    cfg = load_config()
     print("=" * 60)
     print("Football-Data.co.uk Data Collector")
-    print("Leagues: Premier League, La Liga, Bundesliga, Serie A, Ligue 1")
-    print("Seasons: 2022-23, 2023-24, 2024-25")
+    print(f"Leagues: {len(cfg['leagues'])}  ({', '.join(v['name'] for v in cfg['leagues'].values())})")
+    print(f"Seasons: {len(cfg['seasons'])}  ({cfg['seasons'][0]} .. {cfg['seasons'][-1]})")
     print("=" * 60)
     print()
     
