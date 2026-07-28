@@ -32,6 +32,7 @@ TEAM_REGISTRY = {
         "Nott'm Forest":         'Nottingham Forest',
         'Nottm Forest':          'Nottingham Forest',
         'Tottenham':             'Tottenham',
+        'Tottenham Hotspur':     'Tottenham',
         'Sheffield Utd':         'Sheffield United',
         'Newcastle':             'Newcastle United',
         'Wolves':                'Wolverhampton Wanderers',

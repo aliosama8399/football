@@ -118,23 +118,10 @@ async def root():
 async def get_ui():
     """Serve the main Tactical Dashboard HTML interface."""
     import os
-    import time as _t
     index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
     with open(index_path, "r", encoding="utf-8") as f:
         html = f.read()
-    html = html.replace('src="/ui/app.js"', f'src="/ui/app.js?nocache={int(_t.time()*1000)}"')
-    html = html.replace('href="/ui/style.css"', f'href="/ui/style.css?nocache={int(_t.time()*1000)}"')
-    return HTMLResponse(
-        content=html,
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
-            "Pragma": "no-cache",
-            "Expires": "Thu, 01 Jan 1970 00:00:00 GMT",
-            "Surrogate-Control": "no-store",
-            "ETag": "",
-            "Last-Modified": "Thu, 01 Jan 1970 00:00:00 GMT"
-        }
-    )
+    return HTMLResponse(content=html)
 
 
 @app.get("/ui/style.css", tags=["User Interface"])
@@ -143,14 +130,7 @@ async def get_ui_css():
     import os
     css_path = os.path.join(os.path.dirname(__file__), "static", "style.css")
     with open(css_path, "r", encoding="utf-8") as f:
-        return Response(
-            content=f.read(), media_type="text/css",
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "Thu, 01 Jan 1970 00:00:00 GMT"
-            }
-        )
+        return Response(content=f.read(), media_type="text/css")
 
 
 @app.get("/ui/app.js", tags=["User Interface"])
@@ -159,12 +139,6 @@ async def get_ui_js(nocache: str = ""):
     import os
     js_path = os.path.join(os.path.dirname(__file__), "static", "app.js")
     with open(js_path, "r", encoding="utf-8") as f:
-        return Response(
-            content=f.read(), media_type="application/javascript",
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "Thu, 01 Jan 1970 00:00:00 GMT"
-            }
-        )
+        return Response(content=f.read(), media_type="application/javascript")
+
 

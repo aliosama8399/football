@@ -166,7 +166,7 @@ class OllamaProvider(BaseLLMProvider):
         cfg = _provider_cfg("ollama")
         self.model_name = _resolve_model("ollama", model_name or None)
         self.api_url    = api_url or cfg.get("api_url", "http://localhost:11434/api/generate")
-        self.timeout    = cfg.get("timeout", 120)
+        self.timeout    = cfg.get("timeout", 5000000000)
         try:
             import requests
             self._requests = requests

@@ -97,9 +97,31 @@ FEATURE_LABELS = {
 }
 
 
+def format_match_date(date_val):
+    """Format date: remove 00:00:00 time if it's zero or missing."""
+    if date_val is None or pd.isna(date_val):
+        return ""
+    if hasattr(date_val, 'strftime'):
+        if date_val.hour == 0 and date_val.minute == 0 and date_val.second == 0:
+            return date_val.strftime('%Y-%m-%d')
+        return date_val.strftime('%Y-%m-%d %H:%M:%S')
+    s = str(date_val).strip()
+    if s.endswith(" 00:00:00"):
+        s = s[:-9]
+    return s
+
+
+def clean_match_id(raw_id):
+    """Normalize match_id string to remove trailing 00:00:00."""
+    if not raw_id:
+        return ""
+    return raw_id.replace(" 00:00:00", "").strip()
+
+
 # ═══════════════════════════════════════════════════════════
 # 429 / BROKEN-RECORD HANDLING  (merged from fix_finetune_dataset.py)
 # ═══════════════════════════════════════════════════════════
+
 #
 # If the teacher LLM (especially Ollama) returns a 429 / API-error
 # instead of a real analysis, we still write the record so we don't
@@ -294,16 +316,18 @@ def _build_env_block(row):
 def _build_match_info_block(row):
     """Extract kickoff time + referee data (pre-match, no leakage)."""
     info = {}
-    # Kickoff time
+    # Kickoff time (only include if it is a real, non-zero time)
     time_val = row.get('Time', None)
     if time_val is not None and not pd.isna(time_val):
-        # Usually a string like "15:00" or float hours; normalise to string
         if isinstance(time_val, (int, float)):
             hour = int(float(time_val))
             minute = int((float(time_val) - hour) * 60)
-            info['kickoff_time'] = f'{hour:02d}:{minute:02d}'
+            if hour > 0 or minute > 0:
+                info['kickoff_time'] = f'{hour:02d}:{minute:02d}'
         else:
-            info['kickoff_time'] = str(time_val)
+            ts = str(time_val).strip()
+            if ts and ts not in ('0', '00:00', '00:00:00', '0.0', 'nan', 'None'):
+                info['kickoff_time'] = ts
     # Referee profile
     ref = {}
     for col, label in [('Ref_AvgYellows', 'avg_yellows_per_match'),
@@ -315,6 +339,7 @@ def _build_match_info_block(row):
     if ref:
         info['referee_profile'] = ref
     return info
+
 
 
 def build_user_prompt(row: pd.Series, builder, graph, model, edge_idx: int,
@@ -687,7 +712,9 @@ def main():
             for line in f:
                 try:
                     rec = json.loads(line)
-                    existing_keys.add(rec.get('match_id', ''))
+                    mid = rec.get('match_id', '')
+                    if mid:
+                        existing_keys.add(clean_match_id(mid))
                 except json.JSONDecodeError:
                     pass
         print(f"✓ Resuming: {len(existing_keys)} already generated")
@@ -712,10 +739,12 @@ def main():
 
             home_team = row['HomeTeam']
             away_team = row['AwayTeam']
-            match_id  = f"{row.get('Date', '')}_{home_team}_vs_{away_team}"
+            date_str  = format_match_date(row.get('Date', ''))
+            match_id  = f"{date_str}_{home_team}_vs_{away_team}"
 
-            if match_id in existing_keys:
+            if clean_match_id(match_id) in existing_keys:
                 continue
+
 
             # Find edge in graph
             edge_idx = get_edge_idx_for_match(graph, builder, home_team, away_team)

@@ -9,3 +9,12 @@ strawberry-graphql[fastapi]>=0.222.0
 pyyaml>=6.0.1
 neo4j>=5.18.0
 psycopg2-binary>=2.9.9
+numpy
+pydantic[email]
+faiss-cpu
+sentence-transformers
+torch
+torchvision
+torchaudio
+pandas
+torch_geometric
