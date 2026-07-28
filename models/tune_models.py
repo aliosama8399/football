@@ -2,7 +2,7 @@
 Hyperparameter Tuning for Top Football Prediction Models
 ========================================================
 Uses Optuna (Bayesian optimization) for efficient hyperparameter search.
-Tunes top 5 models, saves best configs, and re-evaluates on held-out test set.
+Tunes all 10 models, saves best configs, and re-evaluates on held-out test set.
 """
 
 import pandas as pd
@@ -10,10 +10,86 @@ import numpy as np
 import optuna
 import joblib
 import json
+import os
 import time
 import warnings
 from pathlib import Path
 from datetime import datetime
+
+# ── Workaround for threadpoolctl "NoneType has no 'split' attribute" ──
+# Same monkeypatch as train_traditional.py: guard against get_config()
+# returning None when BLAS DLL is not recognized on Windows conda.
+# Patch ALL _Module subclasses (_OpenBLASModule is the main culprit).
+import threadpoolctl
+_orig_base_get_version = threadpoolctl._Module.get_version
+def _safe_base_get_version(self):
+    try:
+        return _orig_base_get_version(self)
+    except (AttributeError, TypeError):
+        return '0.0.0'
+threadpoolctl._Module.get_version = _safe_base_get_version
+
+if hasattr(threadpoolctl, '_OpenBLASModule'):
+    _orig_openblas_get_version = threadpoolctl._OpenBLASModule.get_version
+    def _safe_openblas_get_version(self):
+        try:
+            return _orig_openblas_get_version(self)
+        except (AttributeError, TypeError):
+            return '0.0.0'
+    threadpoolctl._OpenBLASModule.get_version = _safe_openblas_get_version
+
+if hasattr(threadpoolctl, '_BLISModule'):
+    _orig_blis_get_version = threadpoolctl._BLISModule.get_version
+    def _safe_blis_get_version(self):
+        try:
+            return _orig_blis_get_version(self)
+        except (AttributeError, TypeError):
+            return '0.0.0'
+    threadpoolctl._BLISModule.get_version = _safe_blis_get_version
+
+for cls_name in ('_MKLModule', '_OpenMPModule'):
+    if hasattr(threadpoolctl, cls_name):
+        cls = getattr(threadpoolctl, cls_name)
+        if hasattr(cls, 'get_version'):
+            orig = cls.get_version
+            def make_safe(orig_fn):
+                def _safe(self):
+                    try:
+                        return orig_fn(self)
+                    except (AttributeError, TypeError):
+                        return '0.0.0'
+                return _safe
+            cls.get_version = make_safe(orig)
+
+# Also patch _OpenBLASModule._get_extra_info / get_threading_layer / get_architecture
+# to handle missing OpenBLAS functions (older versions don't have openblas_get_parallel)
+if hasattr(threadpoolctl, '_OpenBLASModule'):
+    cls = threadpoolctl._OpenBLASModule
+    if hasattr(cls, 'get_threading_layer'):
+        orig_tl = cls.get_threading_layer
+        def _safe_get_threading_layer(self):
+            try:
+                return orig_tl(self)
+            except (AttributeError, TypeError, OSError):
+                return "unknown"
+        cls.get_threading_layer = _safe_get_threading_layer
+    if hasattr(cls, 'get_architecture'):
+        orig_arch = cls.get_architecture
+        def _safe_get_architecture(self):
+            try:
+                return orig_arch(self)
+            except (AttributeError, TypeError, OSError):
+                return "unknown"
+        cls.get_architecture = _safe_get_architecture
+    if hasattr(cls, '_get_extra_info'):
+        orig_extra = cls._get_extra_info
+        def _safe_get_extra_info(self):
+            try:
+                return orig_extra(self)
+            except (AttributeError, TypeError, OSError):
+                self.threading_layer = "unknown"
+                self.architecture = "unknown"
+        cls._get_extra_info = _safe_get_extra_info
 
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -25,6 +101,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from catboost import CatBoostClassifier
@@ -129,7 +208,7 @@ def ranked_probability_score(y_true, y_prob):
 def make_cv_scorer(model, X, y, n_folds):
     """Return mean CV accuracy."""
     skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=RANDOM_STATE)
-    scores = cross_val_score(model, X, y, cv=skf, scoring='accuracy', n_jobs=-1)
+    scores = cross_val_score(model, X, y, cv=skf, scoring='accuracy', n_jobs=1)  # n_jobs=1: avoid threadpoolctl crash on Windows
     return scores.mean()
 
 
@@ -159,7 +238,7 @@ def objective_rf(trial, X, y):
     model = RandomForestClassifier(
         n_estimators=n_estimators, max_depth=max_depth,
         min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf,
-        max_features=max_features, n_jobs=-1, random_state=RANDOM_STATE
+        max_features=max_features, n_jobs=1, random_state=RANDOM_STATE  # n_jobs=1: threadpoolctl crash workaround
     )
     return make_cv_scorer(model, X, y, N_FOLDS)
 
@@ -254,6 +333,45 @@ def objective_svm(trial, X, y):
     return make_cv_scorer(model, X, y, N_FOLDS)
 
 
+def objective_decision_tree(trial, X, y):
+    max_depth = trial.suggest_int('max_depth', 3, 30)
+    min_samples_split = trial.suggest_int('min_samples_split', 2, 30)
+    min_samples_leaf = trial.suggest_int('min_samples_leaf', 1, 20)
+    criterion = trial.suggest_categorical('criterion', ['gini', 'entropy', 'log_loss'])
+    max_features = trial.suggest_categorical('max_features', ['sqrt', 'log2', None])
+
+    model = DecisionTreeClassifier(
+        max_depth=max_depth, min_samples_split=min_samples_split,
+        min_samples_leaf=min_samples_leaf, criterion=criterion,
+        max_features=max_features, random_state=RANDOM_STATE
+    )
+    return make_cv_scorer(model, X, y, N_FOLDS)
+
+
+def objective_naive_bayes(trial, X, y):
+    var_smoothing = trial.suggest_float('var_smoothing', 1e-12, 1e-3, log=True)
+
+    model = GaussianNB(var_smoothing=var_smoothing)
+    return make_cv_scorer(model, X, y, N_FOLDS)
+
+
+def objective_knn(trial, X, y):
+    n_neighbors = trial.suggest_int('n_neighbors', 3, 50)
+    weights = trial.suggest_categorical('weights', ['uniform', 'distance'])
+    algorithm = trial.suggest_categorical('algorithm', ['auto', 'ball_tree', 'kd_tree', 'brute'])
+    p = trial.suggest_categorical('p', [1, 2])  # 1=Manhattan, 2=Euclidean
+    leaf_size = trial.suggest_int('leaf_size', 10, 100)
+
+    model = Pipeline([
+        ('scaler', StandardScaler()),
+        ('clf', KNeighborsClassifier(
+            n_neighbors=n_neighbors, weights=weights, algorithm=algorithm,
+            p=p, leaf_size=leaf_size, n_jobs=1  # n_jobs=1: threadpoolctl crash workaround
+        ))
+    ])
+    return make_cv_scorer(model, X, y, N_FOLDS)
+
+
 # ═══════════════════════════════════════════════════════════
 # MODEL REBUILDING FROM BEST PARAMS
 # ═══════════════════════════════════════════════════════════
@@ -274,7 +392,7 @@ def build_best_model(name, params):
             min_samples_split=params['min_samples_split'],
             min_samples_leaf=params['min_samples_leaf'],
             max_features=params['max_features'],
-            n_jobs=-1, random_state=RANDOM_STATE
+            n_jobs=1, random_state=RANDOM_STATE  # n_jobs=1: threadpoolctl crash workaround
         )
     elif name == 'XGBoost':
         p = {k: v for k, v in params.items()}
@@ -303,6 +421,23 @@ def build_best_model(name, params):
         if params['kernel'] == 'poly':
             svc_params['degree'] = params['degree']
         return Pipeline([('scaler', StandardScaler()), ('clf', SVC(**svc_params))])
+    elif name == 'Decision Tree':
+        return DecisionTreeClassifier(
+            max_depth=params['max_depth'], min_samples_split=params['min_samples_split'],
+            min_samples_leaf=params['min_samples_leaf'], criterion=params['criterion'],
+            max_features=params['max_features'], random_state=RANDOM_STATE
+        )
+    elif name == 'Naive Bayes':
+        return GaussianNB(var_smoothing=params['var_smoothing'])
+    elif name == 'KNN':
+        return Pipeline([
+            ('scaler', StandardScaler()),
+            ('clf', KNeighborsClassifier(
+                n_neighbors=params['n_neighbors'], weights=params['weights'],
+                algorithm=params['algorithm'], p=params['p'],
+                leaf_size=params['leaf_size'], n_jobs=1  # threadpoolctl workaround
+            ))
+        ])
 
 
 # ═══════════════════════════════════════════════════════════
@@ -389,6 +524,9 @@ def main():
         'CatBoost': objective_catboost,
         'MLP': objective_mlp,
         'SVM': objective_svm,
+        'Decision Tree': objective_decision_tree,
+        'Naive Bayes': objective_naive_bayes,
+        'KNN': objective_knn,
     }
 
     # Load baseline results for comparison

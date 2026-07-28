@@ -1,6 +1,13 @@
 """
-Understat xG Data Collector
-Collects Expected Goals (xG) data for Premier League and La Liga
+Understat xG Data Collector (custom async scraper — OPTIONAL FALLBACK).
+
+This is the 2-league custom async scraper (EPL + La Liga). It is kept as a
+fallback; the canonical path is understat_scraper.py (soccerdata-based,
+covers all 5 leagues).
+
+Seasons and leagues are loaded from data/config.yaml. Because this scraper
+is EPL/La-Liga-only by nature, only those leagues will be returned even if
+config.yaml lists 5 — the others are filtered out.
 """
 
 import asyncio
@@ -11,15 +18,24 @@ import aiohttp
 from bs4 import BeautifulSoup
 import re
 import time
+import sys
 
-# Understat league identifiers
-LEAGUES = {
-    'epl': 'Premier_League',
-    'la_liga': 'La_Liga'
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from data._config import load_config
 
-# Last 3 complete seasons (Understat uses calendar years for season start)
-YEARS = [2022, 2023, 2024]
+
+def _get_league_years():
+    """Read leagues/years from config. This scraper only supports EPL+La Liga."""
+    cfg = load_config()
+    # Map understat slug -> friendly name; only epl + la_liga are supported
+    supported_slugs = {"epl": "Premier_League", "la_liga": "La_Liga"}
+    leagues = {}
+    for code, info in cfg["leagues"].items():
+        slug = info["understat_slug"]
+        if slug in supported_slugs:
+            leagues[slug] = supported_slugs[slug]
+    years = cfg["understat_years"]
+    return leagues, years
 
 
 async def fetch_page(session: aiohttp.ClientSession, url: str) -> str:
@@ -149,8 +165,9 @@ async def collect_all_data(output_dir: str = "data/raw") -> tuple:
     all_team_stats = []
     
     async with aiohttp.ClientSession() as session:
-        for league_code, league_name in LEAGUES.items():
-            for year in YEARS:
+        leagues, years = _get_league_years()
+        for league_code, league_name in leagues.items():
+            for year in years:
                 # Get match data
                 matches = await get_league_matches(session, league_code, year)
                 

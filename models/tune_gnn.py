@@ -1,8 +1,10 @@
 """
 GNN Hyperparameter Tuning with Optuna
-=======================================
-Tunes all 6 GNN architectures using Bayesian optimization.
+======================================
+Tunes all 7 GNN architectures using Bayesian optimization.
 Each model gets its own search space tailored to its architecture.
+
+Models tuned: GCN, GraphSAGE, GAT, GIN, EdgeConv, Hybrid, TEA-GNN.
 """
 
 import sys, os
@@ -19,7 +21,8 @@ import json
 import warnings
 from pathlib import Path
 from datetime import datetime
-from sklearn.metrics import accuracy_score, f1_score, log_loss, confusion_matrix
+from sklearn.metrics import (accuracy_score, f1_score, log_loss, confusion_matrix,
+                             roc_auc_score)
 
 import matplotlib
 matplotlib.use('Agg')
@@ -28,6 +31,10 @@ import seaborn as sns
 
 from data.graph_builder import FootballGraphBuilder
 from models.gnn_models import get_model
+from models.plotting import (
+    ensure_per_model_dir, plot_all_per_model,
+    plot_per_class_f1_comparison, write_master_summary,
+)
 
 warnings.filterwarnings('ignore')
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -65,8 +72,14 @@ def ranked_probability_score(y_true, y_prob):
 # ═══════════════════════════════════════════════════════════
 
 def train_and_evaluate(model, graph_data, lr, weight_decay, epochs=250, patience=30,
-                       is_hybrid=False):
-    """Train model and return test accuracy. Used by Optuna objectives."""
+                       is_hybrid=False, is_tea_gnn=False):
+    """Train model and return test accuracy. Used by Optuna objectives.
+    
+    Dispatches on (is_hybrid, is_tea_gnn):
+      - Hybrid  : forward(x, ei, ea, tabular_features=tabular)
+      - TEA-GNN : forward(x, ei, ea, edge_time=edge_time, league_id=league_id)
+      - others  : forward(x, ei, ea)
+    """
     
     x = graph_data['x'].to(DEVICE)
     ei = graph_data['edge_index'].to(DEVICE)
@@ -75,8 +88,22 @@ def train_and_evaluate(model, graph_data, lr, weight_decay, epochs=250, patience
     train_mask = graph_data['train_mask'].to(DEVICE)
     test_mask = graph_data['test_mask'].to(DEVICE)
     tabular = graph_data['tabular_features'].to(DEVICE) if is_hybrid else None
+    edge_time = graph_data.get('edge_time')
+    if edge_time is not None:
+        edge_time = edge_time.to(DEVICE)
+    league_id = graph_data.get('league_id')
+    if league_id is not None:
+        league_id = league_id.to(DEVICE)
     
     model = model.to(DEVICE)
+    
+    def _forward(m):
+        if is_hybrid:
+            return m(x, ei, ea, tabular_features=tabular)
+        elif is_tea_gnn:
+            return m(x, ei, ea, edge_time=edge_time, league_id=league_id)
+        else:
+            return m(x, ei, ea)
     
     # Class weights
     train_labels = ey[train_mask]
@@ -90,27 +117,23 @@ def train_and_evaluate(model, graph_data, lr, weight_decay, epochs=250, patience
     best_val_loss = float('inf')
     patience_counter = 0
     best_state = None
+    train_losses = []
     
     for epoch in range(1, epochs + 1):
         model.train()
         optimizer.zero_grad()
         
-        if is_hybrid:
-            out = model(x, ei, ea, tabular_features=tabular)
-        else:
-            out = model(x, ei, ea)
+        out = _forward(model)
         
         loss = criterion(out[train_mask], ey[train_mask])
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
+        train_losses.append(loss.item())
         
         model.eval()
         with torch.no_grad():
-            if is_hybrid:
-                val_out = model(x, ei, ea, tabular_features=tabular)
-            else:
-                val_out = model(x, ei, ea)
+            val_out = _forward(model)
             val_loss = criterion(val_out[test_mask], ey[test_mask])
         
         scheduler.step(val_loss)
@@ -132,10 +155,7 @@ def train_and_evaluate(model, graph_data, lr, weight_decay, epochs=250, patience
     
     model.eval()
     with torch.no_grad():
-        if is_hybrid:
-            final_out = model(x, ei, ea, tabular_features=tabular)
-        else:
-            final_out = model(x, ei, ea)
+        final_out = _forward(model)
         test_logits = final_out[test_mask]
         y_prob = F.softmax(test_logits, dim=1).cpu().numpy()
         y_pred = test_logits.argmax(dim=1).cpu().numpy()
@@ -148,12 +168,18 @@ def train_and_evaluate(model, graph_data, lr, weight_decay, epochs=250, patience
     rps = ranked_probability_score(y_true, y_prob)
     f1_w = f1_score(y_true, y_pred, average='weighted')
     cm = confusion_matrix(y_true, y_pred)
+    try:
+        auc_macro = float(roc_auc_score(y_true, y_prob, multi_class='ovr',
+                                         average='macro', labels=[0, 1, 2]))
+    except Exception:
+        auc_macro = None
     
     return {
         'accuracy': acc, 'f1_macro': f1_m, 'f1_weighted': f1_w,
-        'log_loss': ll, 'rps': rps, 'confusion_matrix': cm,
+        'log_loss': ll, 'rps': rps, 'auc_macro': auc_macro, 'confusion_matrix': cm,
         'model_state': best_state or model.state_dict(),
         'y_true': y_true, 'y_pred': y_pred, 'y_prob': y_prob,
+        'train_losses': train_losses, 'epochs': epoch,
         'per_class_f1': {c: f1_score(y_true, y_pred, average=None, labels=[i])[0] 
                          for i, c in enumerate(['A','D','H'])},
     }
@@ -237,13 +263,34 @@ def objective_hybrid(trial, graph_data):
     return result['accuracy']
 
 
+def objective_tea_gnn(trial, graph_data):
+    """Optuna objective for TEA-GNN (novel architecture)."""
+    hidden = trial.suggest_categorical('hidden_dim', [32, 64, 128])
+    heads = trial.suggest_categorical('heads', [2, 4, 8])
+    dropout = trial.suggest_float('dropout', 0.1, 0.5)
+    lr = trial.suggest_float('lr', 1e-4, 1e-2, log=True)
+    wd = trial.suggest_float('weight_decay', 1e-5, 1e-3, log=True)
+    use_cl = trial.suggest_categorical('use_cross_league', [True, False])
+    
+    model = get_model('TEA-GNN', graph_data['num_node_features'],
+                      graph_data['num_edge_features'],
+                      hidden_dim=hidden, heads=heads, dropout=dropout,
+                      num_leagues=graph_data.get('num_leagues', 5),
+                      use_cross_league=use_cl)
+    result = train_and_evaluate(model, graph_data, lr, wd, is_tea_gnn=True)
+    return result['accuracy']
+
+
 # ═══════════════════════════════════════════════════════════
 # PLOTS
 # ═══════════════════════════════════════════════════════════
 
 def plot_tuned_comparison(baseline_df, tuned_df):
-    fig, axes = plt.subplots(1, 3, figsize=(16, 6))
-    metrics = [('accuracy', 'Accuracy ↑'), ('f1_macro', 'Macro F1 ↑'), ('rps', 'RPS ↓')]
+    fig, axes = plt.subplots(1, 4, figsize=(20, 6))
+    metrics = [('accuracy', 'Accuracy ↑'),
+               ('f1_macro', 'Macro F1 ↑'),
+               ('rps', 'RPS ↓'),
+               ('f1_D', 'Draw F1 ↑ (hardest class)')]
     
     for ax, (m, title) in zip(axes, metrics):
         models = tuned_df['model'].tolist()
@@ -252,8 +299,9 @@ def plot_tuned_comparison(baseline_df, tuned_df):
         base_vals, tuned_vals = [], []
         for model in models:
             brow = baseline_df[baseline_df['model'] == model]
-            base_vals.append(brow[m].values[0] if not brow.empty else 0)
-            tuned_vals.append(tuned_df[tuned_df['model'] == model][m].values[0])
+            base_vals.append(brow[m].values[0] if (not brow.empty and m in brow) else 0)
+            trow = tuned_df[tuned_df['model'] == model]
+            tuned_vals.append(trow[m].values[0] if (not trow.empty and m in trow) else 0)
         
         ax.barh(y + 0.2, base_vals, 0.35, label='Baseline', color='#3498db', alpha=0.7)
         ax.barh(y - 0.2, tuned_vals, 0.35, label='Tuned', color='#2ecc71', alpha=0.8)
@@ -261,7 +309,7 @@ def plot_tuned_comparison(baseline_df, tuned_df):
         ax.set_title(title, fontweight='bold')
         ax.legend(fontsize=8)
     
-    plt.suptitle('GNN Baseline vs Tuned', fontsize=14, fontweight='bold')
+    plt.suptitle('GNN Baseline vs Tuned (7 models)', fontsize=14, fontweight='bold')
     plt.tight_layout()
     plt.savefig(RESULTS_DIR / 'gnn_tuning_comparison.png', dpi=150, bbox_inches='tight')
     plt.close()
@@ -347,11 +395,13 @@ def main():
         'GIN': objective_gin,
         'EdgeConv': objective_edgeconv,
         'Hybrid': objective_hybrid,
+        'TEA-GNN': objective_tea_gnn,
     }
     
     all_results = {}
     rows = []
     all_params = {}
+    per_model_dir = ensure_per_model_dir(RESULTS_DIR)
     
     for i, (name, obj_fn) in enumerate(tuning_config.items(), 1):
         print(f"\n{'=' * 70}")
@@ -376,21 +426,29 @@ def main():
         
         # Rebuild best model and get full metrics
         is_hybrid = (name == 'Hybrid')
+        is_tea_gnn = (name == 'TEA-GNN')
         kwargs = {k: v for k, v in bp.items() if k not in ['lr', 'weight_decay']}
         if is_hybrid:
             kwargs['num_tabular_features'] = graph_data['num_tabular_features']
+        if is_tea_gnn:
+            kwargs['num_leagues'] = graph_data.get('num_leagues', 5)
+        # heads is already in kwargs for GAT / TEA-GNN (from trial.suggest_categorical)
         
         best_model = get_model(name, graph_data['num_node_features'],
                                 graph_data['num_edge_features'], **kwargs)
         metrics = train_and_evaluate(best_model, graph_data,
                                       bp.get('lr', 0.003), bp.get('weight_decay', 5e-4),
-                                      is_hybrid=is_hybrid)
+                                      is_hybrid=is_hybrid, is_tea_gnn=is_tea_gnn)
+        # Tag with tune time + epochs for plotting
+        metrics['tune_time_s'] = tune_time
         
         all_results[name] = metrics
         
         print(f"  Test Accuracy:  {metrics['accuracy']:.4f}")
         print(f"  Macro F1:       {metrics['f1_macro']:.4f}")
         print(f"  RPS:            {metrics['rps']:.4f}")
+        if metrics.get('auc_macro') is not None:
+            print(f"  AUC macro:      {metrics['auc_macro']:.4f}")
         print(f"  Per-class: A={metrics['per_class_f1']['A']:.3f} "
               f"D={metrics['per_class_f1']['D']:.3f} H={metrics['per_class_f1']['H']:.3f}")
         
@@ -398,6 +456,7 @@ def main():
             'model': name, 'accuracy': metrics['accuracy'],
             'f1_macro': metrics['f1_macro'], 'f1_weighted': metrics['f1_weighted'],
             'log_loss': metrics['log_loss'], 'rps': metrics['rps'],
+            'auc_macro': metrics.get('auc_macro', None),
             'tune_time_s': round(tune_time, 1),
             'f1_A': metrics['per_class_f1']['A'],
             'f1_D': metrics['per_class_f1']['D'],
@@ -409,6 +468,18 @@ def main():
         torch.save({'model_state': metrics['model_state'],
                     'model_name': name, 'best_params': bp}, model_path)
         print(f"  ✓ Saved to {model_path.name}")
+        
+        # ── Per-model plotting (5 PNGs) ──
+        print(f"  → Saving per-model tuned reports to {per_model_dir}...")
+        try:
+            tuned_name = f'{name} (tuned)'
+            plot_all_per_model(
+                tuned_name, metrics,
+                metrics.get('y_true'), metrics.get('y_prob'),
+                class_names=['A', 'D', 'H'], save_dir=per_model_dir
+            )
+        except Exception as e:
+            print(f"    [warn] per-model plotting failed for {name}: {e}")
     
     # ── Summary ──
     print(f"\n{'=' * 70}")
@@ -417,7 +488,10 @@ def main():
     
     df = pd.DataFrame(rows).sort_values('accuracy', ascending=False).reset_index(drop=True)
     df.index += 1
-    print(df[['model','accuracy','f1_macro','rps','f1_D','tune_time_s']].to_string())
+    show_cols = ['model', 'accuracy', 'f1_macro', 'rps', 'auc_macro',
+                 'f1_D', 'tune_time_s']
+    show_cols = [c for c in show_cols if c in df.columns]
+    print(df[show_cols].to_string())
     
     df.to_csv(RESULTS_DIR / 'gnn_tuned_comparison.csv', index=False)
     
@@ -446,12 +520,40 @@ def main():
     plot_confusion_matrices(all_results)
     plot_vs_traditional(df)
     
+    # ── NEW: per-class F1 comparison + master summary (from shared plotting.py) ──
+    # Note: keys in all_results are "ModelName (tuned)" — trim to match baseline keys
+    cleaned_results = {}
+    for k, v in all_results.items():
+        clean_key = k.replace(' (tuned)', '')
+        cleaned_results[clean_key] = v
+    try:
+        plot_per_class_f1_comparison(
+            cleaned_results, class_names=['A', 'D', 'H'],
+            save_path=RESULTS_DIR / 'gnn_tuned_per_class_f1.png',
+            title_suffix=' (Tuned)'
+        )
+        print(f"✓ Saved gnn_tuned_per_class_f1.png")
+    except Exception as e:
+        print(f"  [warn] tuned per-class comparison failed: {e}")
+    
+    try:
+        write_master_summary(
+            cleaned_results,
+            RESULTS_DIR / 'gnn_tuned_master_summary.txt',
+            title='GNN Tuned Master Summary'
+        )
+        print(f"✓ Saved gnn_tuned_master_summary.txt")
+    except Exception as e:
+        print(f"  [warn] tuned master summary failed: {e}")
+    
     best = df.iloc[0]
     print(f"\n{'=' * 70}")
     print(f"  🏆 BEST TUNED GNN: {best['model']}")
     print(f"     Accuracy:  {best['accuracy']:.4f}")
     print(f"     Macro F1:  {best['f1_macro']:.4f}")
     print(f"     RPS:       {best['rps']:.4f}")
+    if 'auc_macro' in df.columns and pd.notna(best.get('auc_macro')):
+        print(f"     AUC macro: {best['auc_macro']:.4f}")
     print(f"     Draw F1:   {best['f1_D']:.4f}")
     print(f"{'=' * 70}\n")
     
