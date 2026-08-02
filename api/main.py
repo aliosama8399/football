@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     """
     logger.info("Initializing Football RAG SaaS Service startup...")
     
-    # 1. Initialize Postgres SQL schema (User, Chat, Feedback, Overrides)
+    # 1. Bring Postgres schema to Alembic head (ORM tables only; matches/teams untouched)
     try:
         await init_db()
     except Exception as e:
@@ -56,7 +56,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error initializing KG database connection pool: {e}")
         
-    # 4. Load Football RAG System singleton (loads sentence-transformers and FAISS index)
+    # 4. Load Football RAG System singleton (loads sentence-transformers and FAISS index).
+    #    Falls back to llm='none' if the configured LLM cannot be constructed (see dependencies.py).
     try:
         init_rag_system()
     except Exception as e:

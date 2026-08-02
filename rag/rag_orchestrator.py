@@ -23,6 +23,7 @@ but can be overridden at runtime:
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import json
 import logging
 import re
 import yaml
@@ -30,9 +31,10 @@ from pathlib import Path
 from typing import Optional
 
 
-from rag.providers.kg_provider     import get_kg_provider
-from rag.providers.vector_provider import get_vector_provider
-from models.llm_providers          import get_llm_provider
+from rag.providers.kg_provider         import get_kg_provider
+from rag.providers.vector_provider     import get_vector_provider
+from rag.providers.gnn_provider        import BasePredictionProvider, GNNPredictionProvider
+from models.llm_providers              import get_llm_provider
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -87,19 +89,23 @@ class FootballRAGSystem:
         kg: str = None,
         vector: str = None,
         llm: str = None,
+        predictor: Optional[BasePredictionProvider] = None,
     ):
         cfg = _load_rag_cfg()
         kg_name     = kg     or cfg.get("kg_provider",     "neo4j")
         vector_name = vector or cfg.get("vector_provider", "faiss")
-        llm_name    = llm    or cfg.get("llm_provider",    "huggingface")
+        # None-safe LLM: "" / None / "none" disables the LLM (graceful degradation).
+        llm_name    = llm if llm else cfg.get("llm_provider", "huggingface")
 
         logger.info("Initializing RAG — KG=%s | Vector=%s | LLM=%s",
                     kg_name, vector_name, llm_name)
 
-        self.kg     = get_kg_provider(kg_name)
-        self.vector = get_vector_provider(vector_name)
-        self.llm    = get_llm_provider(llm_name)
-        self.cfg    = cfg
+        self.kg      = get_kg_provider(kg_name)
+        self.vector  = get_vector_provider(vector_name)
+        self.llm     = get_llm_provider(llm_name)  # returns None when llm_name in ("", None, "none")
+        self.cfg     = cfg
+        # Expert 1: pluggable prediction model (defaults to TEA-GNN).
+        self.predictor = predictor if predictor is not None else GNNPredictionProvider()
 
         # Cache team names for entity extraction
         global _TEAM_CACHE
@@ -171,6 +177,17 @@ class FootballRAGSystem:
         kg_context  = self._get_kg_context(teams, question)
         vec_context = self._get_vector_context(question, teams)
 
+        # None-safe LLM: when no LLM is configured, return the assembled KG + vector
+        # context as a structured JSON response instead of calling a generator.
+        if self.llm is None:
+            return json.dumps({
+                "question": question,
+                "teams_detected": teams,
+                "kg_context": kg_context,
+                "vector_context": vec_context,
+                "note": "LLM not configured (set rag.llm_provider in llm_config.yaml).",
+            }, ensure_ascii=False)
+
         # Generate with context (works for both BaseLLMProvider and HuggingFaceProvider)
         if hasattr(self.llm, "generate_with_context"):
             return self.llm.generate_with_context(
@@ -184,41 +201,47 @@ class FootballRAGSystem:
             return self.llm.generate(full_prompt)
 
     def _get_gnn_prediction(self, home_team: str, away_team: str) -> str:
-        if getattr(self, "gnn_model", None) is None:
-            try:
-                from models.explain_match import load_model_and_graph
-                model_path = _CFG_PATH.parent / "saved" / "gnn_edgeconv_tuned.pt"
-                logger.info("Loading GNN (Expert 1)...")
-                self.gnn_model, self.gnn_graph, self.gnn_builder = load_model_and_graph(model_path)
-            except Exception as e:
-                logger.error(f"Failed to load GNN (Expert 1): {e}")
-                return ""
-                
-        try:
-            home_idx = self.gnn_builder.team_to_idx.get(home_team)
-            away_idx = self.gnn_builder.team_to_idx.get(away_team)
-            if home_idx is None or away_idx is None:
-                logger.warning(f"Teams not found in GNN graph for {home_team} vs {away_team}")
-                return ""
-            
-            from models.explain_match import predict_match as gnn_predict_match
-            _, pred, probs = gnn_predict_match(self.gnn_model, self.gnn_graph, home_idx, away_idx)
-            return (
-                f"\n=== Expert 1 (Graph Neural Network) Prediction ===\n"
-                f"Predicted Outcome: {pred}\n"
-                f"Probabilities: Home Win={probs['H']:.1%} | Draw={probs['D']:.1%} | Away Win={probs['A']:.1%}\n"
-                f"=================================================="
-            )
-        except Exception as e:
-            logger.error(f"GNN Prediction failed: {e}")
+        """Return a human-readable GNN prediction block (for LLM prompts). Empty on failure."""
+        result = self.predict_structured(home_team, away_team)
+        if result is None:
             return ""
+        probs = result["probabilities"]
+        return (
+            f"\n=== Expert 1 (Graph Neural Network) Prediction ===\n"
+            f"Predicted Outcome: {result['predicted_result']}\n"
+            f"Probabilities: Home Win={probs['H']:.1%} | Draw={probs['D']:.1%} | Away Win={probs['A']:.1%}\n"
+            f"=================================================="
+        )
+
+    def predict_structured(self, home_team: str, away_team: str) -> Optional[dict]:
+        """
+        Return Expert 1's structured prediction (dict) or None on failure.
+
+        Delegates to the pluggable BasePredictionProvider; safe to call even
+        when the LLM is disabled (`llm=None`) and even when the GNN checkpoint
+        is missing (the provider warns once and returns None).
+        """
+        return self.predictor.predict(home_team, away_team)
 
     def predict_match(self, home_team: str, away_team: str) -> str:
         """
         Structured match prediction with full RAG context and GNN ensemble.
+
+        None-safe: when no LLM is configured, returns the GNN structured
+        prediction as JSON (no narrative), so the API can still answer.
         """
+        gnn_result = self.predict_structured(home_team, away_team)
+
+        # LLM absent: return structured GNN result only.
+        if self.llm is None:
+            return json.dumps({
+                "home_team": home_team,
+                "away_team": away_team,
+                "gnn_prediction": gnn_result,
+                "note": "LLM not configured; returning Expert 1 (GNN) result only.",
+            }, ensure_ascii=False)
+
         gnn_pred_text = self._get_gnn_prediction(home_team, away_team)
-        
         question = (
             f"You are Expert 2 (Fine-tuned LLM). Analyze the upcoming match between {home_team} (Home) and {away_team} (Away).\n"
             f"Consider their recent form, head-to-head history, and tactical styles (attack and defense).\n"
@@ -273,42 +296,6 @@ class FootballRAGSystem:
         global _TEAM_CACHE
         return sorted(list(_TEAM_CACHE))
 
-    def get_gnn_prediction_structured(self, home_team: str, away_team: str) -> Optional[dict]:
-        """
-        Return the structured prediction outcomes and probabilities from Expert 1 (GNN model).
-        Returns a dict with 'predicted_result' and 'probabilities' (H, D, A) or None if prediction fails.
-        """
-        if getattr(self, "gnn_model", None) is None:
-            try:
-                from models.explain_match import load_model_and_graph
-                model_path = _CFG_PATH.parent / "saved" / "gnn_edgeconv_tuned.pt"
-                logger.info("Loading GNN (Expert 1)...")
-                self.gnn_model, self.gnn_graph, self.gnn_builder = load_model_and_graph(model_path)
-            except Exception as e:
-                logger.error(f"Failed to load GNN (Expert 1): {e}")
-                return None
-                
-        try:
-            home_idx = self.gnn_builder.team_to_idx.get(home_team)
-            away_idx = self.gnn_builder.team_to_idx.get(away_team)
-            if home_idx is None or away_idx is None:
-                logger.warning(f"Teams not found in GNN graph for {home_team} vs {away_team}")
-                return None
-            
-            from models.explain_match import predict_match as gnn_predict_match
-            _, pred, probs = gnn_predict_match(self.gnn_model, self.gnn_graph, home_idx, away_idx)
-            return {
-                "predicted_result": pred,
-                "probabilities": {
-                    "H": float(probs.get("H", 0.0)),
-                    "D": float(probs.get("D", 0.0)),
-                    "A": float(probs.get("A", 0.0))
-                }
-            }
-        except Exception as e:
-            logger.error(f"GNN Prediction failed: {e}")
-            return None
-
     # ── Context Management ────────────────────────────────────────────────────
 
     def close(self):
@@ -317,53 +304,3 @@ class FootballRAGSystem:
             self.kg.close()
         except Exception:
             pass
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CLI
-# ─────────────────────────────────────────────────────────────────────────────
-
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Football RAG System — interactive CLI")
-    parser.add_argument("--kg",     default=None, help="KG provider: neo4j | postgres")
-    parser.add_argument("--vector", default=None, help="Vector provider: faiss")
-    parser.add_argument("--llm",    default=None, help="LLM provider: huggingface | gemini | ollama")
-    parser.add_argument("--predict", nargs=2, metavar=("HOME", "AWAY"),
-                        help="Predict a match: --predict Arsenal Chelsea")
-    parser.add_argument("--team",   metavar="TEAM",
-                        help="Generate team report: --team Arsenal")
-    parser.add_argument("--query",  metavar="QUESTION",
-                        help="Free-form query: --query 'How does Liverpool attack?'")
-    args = parser.parse_args()
-
-    rag = FootballRAGSystem(kg=args.kg, vector=args.vector, llm=args.llm)
-
-    try:
-        if args.predict:
-            print(rag.predict_match(args.predict[0], args.predict[1]))
-        elif args.team:
-            print(rag.get_team_report(args.team))
-        elif args.query:
-            print(rag.query(args.query))
-        else:
-            # Interactive mode
-            print("⚽  Football RAG System — type 'quit' to exit")
-            print(f"    KG: {rag.kg.__class__.__name__} | "
-                  f"Vector: {rag.vector.__class__.__name__} | "
-                  f"LLM: {rag.llm.__class__.__name__}")
-            print("-" * 60)
-            while True:
-                q = input("\nYour question: ").strip()
-                if q.lower() in ("quit", "exit", "q"):
-                    break
-                if not q:
-                    continue
-                print("\n" + rag.query(q))
-    finally:
-        rag.close()
-
-
-if __name__ == "__main__":
-    main()

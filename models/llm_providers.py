@@ -333,7 +333,13 @@ def get_llm_provider(provider_type: str = "", **kwargs) -> BaseLLMProvider:
 
     If provider_type is empty, reads default_provider from llm_config.yaml.
     kwargs forwarded to the provider: model_name, api_key, api_url (all optional).
+
+    None-safe: passing "" / None / "none" returns None (LLM disabled) instead
+    of raising, so callers can gracefully degrade when no LLM is configured.
     """
+    if not provider_type or str(provider_type).strip().lower() == "none":
+        return None
+
     if not provider_type:
         provider_type = _load_config().get("default_provider", "ollama")
 
