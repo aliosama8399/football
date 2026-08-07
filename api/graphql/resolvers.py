@@ -1,12 +1,24 @@
 import strawberry
 from typing import List, Optional
-from api.graphql.types import TeamNode, MatchRelation
+from api.graphql.types import TeamNode, MatchRelation, KBBundle, KBAnswer, KBSource
 from api.graph_db import get_graph_db
 from api.repositories.graph_repo import TeamGraphRepository
 
 def _get_repo() -> TeamGraphRepository:
     """Helper to resolve TeamGraphRepository inside execution context."""
     return TeamGraphRepository(get_graph_db())
+
+def _get_kb():
+    """Helper to resolve the global KnowledgeBase singleton inside execution context."""
+    from api.dependencies import get_knowledge_base
+    return get_knowledge_base()
+
+def _kb_sources(srcs) -> List[KBSource]:
+    return [KBSource(
+        ref=s.get("ref", ""), title=s.get("title", ""), text=s.get("text", ""),
+        source_type=s.get("source_type", ""), team=s.get("team"),
+        league=s.get("league"), season=s.get("season"), doc_id=s.get("doc_id"),
+    ) for s in srcs]
 
 @strawberry.type
 class Query:
@@ -98,3 +110,34 @@ class Query:
         """Query names of all teams competing in a league, optionally filtered by season."""
         repo = _get_repo()
         return repo.get_league_teams(league, season=season)
+
+    # ── Knowledge Base ────────────────────────────────────────────────────────
+
+    @strawberry.field
+    def kb_retrieve(self, question: str, prefer_prediction: bool = False) -> KBBundle:
+        """Retrieve the KB context bundle for a question — no LLM involved."""
+        bundle = _get_kb().retrieve(question, prefer_prediction=prefer_prediction)
+        return KBBundle(
+            question=bundle.question,
+            intent=bundle.intent,
+            teams=bundle.teams,
+            league=bundle.league,
+            season=bundle.season,
+            facts=bundle.facts,
+            tables=bundle.tables,
+            vector_hits=bundle.vector_hits,
+            sources=_kb_sources([s.to_json() for s in bundle.sources]),
+        )
+
+    @strawberry.field
+    def kb_ask(self, question: str, llm_provider: Optional[str] = None,
+               prefer_prediction: bool = False) -> KBAnswer:
+        """Ask the KB. llm_provider=None → structured answer without any LLM."""
+        answer = _get_kb().ask(question, llm_name=llm_provider,
+                               prefer_prediction=prefer_prediction)
+        return KBAnswer(
+            content=answer.content,
+            provider=answer.provider,
+            error=answer.error,
+            sources=_kb_sources([s.to_json() for s in answer.bundle.sources]),
+        )

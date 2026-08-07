@@ -1,6 +1,40 @@
 import strawberry
 from typing import List, Optional
 
+JSON = strawberry.scalars.JSON
+
+# ── Knowledge Base types (external LLM integration) ───────────────────────────
+
+@strawberry.type
+class KBSource:
+    ref: str
+    title: str
+    text: str
+    source_type: str
+    team: Optional[str] = None
+    league: Optional[str] = None
+    season: Optional[str] = None
+    doc_id: Optional[str] = None
+
+@strawberry.type
+class KBBundle:
+    question: str
+    intent: str
+    teams: List[str] = strawberry.field(default_factory=list)
+    league: Optional[str] = None
+    season: Optional[str] = None
+    facts: List[JSON] = strawberry.field(default_factory=list)
+    tables: List[JSON] = strawberry.field(default_factory=list)
+    vector_hits: List[JSON] = strawberry.field(default_factory=list)
+    sources: List[KBSource] = strawberry.field(default_factory=list)
+
+@strawberry.type
+class KBAnswer:
+    content: str
+    provider: str
+    error: Optional[str] = None
+    sources: List[KBSource] = strawberry.field(default_factory=list)
+
 @strawberry.type
 class TeamNode:
     name: str

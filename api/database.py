@@ -88,6 +88,7 @@ class Message(Base):
     conversation_id: Mapped[int] = mapped_column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
     sender: Mapped[str] = mapped_column(String(50), nullable=False)  # "user", "assistant"
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    sources: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list of SourceRef dicts
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 

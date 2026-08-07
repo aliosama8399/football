@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 # Global singleton RAG System instance
 _rag_system: Optional[FootballRAGSystem] = None
 _async_rag: Optional[AsyncRAGWrapper] = None
+_kb: Optional["KnowledgeBase"] = None
 
 def init_rag_system() -> FootballRAGSystem:
     """
@@ -53,6 +54,29 @@ def get_async_rag(rag_sys: FootballRAGSystem = Depends(get_rag_system)) -> Async
     if _async_rag is None:
         _async_rag = AsyncRAGWrapper(rag_sys)
     return _async_rag
+
+# ── KnowledgeBase (chat-KB facade) ────────────────────────────────────────────
+
+def init_knowledge_base() -> "KnowledgeBase":
+    """
+    Initialize the global KnowledgeBase singleton on app startup.
+    Cheap: construction is lazy — CSV/Postgres/FAISS/GNN load only on first use.
+    """
+    global _kb
+    if _kb is None:
+        from rag.knowledge_base.kb import KnowledgeBase
+        _kb = KnowledgeBase()
+        logger.info("KnowledgeBase singleton initialized (lazy internals).")
+    return _kb
+
+def get_knowledge_base() -> "KnowledgeBase":
+    """
+    Dependency that returns the global KnowledgeBase instance.
+    """
+    global _kb
+    if _kb is None:
+        raise RuntimeError("KnowledgeBase not initialized. Call init_knowledge_base() on startup.")
+    return _kb
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
@@ -105,10 +129,10 @@ def get_prediction_service(
 
 def get_chat_service(
     chat_repo = Depends(get_chat_repo),
-    rag_wrapper: AsyncRAGWrapper = Depends(get_async_rag)
+    knowledge_base: "KnowledgeBase" = Depends(get_knowledge_base)
 ):
     from api.services.chat_service import ChatService
-    return ChatService(chat_repo, rag_wrapper)
+    return ChatService(chat_repo, knowledge_base)
 
 def get_supervisor_service(
     db: AsyncSession = Depends(get_db),

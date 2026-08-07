@@ -52,6 +52,7 @@ class FAISSProvider(BaseVectorProvider):
         self.index_path    = Path(index_path    or cfg.get("faiss_index_path",    _BASE_DIR / "vector_store" / "faiss.index"))
         self.metadata_path = Path(metadata_path or cfg.get("faiss_metadata_path", _BASE_DIR / "vector_store" / "faiss_metadata.json"))
         self.embed_model   = cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2")
+        self._nprobe       = int(cfg.get("faiss_nprobe", 16))
 
         self._index     = None
         self._metadata  = []   # list[dict] – one dict per vector
@@ -69,14 +70,19 @@ class FAISSProvider(BaseVectorProvider):
             )
 
         self._index    = faiss.read_index(str(self.index_path))
+        # Post-hoc metadata filtering needs a broader candidate pool than the
+        # default nprobe=1 cell, otherwise selective filters return nothing.
+        if hasattr(self._index, "nprobe"):
+            self._index.nprobe = self._nprobe
         self._embedder = SentenceTransformer(self.embed_model)
 
         with open(self.metadata_path, "r", encoding="utf-8") as f:
             self._metadata = json.load(f)
 
         logger.info(
-            "FAISS index loaded: %d vectors | embed_model=%s",
+            "FAISS index loaded: %d vectors | embed_model=%s | nprobe=%d",
             self._index.ntotal, self.embed_model,
+            getattr(self._index, "nprobe", 1),
         )
 
     # ── Search ─────────────────────────────────────────────────────────────
@@ -99,8 +105,10 @@ class FAISSProvider(BaseVectorProvider):
         # Embed the query
         q_vec = self._embedder.encode([query], normalize_embeddings=True).astype("float32")
 
-        # Retrieve more candidates if filtering is requested
-        fetch_k = k * 5 if filter_meta else k
+        # Retrieve more candidates if filtering is requested (post-hoc filter
+        # pool needs to be large enough to survive selective filters).
+        fetch_k = k * 50 if filter_meta else k
+        fetch_k = max(fetch_k, 300) if filter_meta else fetch_k
         fetch_k = min(fetch_k, self._index.ntotal)
 
         distances, indices = self._index.search(q_vec, fetch_k)

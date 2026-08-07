@@ -195,10 +195,15 @@ class FootballRAGSystem:
                 kg_context=kg_context,
                 vector_context=vec_context,
             )
-        else:
-            # Fallback for providers that only expose generate()
-            full_prompt = self._build_prompt(question, kg_context, vec_context)
+        # Generic fallback: HF exposes generate(); other providers expose _call_api().
+        full_prompt = self._build_prompt(question, kg_context, vec_context)
+        if hasattr(self.llm, "generate"):
             return self.llm.generate(full_prompt)
+        if hasattr(self.llm, "_call_api"):
+            return self.llm._call_api(full_prompt)
+        raise AttributeError(
+            f"LLM {type(self.llm).__name__} exposes neither generate() nor _call_api()."
+        )
 
     def _get_gnn_prediction(self, home_team: str, away_team: str) -> str:
         """Return a human-readable GNN prediction block (for LLM prompts). Empty on failure."""

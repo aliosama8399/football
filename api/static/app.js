@@ -643,6 +643,18 @@ function renderMessages(messages) {
         const div = document.createElement('div');
         div.className = `chat-msg ${m.sender}`;
         div.textContent = m.content;
+        if (m.sender === 'assistant' && Array.isArray(m.sources) && m.sources.length > 0) {
+            const chipRow = document.createElement('div');
+            chipRow.className = 'chat-sources';
+            m.sources.slice(0, 6).forEach(s => {
+                const chip = document.createElement('span');
+                chip.className = 'source-chip';
+                chip.title = `${s.source_type || ''}${s.league ? ' | ' + s.league : ''}${s.season ? ' ' + s.season : ''}${s.team ? ' | ' + s.team : ''}`;
+                chip.textContent = `[${s.ref || '?'}] ${s.title || s.source_type || 'source'}`;
+                chipRow.appendChild(chip);
+            });
+            div.appendChild(chipRow);
+        }
         messagesContainer.appendChild(div);
     });
     

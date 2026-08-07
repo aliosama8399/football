@@ -1,4 +1,6 @@
-from pydantic import BaseModel, EmailStr, Field
+import json
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime, date
 from typing import Optional, List
 
@@ -70,9 +72,26 @@ class MessageResponse(BaseModel):
     sender: str
     content: str
     created_at: datetime
+    sources: Optional[List[dict]] = Field(
+        default=None,
+        description="KB source citations for assistant messages (JSON array of SourceRef dicts)."
+    )
 
     class Config:
         from_attributes = True
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def parse_sources(cls, v):
+        """DB stores sources as JSON text; parse into a list of dicts."""
+        if v is None or isinstance(v, list):
+            return v
+        if isinstance(v, str) and v.strip():
+            try:
+                return json.loads(v)
+            except (ValueError, TypeError):
+                return None
+        return None
 
 # ── Prediction Schemas ────────────────────────────────────────────────────────
 
@@ -257,3 +276,35 @@ class TeamProfileEditCreate(BaseModel):
 class SubmissionReviewRequest(BaseModel):
     status: str = Field(..., description="Must be 'approved' or 'rejected'")
     admin_notes: Optional[str] = None
+
+# ── Knowledge Base Schemas (external access) ───────────────────────────────────
+
+class KBRetrieveRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    prefer_prediction: bool = False
+
+class KBAskRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    llm_provider: Optional[str] = Field(
+        default=None,
+        description="None/empty → structured answer without any LLM. "
+                    "Or a registered provider: ollama, openai, gemini, anthropic, huggingface."
+    )
+    prefer_prediction: bool = False
+
+class KBBundleResponse(BaseModel):
+    question: str
+    intent: str
+    teams: List[str] = Field(default_factory=list)
+    league: Optional[str] = None
+    season: Optional[str] = None
+    facts: List[dict] = Field(default_factory=list)
+    tables: List[dict] = Field(default_factory=list)
+    vector_hits: List[dict] = Field(default_factory=list)
+    sources: List[dict] = Field(default_factory=list)
+
+class KBAnswerResponse(BaseModel):
+    content: str
+    provider: str
+    error: Optional[str] = None
+    sources: List[dict] = Field(default_factory=list)

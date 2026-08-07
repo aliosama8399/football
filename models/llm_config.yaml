@@ -16,28 +16,29 @@
 
 # ── Which provider to use by default ──────────────────────
 # Choices: ollama | openai | gemini | anthropic | huggingface
-default_provider: ollama
+default_provider: openai
 
 # ── Provider-specific settings ────────────────────────────
 providers:
 
   ollama:
     # No API key needed — Ollama runs locally
-    api_url: "http://localhost:11434/api/generate"
-    default_model: "glm-4.6:cloud"
+    api_url: "http://localhost:11434/api/chat"
+    default_model: "gemma3:1b"
     timeout: 300
     # Other models you can drop in:
-    #   llama3:8b | llama3:70b | mistral | phi3 | gemma2
+    #   llama3:8b | llama3:70b | mistral | phi3 | gemma2 | glm-4.6:cloud (retired 2026-06)
+    #   Cloud models (glm-5.2:cloud, kimi-k3:cloud, ...) require `ollama login`.
 
   openai:
-    api_key: ""           # Leave empty → reads OPENAI_API_KEY env var
-    default_model: "gpt-4o-mini"
+    api_key: ""           # SECRET — keep in .env (OPENAI_API_KEY), never commit here
+    default_model: "gpt-5.4-mini"
     timeout: 60
     # Other models you can drop in:
     #   gpt-4o | gpt-4-turbo | gpt-3.5-turbo | o1-mini
 
   gemini:
-    api_key: "AIzaSyCq9YDGxiccWWJWPJw2nZrg-iuorW2GoTI"           # Leave empty → reads GEMINI_API_KEY env var
+    api_key: ""           # SECRET — keep in .env (GEMINI_API_KEY), never commit here
     default_model: "gemini-2.0-flash"
     timeout: 60
     # Other models you can drop in:
@@ -64,12 +65,17 @@ generation:
   temperature: 0.7
   max_tokens: 2048
 
-# ── RAG System Configuration ──────────────────────────────
+  # ── RAG System Configuration ──────────────────────────────
 rag:
   # Which providers to use — switch by changing these values
   kg_provider:     postgres       # neo4j | postgres
   vector_provider: faiss       # faiss
-  llm_provider:    huggingface # huggingface | gemini | ollama | openai | none (disabled)
+  # LLM used by the RAG module (chat + /kb/ask narration).
+  #   openai | gemini | ollama | none (disabled)
+  # NOTE: huggingface is reserved for the fine-tuned football model ONLY
+  # (models/hf_provider.py, aliosama8399/football-analysisN) — select it
+  # explicitly per-request via /kb/ask llm_provider="huggingface" if needed.
+  llm_provider:    openai
 
   # GNN "Expert 1" prediction model checkpoint (BasePredictionProvider)
   # Default: tuned TEA-GNN (#1 in tuned comparison: 60.96% accuracy).
@@ -89,6 +95,16 @@ rag:
   faiss_index_path:    "rag/vector_store/faiss.index"
   faiss_metadata_path: "rag/vector_store/faiss_metadata.json"
   embed_model:         "sentence-transformers/all-MiniLM-L6-v2"
+  faiss_nprobe:        16    # IVFFlat cells searched per query (higher = better filtered recall)
+
+  # ── Knowledge base (chat / /kb endpoints) ──────────────
+  # Structured facts come from the processed match CSV; team info/stats come
+  # from PostgreSQL (TeamGraphRepository) with a CSV+tactics fallback.
+  kb_csv_path:        "data/processed/processed_matches.csv"
+  kb_tactics_path:    "rag/knowledge_base/team_tactics.json"
+  kb_index_analyses:  false        # index tactical analyses JSONL into FAISS (semantic enrichment; run rag/build_faiss_index.py after enabling)
+  kb_team_cache_ttl:  300          # seconds a team profile stays cached (per team, in-process)
+  kb_csv_fallback:    true         # answer from CSV aggregates if PostgreSQL is unavailable
 
   # ── Retrieval settings ─────────────────────────────────
   vector_top_k:    5    # Number of FAISS results per query
