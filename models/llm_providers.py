@@ -1,12 +1,12 @@
 """
 LLM Provider Interfaces for Explainable AI (XAI)
 =================================================
-Config-driven architecture: to change a model or API key, edit
-llm_config.yaml ONLY — never touch this file.
+Config-driven architecture: model names live in llm_config.yaml;
+API keys live in the git-ignored .env file (see .env.example).
 
 Priority for API keys:
-  1. Environment variable  (e.g. OPENAI_API_KEY)
-  2. llm_config.yaml       (api_key field)
+  1. Environment variable  (e.g. OPENAI_API_KEY — loaded from .env)
+  2. llm_config.yaml       (api_key field — keep empty; env-first)
   3. Raises ValueError with a clear message
 
 Priority for model names (at runtime):
@@ -24,6 +24,14 @@ import json
 import yaml
 from abc import ABC, abstractmethod
 from pathlib import Path
+
+# ── Secrets: load .env (git-ignored) so os.getenv sees LLM API keys ───────────
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
+except Exception:
+    pass
 
 # ── Config loader ─────────────────────────────────────────────────────────────
 
@@ -165,8 +173,12 @@ class OllamaProvider(BaseLLMProvider):
     def __init__(self, model_name: str = "", api_url: str = "", **kwargs):
         cfg = _provider_cfg("ollama")
         self.model_name = _resolve_model("ollama", model_name or None)
-        self.api_url    = api_url or cfg.get("api_url", "http://localhost:11434/api/generate")
-        self.timeout    = cfg.get("timeout", 120)
+        base_url = api_url or cfg.get("api_url", "http://localhost:11434/api/chat")
+        # Newer Ollama versions removed /api/generate (HTTP 410); normalise to /api/chat.
+        if base_url.rstrip("/").endswith("/api/generate"):
+            base_url = base_url[: base_url.rfind("/api/generate")] + "/api/chat"
+        self.api_url = base_url
+        self.timeout    = cfg.get("timeout", 5000000000)
         try:
             import requests
             self._requests = requests
@@ -174,13 +186,22 @@ class OllamaProvider(BaseLLMProvider):
             raise ImportError("pip install requests")
 
     def _call_api(self, prompt: str) -> str:
-        payload = {"model": self.model_name, "prompt": prompt, "stream": False}
+        payload = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }
         try:
             r = self._requests.post(self.api_url, json=payload, timeout=self.timeout)
+            if r.status_code in (404, 410):
+                # Fall back to the legacy generate endpoint if chat is unavailable.
+                legacy = self.api_url.replace("/api/chat", "/api/generate")
+                if legacy != self.api_url:
+                    r = self._requests.post(legacy, json={"model": self.model_name, "prompt": prompt, "stream": False}, timeout=self.timeout)
             r.raise_for_status()
             data = r.json()
-            # /api/generate returns 'response'; /api/chat returns 'message.content'
-            return data.get("response") or data.get("message", {}).get("content", "")
+            # /api/chat returns 'message.content'; /api/generate returns 'response'
+            return data.get("message", {}).get("content") or data.get("response", "")
         except self._requests.exceptions.ConnectionError:
             raise ConnectionError(
                 f"Cannot reach Ollama at {self.api_url}.\n"
@@ -198,25 +219,42 @@ class OpenAIProvider(BaseLLMProvider):
         self.api_key     = _resolve_api_key("openai", "OPENAI_API_KEY", api_key or None)
         self.timeout     = _provider_cfg("openai").get("timeout", 60)
         self.temperature = _gen_cfg().get("temperature", 0.7)
-        self.max_tokens  = _gen_cfg().get("max_tokens", 1024)
+        self.max_tokens  = _gen_cfg().get("max_tokens", 2048)
         try:
             from openai import OpenAI
             self._client = OpenAI(api_key=self.api_key)
         except ImportError:
             raise ImportError("pip install openai")
 
-    def _call_api(self, prompt: str) -> str:
-        response = self._client.chat.completions.create(
+    def _call_api(self, prompt: str, json_mode: bool = True) -> str:
+        """
+        Call the OpenAI chat API. json_mode forces a JSON object reply
+        (fine-tuned tactical-analysis flow); set False for free-text narration.
+        """
+        kwargs = dict(
             model=self.model_name,
             messages=[
                 {"role": "system", "content": "You are a professional football tactical analyst API designed to format inputs as JSON."},
                 {"role": "user",   "content": prompt},
             ],
-            response_format={"type": "json_object"},
             temperature=self.temperature,
-            max_tokens=self.max_tokens,
             timeout=self.timeout,
         )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        # gpt-5.x / o-series models use max_completion_tokens; older models
+        # use max_tokens. Try the modern parameter, fall back on a 400.
+        try:
+            kwargs["max_completion_tokens"] = self.max_tokens
+            response = self._client.chat.completions.create(**kwargs)
+        except Exception as e:
+            err = str(e)
+            if "max_completion_tokens" in err:
+                kwargs.pop("max_completion_tokens", None)
+                kwargs["max_tokens"] = self.max_tokens
+                response = self._client.chat.completions.create(**kwargs)
+            else:
+                raise
         return response.choices[0].message.content
 
 
@@ -230,7 +268,7 @@ class GeminiProvider(BaseLLMProvider):
         self.api_key     = _resolve_api_key("gemini", "GEMINI_API_KEY", api_key or None)
         self.timeout     = _provider_cfg("gemini").get("timeout", 60)
         self.temperature = _gen_cfg().get("temperature", 0.7)
-        self.max_tokens  = _gen_cfg().get("max_tokens", 1024)
+        self.max_tokens  = _gen_cfg().get("max_tokens", 2048)
 
         # Try stable SDK first, fall back to preview SDK
         self._sdk = None
@@ -333,7 +371,13 @@ def get_llm_provider(provider_type: str = "", **kwargs) -> BaseLLMProvider:
 
     If provider_type is empty, reads default_provider from llm_config.yaml.
     kwargs forwarded to the provider: model_name, api_key, api_url (all optional).
+
+    None-safe: passing "" / None / "none" returns None (LLM disabled) instead
+    of raising, so callers can gracefully degrade when no LLM is configured.
     """
+    if not provider_type or str(provider_type).strip().lower() == "none":
+        return None
+
     if not provider_type:
         provider_type = _load_config().get("default_provider", "ollama")
 

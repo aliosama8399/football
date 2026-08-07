@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends, HTTPException
 
 from api.database import AsyncSessionLocal
-from api.graph_db import get_graph_db
 from rag.rag_orchestrator import FootballRAGSystem
 
 from api.async_rag import AsyncRAGWrapper
@@ -14,11 +13,13 @@ logger = logging.getLogger(__name__)
 # Global singleton RAG System instance
 _rag_system: Optional[FootballRAGSystem] = None
 _async_rag: Optional[AsyncRAGWrapper] = None
+_kb: Optional["KnowledgeBase"] = None
 
 def init_rag_system() -> FootballRAGSystem:
     """
     Initialize the global singleton RAG System instance on app startup.
-    This prevents loading the embedding model and FAISS index on every request.
+    Tolerates LLM-config failure by retrying with llm="none" so the API
+    still starts (returns structured predictions without narrative).
     """
     global _rag_system
     if _rag_system is None:
@@ -27,8 +28,13 @@ def init_rag_system() -> FootballRAGSystem:
             _rag_system = FootballRAGSystem()
             logger.info("Global FootballRAGSystem initialized successfully.")
         except Exception as e:
-            logger.critical(f"Failed to initialize FootballRAGSystem: {e}", exc_info=True)
-            raise 
+            logger.warning("RAG init failed with default LLM (%s). Retrying with llm='none' (GNN only)...", e)
+            try:
+                _rag_system = FootballRAGSystem(llm="none")
+                logger.info("FootballRAGSystem initialized with llm='none' (graceful degradation).")
+            except Exception as e2:
+                logger.critical("RAG System init failed even with LLM disabled: %s", e2, exc_info=True)
+                raise
     return _rag_system
 
 def get_rag_system() -> FootballRAGSystem:
@@ -48,6 +54,29 @@ def get_async_rag(rag_sys: FootballRAGSystem = Depends(get_rag_system)) -> Async
     if _async_rag is None:
         _async_rag = AsyncRAGWrapper(rag_sys)
     return _async_rag
+
+# ── KnowledgeBase (chat-KB facade) ────────────────────────────────────────────
+
+def init_knowledge_base() -> "KnowledgeBase":
+    """
+    Initialize the global KnowledgeBase singleton on app startup.
+    Cheap: construction is lazy — CSV/Postgres/FAISS/GNN load only on first use.
+    """
+    global _kb
+    if _kb is None:
+        from rag.knowledge_base.kb import KnowledgeBase
+        _kb = KnowledgeBase()
+        logger.info("KnowledgeBase singleton initialized (lazy internals).")
+    return _kb
+
+def get_knowledge_base() -> "KnowledgeBase":
+    """
+    Dependency that returns the global KnowledgeBase instance.
+    """
+    global _kb
+    if _kb is None:
+        raise RuntimeError("KnowledgeBase not initialized. Call init_knowledge_base() on startup.")
+    return _kb
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
@@ -89,9 +118,26 @@ def get_feedback_repo(db: AsyncSession = Depends(get_db)):
     from api.repositories.feedback_repo import FeedbackRepository
     return FeedbackRepository(db)
 
-def get_graph_repo():
-    """
-    Inject TeamGraphRepository. Deferred import avoids early dependency cycle errors.
-    """
-    from api.repositories.graph_repo import TeamGraphRepository
-    return TeamGraphRepository(get_graph_db())
+# ── Service Dependency Injectors (Deferred Imports) ───────────────────────────
+
+def get_prediction_service(
+    feedback_repo = Depends(get_feedback_repo),
+    rag_wrapper: AsyncRAGWrapper = Depends(get_async_rag)
+):
+    from api.services.prediction_service import PredictionService
+    return PredictionService(feedback_repo, rag_wrapper)
+
+def get_chat_service(
+    chat_repo = Depends(get_chat_repo),
+    knowledge_base: "KnowledgeBase" = Depends(get_knowledge_base)
+):
+    from api.services.chat_service import ChatService
+    return ChatService(chat_repo, knowledge_base)
+
+def get_supervisor_service(
+    db: AsyncSession = Depends(get_db),
+    user_repo = Depends(get_user_repo),
+    feedback_repo = Depends(get_feedback_repo)
+):
+    from api.services.supervisor_service import SupervisorService
+    return SupervisorService(db, user_repo, feedback_repo)

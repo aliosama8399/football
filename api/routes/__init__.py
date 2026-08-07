@@ -4,6 +4,7 @@ from api.routes.predictions import router as predictions_router
 from api.routes.feedback import router as feedback_router
 from api.routes.supervisor import router as supervisor_router
 from api.routes.submissions import router as submissions_router
+from api.routes.kb import router as kb_router
 
 __all__ = [
     "auth_router",
@@ -11,5 +12,6 @@ __all__ = [
     "predictions_router",
     "feedback_router",
     "supervisor_router",
-    "submissions_router"
+    "submissions_router",
+    "kb_router"
 ]

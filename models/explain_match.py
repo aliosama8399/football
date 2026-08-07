@@ -184,9 +184,9 @@ Examples:
                         help="Print all available team names and exit")
     args = parser.parse_args()
 
-    model_path = BASE_DIR / "models" / "saved" / "gnn_edgeconv_tuned.pt"
+    model_path = BASE_DIR / "models" / "saved" / "gnn_tea-gnn_tuned.pt"
     if not model_path.exists():
-        print("Tuned EdgeConv model not found. Run tune_gnn.py first.")
+        print("Tuned TEA-GNN model not found. Run tune_gnn.py first.")
         return
 
     model, graph, builder = load_model_and_graph(model_path)

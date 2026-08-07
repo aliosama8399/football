@@ -32,6 +32,8 @@ import json
 from pathlib import Path
 from psycopg2.extras import execute_values
 
+from data.team_stats import build_team_aggregates, pyval
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -44,18 +46,6 @@ CFG_PATH     = BASE_DIR / "models" / "llm_config.yaml"
 def _load_cfg():
     with open(CFG_PATH) as f:
         return yaml.safe_load(f) or {}
-
-
-def _safe(val):
-    if val is None:
-        return None
-    if isinstance(val, float) and np.isnan(val):
-        return None
-    if isinstance(val, (np.integer,)):
-        return int(val)
-    if isinstance(val, (np.floating,)):
-        return float(val)
-    return val
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -219,120 +209,9 @@ CREATE INDEX IF NOT EXISTS idx_matches_season ON matches(season);
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Aggregation helpers
+# Aggregation helpers — shared with the knowledge base: see data/team_stats.py
+# (build_team_aggregates, pyval). Do NOT reimplement here.
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _nanmean(series: pd.Series) -> float:
-    v = series.mean()
-    return float(v) if not (isinstance(v, float) and np.isnan(v)) else 0.0
-
-
-def build_team_aggregates(df: pd.DataFrame) -> dict:
-    aggregates = {}
-    all_teams = set(df["HomeTeam"].unique()) | set(df["AwayTeam"].unique())
-
-    for team in all_teams:
-        home_rows = df[df["HomeTeam"] == team]
-        away_rows = df[df["AwayTeam"] == team]
-        all_rows  = pd.concat([home_rows, away_rows])
-        total     = len(home_rows) + len(away_rows)
-
-        if total == 0:
-            continue
-
-        # League
-        league = (
-            home_rows["League"].mode()[0] if len(home_rows) > 0 else
-            away_rows["League"].mode()[0] if len(away_rows) > 0 else "Unknown"
-        )
-
-        # Goals
-        avg_gh  = _nanmean(home_rows["FTHG"]) if len(home_rows) > 0 else 0.0
-        avg_ga  = _nanmean(away_rows["FTAG"]) if len(away_rows) > 0 else 0.0
-
-        # xG (team's own xG when playing home or away)
-        xg_home  = home_rows["Home_xG"] if "Home_xG" in home_rows.columns else pd.Series(dtype=float)
-        xg_away  = away_rows["Away_xG"] if "Away_xG" in away_rows.columns else pd.Series(dtype=float)
-        avg_xg   = _nanmean(pd.concat([xg_home, xg_away]))
-
-        # xGA (opponent's xG against this team)
-        xga_home = home_rows["Away_xG"] if "Away_xG" in home_rows.columns else pd.Series(dtype=float)
-        xga_away = away_rows["Home_xG"] if "Home_xG" in away_rows.columns else pd.Series(dtype=float)
-        avg_xga  = _nanmean(pd.concat([xga_home, xga_away]))
-
-        # Shots
-        sh_h  = home_rows["HS"] if "HS" in home_rows.columns else pd.Series(dtype=float)
-        sh_a  = away_rows["AS"] if "AS" in away_rows.columns else pd.Series(dtype=float)
-        avg_shots = _nanmean(pd.concat([sh_h, sh_a]))
-
-        sha_h = home_rows["AS"] if "AS" in home_rows.columns else pd.Series(dtype=float)
-        sha_a = away_rows["HS"] if "HS" in away_rows.columns else pd.Series(dtype=float)
-        avg_shots_against = _nanmean(pd.concat([sha_h, sha_a]))
-
-        sot_h  = home_rows["HST"] if "HST" in home_rows.columns else pd.Series(dtype=float)
-        sot_a  = away_rows["AST"] if "AST" in away_rows.columns else pd.Series(dtype=float)
-        avg_sot = _nanmean(pd.concat([sot_h, sot_a]))
-
-        sota_h = home_rows["AST"] if "AST" in home_rows.columns else pd.Series(dtype=float)
-        sota_a = away_rows["HST"] if "HST" in away_rows.columns else pd.Series(dtype=float)
-        avg_sot_against = _nanmean(pd.concat([sota_h, sota_a]))
-
-        # Corners
-        c_h = home_rows["HC"] if "HC" in home_rows.columns else pd.Series(dtype=float)
-        c_a = away_rows["AC"] if "AC" in away_rows.columns else pd.Series(dtype=float)
-        avg_corners = _nanmean(pd.concat([c_h, c_a]))
-
-        # Fouls
-        f_h = home_rows["HF"] if "HF" in home_rows.columns else pd.Series(dtype=float)
-        f_a = away_rows["AF"] if "AF" in away_rows.columns else pd.Series(dtype=float)
-        avg_fouls = _nanmean(pd.concat([f_h, f_a]))
-
-        # Yellows
-        y_h = home_rows["HY"] if "HY" in home_rows.columns else pd.Series(dtype=float)
-        y_a = away_rows["AY"] if "AY" in away_rows.columns else pd.Series(dtype=float)
-        avg_yellows = _nanmean(pd.concat([y_h, y_a]))
-
-        # Result rates
-        home_wins  = len(home_rows[home_rows["FTR"] == "H"]) if "FTR" in home_rows.columns else 0
-        away_wins  = len(away_rows[away_rows["FTR"] == "A"]) if "FTR" in away_rows.columns else 0
-        home_draws = len(home_rows[home_rows["FTR"] == "D"]) if "FTR" in home_rows.columns else 0
-        away_draws = len(away_rows[away_rows["FTR"] == "D"]) if "FTR" in away_rows.columns else 0
-        home_loss  = len(home_rows[home_rows["FTR"] == "A"]) if "FTR" in home_rows.columns else 0
-        away_loss  = len(away_rows[away_rows["FTR"] == "H"]) if "FTR" in away_rows.columns else 0
-
-        win_rate  = (home_wins + away_wins)  / total
-        draw_rate = (home_draws + away_draws) / total
-        loss_rate = (home_loss + away_loss)  / total
-
-        # Clean sheets
-        cs_h = len(home_rows[home_rows["FTAG"] == 0]) if "FTAG" in home_rows.columns else 0
-        cs_a = len(away_rows[away_rows["FTHG"] == 0]) if "FTHG" in away_rows.columns else 0
-        clean_sheet_rate = (cs_h + cs_a) / total
-
-        seasons = sorted(set(all_rows["Season"].astype(str).unique()))
-
-        aggregates[team] = dict(
-            league=league,
-            total_matches=total,
-            avg_goals_home=avg_gh,
-            avg_goals_away=avg_ga,
-            avg_xg=avg_xg,
-            avg_xga=avg_xga,
-            avg_shots=avg_shots,
-            avg_shots_against=avg_shots_against,
-            avg_sot=avg_sot,
-            avg_sot_against=avg_sot_against,
-            avg_corners=avg_corners,
-            avg_fouls=avg_fouls,
-            avg_yellows=avg_yellows,
-            win_rate=win_rate,
-            draw_rate=draw_rate,
-            loss_rate=loss_rate,
-            clean_sheet_rate=clean_sheet_rate,
-            seasons=seasons,
-        )
-
-    return aggregates
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -503,7 +382,7 @@ def insert_matches(cur, df: pd.DataFrame, batch_size: int = 500):
 
     db_cols = list(sub.columns)
     records = [
-        tuple(_safe(row[c]) for c in db_cols)
+        tuple(pyval(row[c]) for c in db_cols)
         for _, row in sub.iterrows()
     ]
 

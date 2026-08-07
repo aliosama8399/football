@@ -88,6 +88,7 @@ class Message(Base):
     conversation_id: Mapped[int] = mapped_column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
     sender: Mapped[str] = mapped_column(String(50), nullable=False)  # "user", "assistant"
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    sources: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list of SourceRef dicts
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 
@@ -224,90 +225,18 @@ class TacticalAnalysis(Base):
     reviewer: Mapped[Optional["User"]] = relationship(foreign_keys=[reviewed_by_id])
 
 async def init_db():
-    logger.info("Initializing database schema...")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(_run_migrations)
-    logger.info("Database schema initialized successfully.")
+    """
+    Bring the database schema to the Alembic head.
+    Alembic is the single source of truth for the ORM tables
+    (users, conversations, messages, feedbacks, match_submissions,
+    tactical_analyses, prediction_overrides). Non-ORM tables
+    (matches, teams) are excluded via include_object in alembic/env.py.
+    """
+    logger.info("Running Alembic migrations (upgrade head)...")
+    from alembic import command
+    from alembic.config import Config
 
-
-def _run_migrations(connection):
-    from sqlalchemy import text as sa_text
-    logger.info("Running schema migrations...")
-
-    connection.execute(sa_text("""
-        DO $$ BEGIN
-            ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS suggested_attack_headline TEXT;
-        EXCEPTION WHEN duplicate_column THEN NULL;
-        END $$;
-    """))
-    connection.execute(sa_text("""
-        DO $$ BEGIN
-            ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS suggested_defense_headline TEXT;
-        EXCEPTION WHEN duplicate_column THEN NULL;
-        END $$;
-    """))
-    connection.execute(sa_text("""
-        DO $$ BEGIN
-            ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS suggested_strengths TEXT;
-        EXCEPTION WHEN duplicate_column THEN NULL;
-        END $$;
-    """))
-    connection.execute(sa_text("""
-        DO $$ BEGIN
-            ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS suggested_weaknesses TEXT;
-        EXCEPTION WHEN duplicate_column THEN NULL;
-        END $$;
-    """))
-
-    connection.execute(sa_text("""
-        CREATE TABLE IF NOT EXISTS match_submissions (
-            id              SERIAL PRIMARY KEY,
-            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            status          VARCHAR(20) DEFAULT 'pending' NOT NULL,
-            home_team       VARCHAR(100) NOT NULL,
-            away_team       VARCHAR(100) NOT NULL,
-            match_date      DATE NOT NULL,
-            league          VARCHAR(50) NOT NULL,
-            season          VARCHAR(10) NOT NULL,
-            home_goals      INTEGER NOT NULL,
-            away_goals      INTEGER NOT NULL,
-            home_ht_goals   INTEGER NOT NULL,
-            away_ht_goals   INTEGER NOT NULL,
-            home_xg         FLOAT,
-            away_xg         FLOAT,
-            home_shots      INTEGER NOT NULL,
-            away_shots      INTEGER NOT NULL,
-            home_sot        INTEGER NOT NULL,
-            away_sot        INTEGER NOT NULL,
-            home_corners    INTEGER NOT NULL,
-            away_corners    INTEGER NOT NULL,
-            home_fouls      INTEGER NOT NULL,
-            away_fouls      INTEGER NOT NULL,
-            home_yellows    INTEGER NOT NULL,
-            away_yellows    INTEGER NOT NULL,
-            home_reds       INTEGER NOT NULL,
-            away_reds       INTEGER NOT NULL,
-            admin_notes     TEXT,
-            reviewed_by_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-            created_at      TIMESTAMP DEFAULT NOW(),
-            updated_at      TIMESTAMP DEFAULT NOW()
-        );
-    """))
-
-    connection.execute(sa_text("""
-        CREATE TABLE IF NOT EXISTS tactical_analyses (
-            id              SERIAL PRIMARY KEY,
-            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            status          VARCHAR(20) DEFAULT 'pending' NOT NULL,
-            home_team       VARCHAR(100) NOT NULL,
-            away_team       VARCHAR(100) NOT NULL,
-            match_date      DATE NOT NULL,
-            analysis_text   TEXT NOT NULL,
-            admin_notes     TEXT,
-            reviewed_by_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-            created_at      TIMESTAMP DEFAULT NOW(),
-            updated_at      TIMESTAMP DEFAULT NOW()
-        );
-    """))
-    logger.info("Migrations applied successfully.")
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("sqlalchemy.url", settings.postgres_dsn)
+    command.upgrade(cfg, "head")
+    logger.info("Database schema is up to date (Alembic head).")

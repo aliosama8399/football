@@ -45,12 +45,14 @@ class ChatRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def save_message(self, conversation_id: int, sender: str, content: str) -> Message:
+    async def save_message(self, conversation_id: int, sender: str, content: str,
+                           sources: Optional[str] = None) -> Message:
         """Save a new chat message and update the parent conversation's timestamp."""
         message = Message(
             conversation_id=conversation_id,
             sender=sender,
-            content=content
+            content=content,
+            sources=sources
         )
         self.db.add(message)
         

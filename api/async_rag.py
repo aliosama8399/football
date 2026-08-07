@@ -33,10 +33,10 @@ class AsyncRAGWrapper:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self.rag.compare_teams, team_a, team_b)
 
-    async def get_gnn_prediction_structured(self, home_team: str, away_team: str) -> Optional[dict]:
+    async def predict_structured(self, home_team: str, away_team: str) -> Optional[dict]:
         """Asynchronously run GNN (Expert 1) prediction returning structured outcome & probabilities."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self.rag.get_gnn_prediction_structured, home_team, away_team)
+        return await loop.run_in_executor(self._executor, self.rag.predict_structured, home_team, away_team)
 
     def get_available_teams(self) -> List[str]:
         """Fetch available team list (runs fast in-memory, no offloading needed)."""

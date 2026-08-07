@@ -11,7 +11,7 @@ from strawberry.fastapi import GraphQLRouter
 from api.config import settings
 from api.database import init_db, AsyncSessionLocal
 from api.graph_db import init_graph_db, close_graph_db
-from api.dependencies import init_rag_system, get_rag_system
+from api.dependencies import init_rag_system, get_rag_system, init_knowledge_base
 from api.auth import seed_supervisor_user
 from api.routes import (
     auth_router,
@@ -19,7 +19,8 @@ from api.routes import (
     predictions_router,
     feedback_router,
     supervisor_router,
-    submissions_router
+    submissions_router,
+    kb_router
 )
 from api.graphql import schema
 
@@ -36,7 +37,7 @@ async def lifespan(app: FastAPI):
     """
     logger.info("Initializing Football RAG SaaS Service startup...")
     
-    # 1. Initialize Postgres SQL schema (User, Chat, Feedback, Overrides)
+    # 1. Bring Postgres schema to Alembic head (ORM tables only; matches/teams untouched)
     try:
         await init_db()
     except Exception as e:
@@ -56,12 +57,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error initializing KG database connection pool: {e}")
         
-    # 4. Load Football RAG System singleton (loads sentence-transformers and FAISS index)
+    # 4. Load Football RAG System singleton (loads sentence-transformers and FAISS index).
+    #    Falls back to llm='none' if the configured LLM cannot be constructed (see dependencies.py).
     try:
         init_rag_system()
     except Exception as e:
         logger.error(f"Error loading RAG system structures: {e}")
         raise
+
+    # 4.5. KnowledgeBase facade (chat-KB). Construction is lazy — internals
+    #      (CSV, Postgres, FAISS, GNN) load on first question; never fatal.
+    try:
+        init_knowledge_base()
+    except Exception as e:
+        logger.error(f"Error initializing KnowledgeBase: {e}")
+
     yield
     
     logger.info("Executing teardown / shutdown cleanup...")
@@ -97,6 +107,7 @@ app.include_router(predictions_router, prefix="/api/v1")
 app.include_router(feedback_router, prefix="/api/v1")
 app.include_router(supervisor_router, prefix="/api/v1")
 app.include_router(submissions_router, prefix="/api/v1")
+app.include_router(kb_router, prefix="/api/v1")
 
 # Mount Strawberry GraphQL endpoint
 graphql_app = GraphQLRouter(schema)
@@ -118,23 +129,10 @@ async def root():
 async def get_ui():
     """Serve the main Tactical Dashboard HTML interface."""
     import os
-    import time as _t
     index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
     with open(index_path, "r", encoding="utf-8") as f:
         html = f.read()
-    html = html.replace('src="/ui/app.js"', f'src="/ui/app.js?nocache={int(_t.time()*1000)}"')
-    html = html.replace('href="/ui/style.css"', f'href="/ui/style.css?nocache={int(_t.time()*1000)}"')
-    return HTMLResponse(
-        content=html,
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
-            "Pragma": "no-cache",
-            "Expires": "Thu, 01 Jan 1970 00:00:00 GMT",
-            "Surrogate-Control": "no-store",
-            "ETag": "",
-            "Last-Modified": "Thu, 01 Jan 1970 00:00:00 GMT"
-        }
-    )
+    return HTMLResponse(content=html)
 
 
 @app.get("/ui/style.css", tags=["User Interface"])
@@ -143,14 +141,7 @@ async def get_ui_css():
     import os
     css_path = os.path.join(os.path.dirname(__file__), "static", "style.css")
     with open(css_path, "r", encoding="utf-8") as f:
-        return Response(
-            content=f.read(), media_type="text/css",
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "Thu, 01 Jan 1970 00:00:00 GMT"
-            }
-        )
+        return Response(content=f.read(), media_type="text/css")
 
 
 @app.get("/ui/app.js", tags=["User Interface"])
@@ -159,12 +150,6 @@ async def get_ui_js(nocache: str = ""):
     import os
     js_path = os.path.join(os.path.dirname(__file__), "static", "app.js")
     with open(js_path, "r", encoding="utf-8") as f:
-        return Response(
-            content=f.read(), media_type="application/javascript",
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "Thu, 01 Jan 1970 00:00:00 GMT"
-            }
-        )
+        return Response(content=f.read(), media_type="application/javascript")
+
 
