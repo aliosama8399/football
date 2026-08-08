@@ -1,6 +1,9 @@
+import asyncio
 import strawberry
 from typing import List, Optional
-from api.graphql.types import TeamNode, MatchRelation, KBBundle, KBAnswer, KBSource
+from api.graphql.types import (TeamNode, MatchRelation, Best11Entry,
+                               Best11Sub, Best11Result, Best11Season,
+                               Best11H2H, KBBundle, KBAnswer, KBSource)
 from api.graph_db import get_graph_db
 from api.repositories.graph_repo import TeamGraphRepository
 
@@ -19,6 +22,21 @@ def _kb_sources(srcs) -> List[KBSource]:
         source_type=s.get("source_type", ""), team=s.get("team"),
         league=s.get("league"), season=s.get("season"), doc_id=s.get("doc_id"),
     ) for s in srcs]
+
+def _match_relation(m: dict) -> MatchRelation:
+    dt = m.get("date")
+    return MatchRelation(
+        date=str(dt) if dt else "",
+        home_team=m.get("home_team", ""),
+        away_team=m.get("away_team", ""),
+        home_goals=int(m.get("home_goals", 0)),
+        away_goals=int(m.get("away_goals", 0)),
+        result=m.get("result", "D"),
+        home_xg=float(m["home_xg"]) if m.get("home_xg") is not None else None,
+        away_xg=float(m["away_xg"]) if m.get("away_xg") is not None else None,
+        league=m.get("league", "Unknown"),
+        season=m.get("season", "Unknown")
+    )
 
 @strawberry.type
 class Query:
@@ -62,48 +80,91 @@ class Query:
         """Query head-to-head match history between two specific teams."""
         repo = _get_repo()
         matches = repo.get_head_to_head(team_a, team_b, limit=limit)
-        results = []
-        for m in matches:
-            dt = m.get("date")
-            results.append(
-                MatchRelation(
-                    date=str(dt) if dt else "",
-                    home_team=m.get("home_team", team_a),
-                    away_team=m.get("away_team", team_b),
-                    home_goals=int(m.get("home_goals", 0)),
-                    away_goals=int(m.get("away_goals", 0)),
-                    result=m.get("result", "D"),
-                    home_xg=float(m["home_xg"]) if m.get("home_xg") is not None else None,
-                    away_xg=float(m["away_xg"]) if m.get("away_xg") is not None else None,
-                    league=m.get("league", "Unknown"),
-                    season=m.get("season", "Unknown")
-                )
-            )
-        return results
+        return [_match_relation(m) for m in matches]
 
     @strawberry.field
     def recent_form(self, team_name: str, limit: int = 5) -> List[MatchRelation]:
         """Query recent form matches for a team."""
         repo = _get_repo()
         matches = repo.get_recent_form(team_name, n=limit)
-        results = []
-        for m in matches:
-            dt = m.get("date")
-            results.append(
-                MatchRelation(
-                    date=str(dt) if dt else "",
-                    home_team=m.get("home_team", ""),
-                    away_team=m.get("away_team", ""),
-                    home_goals=int(m.get("home_goals", 0)),
-                    away_goals=int(m.get("away_goals", 0)),
-                    result=m.get("result", "D"),
-                    home_xg=float(m["home_xg"]) if m.get("home_xg") is not None else None,
-                    away_xg=float(m["away_xg"]) if m.get("away_xg") is not None else None,
-                    league=m.get("league", "Unknown"),
-                    season=m.get("season", "Unknown")
-                )
-            )
-        return results
+        return [_match_relation(m) for m in matches]
+
+    @strawberry.field
+    def matches_between(self, team_a: str, team_b: str,
+                        league: Optional[str] = None,
+                        season: Optional[str] = None,
+                        limit: int = 10) -> List[MatchRelation]:
+        """Matches between two teams, optionally scoped to one league-season
+        (e.g. league='Premier_League', season='2425') — backed by the
+        processed match dataset."""
+        store = _get_kb()._store
+        matches = store.head_to_head(team_a, team_b, limit=limit,
+                                     league=league, season=season)
+        return [_match_relation(m) for m in matches]
+
+    @strawberry.field
+    async def best11(self, team: str, league: str, season: str = "2425",
+                     formation: str = "auto",
+                     date: Optional[str] = None,
+                     opponent: Optional[str] = None) -> Optional[Best11Result]:
+        """Best XI for a team & season from team-share player ratings.
+
+        formation: 'auto' (default) fits the strongest shape to the squad
+        (4-3-3 / 4-2-3-1 / 4-4-2 / 3-5-2), or a specific formation.
+        opponent: when set, ratings are blended 70/30 with the player's
+        head-to-head performance against that opponent, so the XI is
+        match-specific; each entry carries season and H2H stat blocks.
+        league is the config league name (Premier_League, La_Liga, ...).
+        date (ISO 'YYYY-MM-DD') switches to through-the-season ratings:
+        per-match player stats and team totals cumulated up to that date,
+        so the lineup for a specific fixture never uses future data.
+        Squad fetch is cached on disk; first call for a team may scrape
+        FBRef/understat, so this runs off the event loop.
+        """
+        from data._config import get_leagues
+        code_map = {info["name"]: code for code, info in get_leagues().items()}
+        league_code = code_map.get(league)
+        if league_code is None:
+            return Best11Result(team=team, league_code="", season=season,
+                                formation=formation,
+                                error=f"Unknown league '{league}'")
+        try:
+            from data.best11 import solve_best11
+            result = await asyncio.to_thread(solve_best11, team, league_code,
+                                             season, formation, "all", False,
+                                             date, opponent)
+        except Exception as e:
+            return Best11Result(team=team, league_code=league_code,
+                                season=season, formation=formation,
+                                error=str(e))
+        if not result:
+            return Best11Result(team=team, league_code=league_code,
+                                season=season, formation=formation,
+                                error="no result")
+        return Best11Result(
+            team=result.get("team", team),
+            league_code=result.get("league_code", league_code),
+            season=result.get("season", season),
+            formation=result.get("formation", formation),
+            lineup=[Best11Entry(
+                slot=e["slot"], name=e["name"],
+                position=e.get("position"), rating=float(e.get("rating", 0.0)),
+                minutes=int(e.get("minutes") or 0), flex=bool(e.get("flex")),
+                top_shares=e.get("top_shares") or [],
+                season=Best11Season(**e.get("season") or {})
+                if e.get("season") else None,
+                h2h=Best11H2H(**e.get("h2h") or {}) if e.get("h2h") else None,
+            ) for e in result.get("lineup", [])],
+            captain=result.get("captain"),
+            subs=[Best11Sub(
+                slot=s["slot"], out=s["out"], in_=s["in"],
+                rating_delta=float(s.get("rating_delta", 0.0)),
+                reason=s.get("reason", ""),
+            ) for s in result.get("subs", [])],
+            bench=result.get("bench") or [],
+            notes=result.get("notes") or [],
+            error=result.get("error"),
+        )
 
     @strawberry.field
     def league_teams(self, league: str, season: Optional[str] = None) -> List[str]:

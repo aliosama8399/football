@@ -80,29 +80,62 @@ For more details, check [rag/SETUP.md](file:///d:/SASUniversityEdition/Machine/M
 
 ## 🔄 Data & Model Pipelines
 
-### Step 1: Collect Raw Data
-Downloads 10 seasons of match and expected goals (xG) data for PL, La Liga, Bundesliga, Serie A, and Ligue 1:
+Everything is **config-driven**: `data/config.yaml` is the single source of truth for seasons, leagues, and window sizes (`data/_config.py` loads it — no hard-coded constants in collectors or preprocess). Team-name aliases live in `data/team_registry.py`.
+
+Run the stages in order. Each stage re-runs cleanly on top of the previous one; the only stage that takes a while is weather enrichment inside Stage 2 (~1h, rate-limited).
+
+### Stage 1 — Collect Raw Data
+
 ```powershell
+# football-data.co.uk match results + Understat xG (via soccerdata), all seasons & leagues from config
 python data/collect_all.py
+
+# Per-match player stats (minutes, goals, xG, xA, shots, key passes) — powers H2H blends & through-date ratings
+python -m data.collectors.player_match_stats --leagues E0,SP1,D1,I1,F1 --seasons 2425
+
+# Optional: warm all best-11 squad caches (~98 teams, 50-60 min) so first-use predictions never scrape live
+python -m data.collectors.prewarm_squads --season 2425
 ```
 
-### Step 2: Preprocessing & Feature Engineering
-Calculates rolling form features (past 5 matches), referee strictness, and H2H records:
+Outputs: `data/raw/football_data_uk_combined.csv`, `data/raw/understat_xg_data.csv`, `data/raw/player_match/player_match_{LEAGUE}_{SEASON}.csv`, `data/raw/squads_cache/all_*.json`.
+
+### Stage 2 — Preprocessing & Feature Engineering
+
 ```powershell
 python data/preprocess.py
+python data/sanity_check.py   # quick validation of the processed table
 ```
 
-### Step 3: Train Match Prediction Models
-Train GNN (EdgeConv) or traditional machine learning models:
+Builds rolling form (5-match window), H2H records, referee strictness, weather (Open-Meteo archive, rate-limited ~1h) and season-cumulative features. Outputs: `data/processed/processed_matches.csv`, `data/features/ml_ready_data.csv`.
+
+### Stage 3 — Train Match Prediction Models
+
 ```powershell
-# Train GNN
+# GNN (EdgeConv) — uses processed_matches.csv
 python models/train_gnn.py
 
-# Train CatBoost/RandomForest/Voting Ensembles
+# Traditional ensemble (CatBoost / RandomForest / Voting) — trains 22/23+23/24, tests on 24/25
 python models/train_traditional.py
+
+# Optional: hyperparameter tuning (Optuna) — slow, run after a successful baseline
+python models/tune_gnn.py
+python models/tune_models.py
+
+# Optional: GNNExplainer → LLM finetune dataset (RAG training data for data/finetune/)
+python data/build_finetune_dataset.py
 ```
 
-### Step 4: Build RAG Knowledge Base
+### Stage 4 — Best-11 Feature (ratings, H2H, lineups)
+
+No training here — team-share ratings are computed on the fly from `processed_matches.csv` (`data/team_totals.py`) + the squad caches. After Stage 1+2 you can smoke-test:
+
+```powershell
+python data/best11.py "Real Madrid" SP1 --season 2425 --formation auto
+python data/best11.py "Barcelona" SP1 --season 2425 --formation auto --json
+```
+
+### Stage 5 — Build RAG Knowledge Base
+
 1. Extract tactical attributes from generated analysis data:
    ```powershell
    python rag/extract_tactics.py
@@ -116,6 +149,44 @@ python models/train_traditional.py
    ```powershell
    python rag/build_faiss_index.py
    ```
+
+### Stage 6 — Run the Web Application
+
+```powershell
+python -m uvicorn api.main:app --reload --port 8001
+```
+
+Open **`http://localhost:8001`** (Admin Portal default credentials: `admin` / `AdminPass123!`).
+
+---
+
+## 📅 Adding a New Season (e.g. 2025-26)
+
+The code is structured so a new season needs **no collector or preprocess changes**:
+
+1. **Edit `data/config.yaml`** — the only file that defines scope:
+   ```yaml
+   seasons: ['1516', ..., '2425', '2526']        # football-data.co.uk format
+   understat_years: [2015, ..., 2024, 2025]      # calendar year of season start
+   soccerdata_seasons: ['2015-2016', ..., '2024-2025', '2025-2026']
+   ```
+   The three lists must stay aligned (same count, matching entries).
+2. **`data/team_registry.py`** — add aliases for promoted/new teams (needed for team-name normalization in H2H and provider fusion).
+3. **Update the few hard-coded test-season spots** (training scripts split train/test on the current season `2425`):
+   | File | Line | Constant |
+   |---|---|---|
+   | `models/train_traditional.py` | 248 | `test_mask = df['Season'] == 2425` |
+   | `models/tune_models.py` | 173 | `test_mask = df['Season'] == 2425` |
+   | `data/graph_builder.py` | 185 | `test_seasons = [2425]` |
+   | `data/build_finetune_dataset.py` | ~700 | `process_seasons` list |
+   | `data/validate_ratings.py` | 32 | `SEASON = "2425"` |
+   | `data/collectors/player_probe.py` | 34 | `SEASON = "2425"` |
+   | `api/graphql/resolvers.py` | 106 | `best_11` default `season="2425"` |
+   Everything else takes the season as a CLI/API argument (`--season`, `--seasons`, GraphQL `season`) — collectors, preprocess, prewarm, player_match_stats, best11, and the H2H feed all read it per call.
+4. **Rerun Stages 1 → 6** above with the new season code. Caches are keyed per team+league+season (`all_{Team}_{League}_{Season}.json`), so old-season caches stay valid and new ones are created on demand or via `prewarm_squads`.
+
+**Retraining after a code change** (feature tweaks, bug fixes): only Stages 2, 3, 4, and 6 need rerunning — collection is unchanged. `processed_matches.csv` and the squad caches are idempotent outputs of their stages, so re-running them is safe.
+
 
 ---
 

@@ -132,7 +132,14 @@ class MatchDataStore:
         """Standings: {position, team, played, wins, draws, losses, ...}."""
         return build_league_table(self.df, league=league, season=season)
 
-    def head_to_head(self, team_a, team_b, limit: int = 10) -> List[dict]:
+    def head_to_head(self, team_a, team_b, limit: int = 10,
+                     league: Optional[str] = None,
+                     season: Optional[str] = None) -> List[dict]:
+        """Head-to-head fixtures between two teams.
+
+        league/season (optional) scope the search to one competition run —
+        e.g. the Premier_League 2425 season — instead of all seasons.
+        """
         a = self.resolve_team(team_a)
         b = self.resolve_team(team_b)
         if a is None or b is None or a == b:
@@ -142,6 +149,10 @@ class MatchDataStore:
             ((df["HomeTeam"] == a) & (df["AwayTeam"] == b))
             | ((df["HomeTeam"] == b) & (df["AwayTeam"] == a))
         )
+        if league:
+            mask &= df["League"].astype(str) == str(league)
+        if season:
+            mask &= df["Season"].astype(str) == str(season)
         sub = df[mask].sort_values("_dt", ascending=False).head(limit)
         return [self._match_row(r) for _, r in sub.iterrows()]
 

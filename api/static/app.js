@@ -41,6 +41,10 @@ function initTabNavigation() {
                 const contributeLeague = document.getElementById('match-league-select').value;
                 loadContributeTeams(contributeLeague);
             }
+            if (currentTab === 'best11-tab') {
+                const best11League = document.getElementById('best11-league-select').value;
+                loadBest11Teams(best11League);
+            }
             if (currentTab === 'supervisor-tab') {
                 fetchSupervisorQueue();
             }
@@ -385,6 +389,12 @@ function setupEventListeners() {
     
     // Retrieve profile button
     document.getElementById('load-profile-btn').addEventListener('click', loadTeamProfile);
+
+    // Best XI tab
+    document.getElementById('best11-league-select').addEventListener('change', (e) => {
+        loadBest11Teams(e.target.value);
+    });
+    document.getElementById('predict-best11-btn').addEventListener('click', predictBest11);
     
     // Contribute tab: league change → reload team selects
     document.getElementById('match-league-select').addEventListener('change', async (e) => {
@@ -924,6 +934,178 @@ async function loadTeamProfile() {
             </div>
         `;
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Best XI Tab — Next-Season Preview (predicted XIs + subs, no fixture data)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Data season for predictions = last completed season; the preview targets
+// the teams' next-season meeting.
+const BEST11_DATA_SEASON = '2425';
+const BEST11_PREVIEW_LABEL = '2025-26 SEASON PREVIEW';
+
+async function loadBest11Teams(league) {
+    const query = `query GetTeams($league: String!, $season: String) { leagueTeams(league: $league, season: $season) }`;
+    const data = await graphqlQuery(query, { league, season: BEST11_DATA_SEASON });
+    const teams = data ? data.leagueTeams : [];
+    ['best11-home-team-select', 'best11-away-team-select'].forEach(sid => {
+        const sel = document.getElementById(sid);
+        sel.innerHTML = '';
+        teams.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t.replace(/_/g, ' ');
+            sel.appendChild(opt);
+        });
+    });
+    if (teams.length >= 2) {
+        document.getElementById('best11-home-team-select').selectedIndex = 0;
+        document.getElementById('best11-away-team-select').selectedIndex = 1;
+    }
+}
+
+async function predictBest11() {
+    const league = document.getElementById('best11-league-select').value;
+    const home = document.getElementById('best11-home-team-select').value;
+    const away = document.getElementById('best11-away-team-select').value;
+    const formation = 'auto';
+    const container = document.getElementById('best11-result-container');
+
+    if (!home || !away || home === away) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div>PICK TWO DIFFERENT TEAMS</div></div>';
+        return;
+    }
+    container.innerHTML = `
+        <div class="empty-state">
+            <div class="empty-icon">⏳</div>
+            <div>COMPUTING PREVIEW FOR ${home.replace(/_/g, ' ')} &amp; ${away.replace(/_/g, ' ')}</div>
+            <div class="empty-desc">Team-share player ratings · best-fit formation · 2024-25 season games</div>
+        </div>
+    `;
+
+    const query = `
+        query Best11($team: String!, $league: String!, $season: String!, $formation: String!, $opponent: String) {
+            best11(team: $team, league: $league, season: $season, formation: $formation, opponent: $opponent) {
+                team leagueCode season formation error
+                lineup { slot name position rating minutes flex
+                         season { goals assists xg xa shots }
+                         h2h { matches minutes goals assists xg xa shots } }
+                captain
+                subs { slot out in ratingDelta reason }
+                notes
+            }
+        }
+    `;
+    try {
+        const baseVars = { team: home, league, season: BEST11_DATA_SEASON, formation, opponent: away };
+        const [homeData, awayData] = await Promise.all([
+            graphqlQuery(query, baseVars),
+            graphqlQuery(query, { ...baseVars, team: away, opponent: home }),
+        ]);
+        renderBest11Panels(
+            homeData ? homeData.best11 : null,
+            awayData ? awayData.best11 : null,
+            home, away, formation);
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="empty-state" style="color:#ff3333"><div class="empty-icon">❌</div><div>ERROR COMPUTING PREVIEW</div><div class="empty-desc">${e.message}</div></div>`;
+    }
+}
+
+function xiStrength(result) {
+    if (!result || !result.lineup || !result.lineup.length) return null;
+    const sum = result.lineup.reduce((acc, e) => acc + (e.rating || 0), 0);
+    return sum / result.lineup.length;
+}
+
+function renderBest11Panels(homeResult, awayResult, homeTeam, awayTeam, formation) {
+    const container = document.getElementById('best11-result-container');
+    const homeStrength = xiStrength(homeResult);
+    const awayStrength = xiStrength(awayResult);
+    let verdictLine = '';
+    if (homeStrength != null && awayStrength != null) {
+        const diff = homeStrength - awayStrength;
+        const margin = Math.abs(diff).toFixed(1);
+        if (margin < 1.0) {
+            verdictLine = `<span class="verdict-chip balanced">BALANCED</span><span class="verdict-margin">XI strength within ${margin} pts</span>`;
+        } else {
+            const fav = diff > 0 ? homeTeam.replace(/_/g, ' ') : awayTeam.replace(/_/g, ' ');
+            verdictLine = `<span class="verdict-chip">${fav.toUpperCase()} FAVORED</span><span class="verdict-margin">XI strength edge +${margin} pts</span>`;
+        }
+    }
+    const header = `
+        <div class="pred-header-card">
+            <div class="pred-title">
+                <span class="pred-vs">${homeTeam.replace(/_/g, ' ')} <span class="vs-divider">VS</span> ${awayTeam.replace(/_/g, ' ')}</span>
+                <span class="verdict-tag">${BEST11_PREVIEW_LABEL}</span>
+            </div>
+            <div class="verdict-row">${verdictLine}</div>
+            <div style="font-size:0.65rem; color: var(--text-muted); padding: 0 14px 8px;">
+                PREDICTED LINEUPS · AUTO-FIT FORMATIONS · TEAM-SHARE RATINGS (2024-25 SEASON GAMES) · ★ CAPTAIN
+            </div>
+        </div>
+    `;
+    container.innerHTML = header + `
+        <div class="analysis-grid">
+            ${predictionPanel(homeResult, homeTeam, awayTeam)}
+            ${predictionPanel(awayResult, awayTeam, homeTeam)}
+        </div>
+    `;
+}
+
+function predictionPanel(result, teamName, opponent) {
+    const label = teamName.replace(/_/g, ' ').toUpperCase();
+    const oppName = opponent ? opponent.replace(/_/g, ' ') : '';
+    if (!result) {
+        return `<div class="analysis-card"><div class="card-title">${label}</div><div class="card-body" style="color:#ff3333">NO RESULT</div></div>`;
+    }
+    if (result.error) {
+        return `<div class="analysis-card"><div class="card-title">${label}</div><div class="card-body" style="color:#ff6600">⚠ ${result.error}</div></div>`;
+    }
+    const order = ['GK', 'DF', 'MF', 'FW'];
+    const slots = order
+        .map(slot => {
+            const entries = result.lineup.filter(e => e.slot === slot);
+            if (!entries.length) return '';
+            const chips = entries.map(e => {
+                const star = e.name === result.captain ? ' <span class="captain-mark" title="captain">★</span>' : '';
+                const flexMark = e.flex ? ' <span style="color:#ff6600" title="flex pick">▲</span>' : '';
+                const s = e.season || {};
+                const sLine = `season ${s.goals ?? 0}G ${s.assists ?? 0}A xG ${(s.xg ?? 0).toFixed(1)}`;
+                return `<div class="xi-chip" title="${e.name} — ${e.rating.toFixed(0)}/100 · ${e.minutes} min · ${sLine}">${e.name}${star}${flexMark}<span class="xi-rating">${e.rating.toFixed(0)}</span></div>`;
+            }).join('');
+            return `<div class="xi-row"><span class="xi-slot">${slot}</span><span class="xi-chips">${chips}</span></div>`;
+        })
+        .join('');
+    const h2hPlayers = result.lineup.filter(e => e.h2h && e.h2h.matches > 0);
+    const h2hHtml = h2hPlayers.length
+        ? `<div class="xi-h2h"><b>H2H VS ${oppName.toUpperCase()}</b> (${h2hPlayers[0].h2h.matches} ${h2hPlayers[0].h2h.matches === 1 ? 'meeting' : 'meetings'} this season)<br>${h2hPlayers.map(e =>
+            `${e.name}: ${e.h2h.minutes} min · ${e.h2h.goals}G ${e.h2h.assists}A · xG ${e.h2h.xg.toFixed(2)}`).join('<br>')}</div>`
+        : '';
+    const subsHtml = (result.subs && result.subs.length)
+        ? `<div class="xi-subs-title">SUGGESTED SUBS (${result.subs.length})</div>${result.subs.map(s => `
+            <div class="sub-row">
+                <span class="sub-out">${s.out}</span>
+                <span class="sub-arrow">→</span>
+                <b class="sub-in">${s.in}</b>
+                <span class="sub-delta ${s.ratingDelta >= 0 ? 'up' : ''}">${s.ratingDelta >= 0 ? '+' : ''}${s.ratingDelta}</span>
+                <div class="sub-reason">${s.reason}</div>
+            </div>`).join('')}`
+        : '';
+    const notesHtml = result.notes && result.notes.length
+        ? `<div class="xi-notes">${result.notes.map(n => `<div>• ${n}</div>`).join('')}</div>` : '';
+    return `
+        <div class="analysis-card">
+            <div class="card-title">${label} <span class="accent-text" style="font-weight:400;">· ${result.formation}</span></div>
+            <div class="card-body">
+                <div class="xi-grid">${slots}</div>
+                ${h2hHtml}
+                ${subsHtml}
+                ${notesHtml}
+            </div>
+        </div>
+    `;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

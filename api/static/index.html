@@ -43,6 +43,10 @@
                 <span class="nav-icon">🛡️</span>
                 <span class="nav-label">TEAM PROFILES</span>
             </button>
+            <button class="nav-item" data-tab="best11-tab">
+                <span class="nav-icon">🧩</span>
+                <span class="nav-label">BEST XI</span>
+            </button>
             <button class="nav-item" data-tab="contribute-tab">
                 <span class="nav-icon">📝</span>
                 <span class="nav-label">DATA CONTRIBUTE</span>
@@ -167,7 +171,60 @@
                 </div>
             </div>
 
-            <!-- TAB 4: Data Contribute -->
+            <!-- TAB 4: Best XI -->
+            <div id="best11-tab" class="tab-content">
+                <div class="split-view">
+                    <!-- Left: Team Picker -->
+                    <div class="form-panel">
+                        <div class="panel-header">NEXT-SEASON PREVIEW</div>
+                        <div class="panel-body">
+                            <div class="form-group">
+                                <label for="best11-league-select">LEAGUE</label>
+                                <select id="best11-league-select" class="tech-select">
+                                    <option value="Premier_League">Premier League (England)</option>
+                                    <option value="La_Liga">La Liga (Spain)</option>
+                                    <option value="Serie_A">Serie A (Italy)</option>
+                                    <option value="Bundesliga">Bundesliga (Germany)</option>
+                                    <option value="Ligue_1">Ligue 1 (France)</option>
+                                </select>
+                            </div>
+                            <div class="matchup-selector">
+                                <div class="form-group">
+                                    <label for="best11-home-team-select">HOME TEAM</label>
+                                    <select id="best11-home-team-select" class="tech-select"></select>
+                                </div>
+                                <div class="vs-divider">VS</div>
+                                <div class="form-group">
+                                    <label for="best11-away-team-select">AWAY TEAM</label>
+                                    <select id="best11-away-team-select" class="tech-select"></select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="best11-formation-select">FORMATION</label>
+                                <div class="tech-select" style="pointer-events:none; opacity:0.7;">AUTO · BEST-FIT SHAPE</div>
+                            </div>
+                            <button id="predict-best11-btn" class="tech-btn block-btn accent-fill">PREDICT NEXT-SEASON LINEUPS</button>
+                            <div class="empty-state" style="padding:14px 0 0;">
+                                <div class="empty-desc">Prediction for their next-season meeting, computed from each team's 2024-25 games (player ratings through the full season).</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Best XI Result -->
+                    <div class="result-panel">
+                        <div class="panel-header">MATCH PREVIEW</div>
+                        <div class="panel-body" id="best11-result-container">
+                            <div class="empty-state">
+                                <div class="empty-icon">🧩</div>
+                                <div>AWAITING TEAM SELECTION</div>
+                                <div class="empty-desc">Pick two teams to preview their next-season meeting: predicted XIs, captain and 3 suggested subs from team-share season ratings.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 5: Data Contribute -->
             <div id="contribute-tab" class="tab-content">
                 <div class="contribute-layout">
                     <!-- Section 1: Submit Match Record -->
