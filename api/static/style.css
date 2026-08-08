@@ -1123,3 +1123,232 @@ body.tech-theme {
     border-top: 1px solid #ff3333;
 }
 
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Best XI Tab — Fixture Search + Lineup Lab
+   ───────────────────────────────────────────────────────────────────────────── */
+.match-list {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.match-card {
+    width: 100%;
+    background: none;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--accent);
+    color: var(--text-bright);
+    text-align: left;
+    padding: 10px 12px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: all 0.2s;
+}
+
+.match-card:hover {
+    background: var(--bg-input);
+    border-left-color: var(--accent-dim);
+    box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.match-date {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+}
+
+.match-teams {
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.match-meta {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+}
+
+.result-chip {
+    color: var(--accent);
+    font-weight: bold;
+}
+
+.xi-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.xi-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.xi-slot {
+    flex-shrink: 0;
+    width: 26px;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-weight: bold;
+    color: var(--accent);
+}
+
+.xi-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.xi-chip {
+    border: 1px solid var(--border-color);
+    padding: 3px 8px;
+    font-size: 0.68rem;
+    background: var(--bg-input);
+    cursor: default;
+}
+
+.xi-chip:hover {
+    border-color: var(--accent);
+}
+
+.xi-rating {
+    color: var(--accent);
+    font-weight: bold;
+    margin-left: 6px;
+}
+
+.xi-notes {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-color);
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.xi-h2h {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-color);
+    font-size: 0.62rem;
+    color: var(--accent-color, #4fc3f7);
+    line-height: 1.55;
+}
+
+.captain-mark {
+    color: #ffd700;
+    font-size: 0.75rem;
+    margin-left: 3px;
+}
+
+.verdict-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px 8px;
+    flex-wrap: wrap;
+}
+
+.verdict-chip {
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-weight: bold;
+    font-size: 0.7rem;
+    padding: 2px 10px;
+    letter-spacing: 0.06em;
+}
+
+.verdict-chip.balanced {
+    background: #3a3a3a;
+    color: #cccccc;
+}
+
+.verdict-margin {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+}
+
+.xi-subs-title {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-color);
+    font-size: 0.6rem;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+}
+
+.sub-row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 0.68rem;
+}
+
+.sub-out {
+    color: var(--text-muted);
+    text-decoration: line-through;
+}
+
+.sub-arrow {
+    color: var(--accent);
+}
+
+.sub-in {
+    color: var(--text);
+}
+
+.sub-delta {
+    color: #ff8888;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+}
+
+.sub-delta.up {
+    color: #7dd87d;
+}
+
+.sub-reason {
+    width: 100%;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    padding-left: 4px;
+}
+
+.meetings-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 2px 0;
+}
+
+.meetings-label {
+    font-size: 0.6rem;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.meeting-chip {
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text);
+    font-size: 0.62rem;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.meeting-chip:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+}
