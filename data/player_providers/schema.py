@@ -41,9 +41,16 @@ class PlayerRecord:
     # Defense / GK
     tackles: Optional[float] = None
     interceptions: Optional[float] = None
+    blocks: Optional[float] = None
+    clearances: Optional[float] = None
+    errors: Optional[float] = None
     saves: Optional[float] = None
     clean_sheets: Optional[float] = None
     goals_conceded: Optional[float] = None
+
+    # Creation (FBRef passing table; understat reports key passes)
+    key_passes: Optional[float] = None
+    progressive_passes: Optional[float] = None
 
     # Discipline
     yellow_cards: Optional[int] = None

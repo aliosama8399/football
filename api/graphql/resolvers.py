@@ -1,6 +1,6 @@
-import asyncio
 import strawberry
 from typing import List, Optional
+from fastapi import HTTPException
 from api.graphql.types import (TeamNode, MatchRelation, Best11Entry,
                                Best11Sub, Best11Result, Best11Season,
                                Best11H2H, KBBundle, KBAnswer, KBSource)
@@ -121,49 +121,41 @@ class Query:
         Squad fetch is cached on disk; first call for a team may scrape
         FBRef/understat, so this runs off the event loop.
         """
-        from data._config import get_leagues
-        code_map = {info["name"]: code for code, info in get_leagues().items()}
-        league_code = code_map.get(league)
-        if league_code is None:
-            return Best11Result(team=team, league_code="", season=season,
-                                formation=formation,
-                                error=f"Unknown league '{league}'")
+        from api.dependencies import get_best11_api_service
         try:
-            from data.best11 import solve_best11
-            result = await asyncio.to_thread(solve_best11, team, league_code,
-                                             season, formation, "all", False,
-                                             date, opponent)
+            result = await get_best11_api_service().recommend(
+                team, league, season, formation, date, opponent)
+        except HTTPException as e:
+            return Best11Result(team=team, league_code="", season=season,
+                                formation=formation, error=e.detail)
         except Exception as e:
-            return Best11Result(team=team, league_code=league_code,
-                                season=season, formation=formation,
-                                error=str(e))
-        if not result:
-            return Best11Result(team=team, league_code=league_code,
-                                season=season, formation=formation,
-                                error="no result")
+            return Best11Result(team=team, league_code="", season=season,
+                                formation=formation, error=str(e))
         return Best11Result(
-            team=result.get("team", team),
-            league_code=result.get("league_code", league_code),
-            season=result.get("season", season),
-            formation=result.get("formation", formation),
+            team=result.team,
+            league_code=result.league_code,
+            season=result.season,
+            formation=result.formation,
             lineup=[Best11Entry(
-                slot=e["slot"], name=e["name"],
-                position=e.get("position"), rating=float(e.get("rating", 0.0)),
-                minutes=int(e.get("minutes") or 0), flex=bool(e.get("flex")),
-                top_shares=e.get("top_shares") or [],
-                season=Best11Season(**e.get("season") or {})
-                if e.get("season") else None,
-                h2h=Best11H2H(**e.get("h2h") or {}) if e.get("h2h") else None,
-            ) for e in result.get("lineup", [])],
-            captain=result.get("captain"),
+                slot=e.slot, name=e.name,
+                position=e.position, rating=float(e.rating),
+                minutes=int(e.minutes or 0), flex=bool(e.flex),
+                top_shares=e.top_shares or [],
+                season=Best11Season(**e.season)
+                if e.season else None,
+                h2h=Best11H2H(**e.h2h) if e.h2h else None,
+            ) for e in result.lineup],
+            captain=result.captain,
             subs=[Best11Sub(
-                slot=s["slot"], out=s["out"], in_=s["in"],
-                rating_delta=float(s.get("rating_delta", 0.0)),
-                reason=s.get("reason", ""),
-            ) for s in result.get("subs", [])],
-            bench=result.get("bench") or [],
-            notes=result.get("notes") or [],
-            error=result.get("error"),
+                slot=s.slot, out=s.out, in_=s.in_,
+                rating_delta=float(s.rating_delta),
+                reason=s.reason,
+            ) for s in result.subs],
+            bench=[{"name": b.name, "position": b.position,
+                    "rating": b.rating, "minutes": b.minutes}
+                   for b in result.bench],
+            notes=result.notes,
+            error=None,
         )
 
     @strawberry.field

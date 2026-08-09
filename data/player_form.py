@@ -41,7 +41,8 @@ _PM_DIR = Path("data/raw/player_match")
 
 _STAT_COLS = ["minutes", "goals", "assists", "shots", "xg", "xa",
               "key_passes", "yellow_cards", "red_cards"]
-_SCALED_COLS = ["tackles", "interceptions", "shots_on_target", "saves",
+_SCALED_COLS = ["tackles", "interceptions", "blocks", "clearances", "errors",
+                "progressive_passes", "shots_on_target", "saves",
                 "clean_sheets", "goals_conceded"]
 
 
@@ -71,6 +72,18 @@ def cumulative_player_stats(league_code: str, season: str, as_of: str,
         return {}
     agg = df.groupby("player_name")[_STAT_COLS].sum()
     return agg.to_dict("index")
+
+
+def latest_match_date(league_code: str, season: str) -> Optional[str]:
+    """Latest match date in the per-match feed (ISO 'YYYY-MM-DD'), or None.
+
+    Used to auto-switch best-11 to cumulative-through-date ratings while a
+    season is in progress, so the lineup never leaks future matches.
+    """
+    df = load_match_player_stats(league_code, season)
+    if df.empty or df["match_date"].isna().all():
+        return None
+    return df["match_date"].max().strftime("%Y-%m-%d")
 
 
 def _norm_name(s: str) -> str:

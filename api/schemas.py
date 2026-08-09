@@ -111,6 +111,43 @@ class MatchPredictionResponse(BaseModel):
     source: str = Field(..., description="Either 'override' or 'live_model'")
     probabilities: Optional[dict] = None
 
+# ── Best-11 Schemas ───────────────────────────────────────────────────────────
+
+class Best11Entry(BaseModel):
+    slot: str = Field(..., description="Position bucket: GK | DF | MF | FW")
+    name: str
+    position: Optional[str] = None
+    rating: float
+    minutes: float
+    flex: bool = Field(default=False, description="True when played out of position")
+    top_shares: Optional[dict] = None
+    season: Optional[dict] = Field(default=None, description="Season stat block: goals/assists/xg/xa/shots")
+    h2h: Optional[dict] = Field(default=None, description="H2H stat block vs opponent (when requested)")
+
+class Best11Sub(BaseModel):
+    slot: str
+    out: str
+    in_: str = Field(alias="in", description="Player coming on")
+    rating_delta: float
+    reason: str
+
+class Best11Bench(BaseModel):
+    name: str
+    position: Optional[str] = None
+    rating: float
+    minutes: float
+
+class Best11Response(BaseModel):
+    team: str
+    league_code: str
+    season: str
+    formation: str
+    captain: Optional[str] = None
+    lineup: List[Best11Entry] = Field(default_factory=list)
+    subs: List[Best11Sub] = Field(default_factory=list)
+    bench: List[Best11Bench] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+
 # ── Feedback Schemas ──────────────────────────────────────────────────────────
 
 class FeedbackCreate(BaseModel):

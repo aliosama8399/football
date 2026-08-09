@@ -254,6 +254,8 @@ class FbrefPlayerProvider(BasePlayerProvider):
             keeper = self._parse_stats_table(html, ["Saves", "Save%"]) if html else None
             misc = self._parse_stats_table(html, ["TklW", "Int"]) if html else None
             shooting = self._parse_stats_table(html, ["Sh", "SoT"]) if html else None
+            defense = self._parse_stats_table(html, ["Tkl", "Blocks"]) if html else None
+            passing = self._parse_stats_table(html, ["KP", "PrgP"]) if html else None
             records: List[PlayerRecord] = []
 
             def row_map(df):
@@ -271,13 +273,18 @@ class FbrefPlayerProvider(BasePlayerProvider):
             keeper_rows = row_map(keeper)
             misc_rows = row_map(misc)
             shoot_rows = row_map(shooting)
+            def_rows = row_map(defense)
+            pass_rows = row_map(passing)
 
-            names = set(std_rows) | set(keeper_rows) | set(misc_rows) | set(shoot_rows)
+            names = (set(std_rows) | set(keeper_rows) | set(misc_rows)
+                     | set(shoot_rows) | set(def_rows) | set(pass_rows))
             for p in sorted(names):
                 row = std_rows.get(p)
                 krow = keeper_rows.get(p)
                 mrow = misc_rows.get(p)
                 srow = shoot_rows.get(p)
+                drow = def_rows.get(p)
+                prow = pass_rows.get(p)
                 rec = PlayerRecord(
                     name=p,
                     team=team,
@@ -295,8 +302,15 @@ class FbrefPlayerProvider(BasePlayerProvider):
                                     else (row["Sh"] if row is not None and "Sh" in row.index else None)),
                     shots_on_target=self._num(srow["SoT"] if srow is not None and "SoT" in srow.index
                                               else (row["SoT"] if row is not None and "SoT" in row.index else None)),
-                    tackles=self._num(mrow["TklW"] if mrow is not None and "TklW" in mrow.index else None),
-                    interceptions=self._num(mrow["Int"] if mrow is not None and "Int" in mrow.index else None),
+                    tackles=self._num(mrow["TklW"] if mrow is not None and "TklW" in mrow.index
+                                      else (drow["TklW"] if drow is not None and "TklW" in drow.index else None)),
+                    interceptions=self._num(mrow["Int"] if mrow is not None and "Int" in mrow.index
+                                            else (drow["Int"] if drow is not None and "Int" in drow.index else None)),
+                    blocks=self._num(drow["Blocks"] if drow is not None and "Blocks" in drow.index else None),
+                    clearances=self._num(drow["Clr"] if drow is not None and "Clr" in drow.index else None),
+                    errors=self._num(drow["Err"] if drow is not None and "Err" in drow.index else None),
+                    key_passes=self._num(prow["KP"] if prow is not None and "KP" in prow.index else None),
+                    progressive_passes=self._num(prow["PrgP"] if prow is not None and "PrgP" in prow.index else None),
                     saves=self._num(krow["Saves"] if krow is not None and "Saves" in krow.index else None),
                     clean_sheets=self._num(krow["CS"] if krow is not None and "CS" in krow.index else None),
                     goals_conceded=self._num(krow["GA"] if krow is not None and "GA" in krow.index else None),

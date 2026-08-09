@@ -72,7 +72,13 @@ class _AllProvidersProxy(BasePlayerProvider):
                         merged[key] = _fuse(merged[key], rec)
             except Exception as e:
                 logger.warning("provider '%s' failed for %s: %s", p.provider_name, team, e)
-        return _dedup_squad(merged.values())
+        squad = _dedup_squad(merged.values())
+        # understat reports key passes in extra; promote to the schema field
+        # so the ratings can use it (FBRef dropped its passing table).
+        for rec in squad:
+            if rec.key_passes is None:
+                rec.key_passes = (rec.extra or {}).get("key_passes")
+        return squad
 
     def capabilities(self) -> Dict[str, bool]:
         caps = {}
@@ -86,7 +92,9 @@ def _fuse(primary: "PlayerRecord", other: "PlayerRecord"):
     """Fill missing fields of primary from other (provider fusion)."""
     for field_name in ("position", "age", "nationality", "minutes", "appearances",
                        "goals", "assists", "xg", "xa", "shots", "shots_on_target",
-                       "tackles", "interceptions", "saves", "clean_sheets",
+                       "tackles", "interceptions", "blocks", "clearances", "errors",
+                       "key_passes", "progressive_passes",
+                       "saves", "clean_sheets",
                        "goals_conceded", "yellow_cards", "red_cards"):
         if getattr(primary, field_name) is None and getattr(other, field_name) is not None:
             setattr(primary, field_name, getattr(other, field_name))
