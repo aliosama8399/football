@@ -20,7 +20,8 @@ from api.routes import (
     feedback_router,
     supervisor_router,
     submissions_router,
-    kb_router
+    kb_router,
+    best11_router
 )
 from api.graphql import schema
 
@@ -108,6 +109,7 @@ app.include_router(feedback_router, prefix="/api/v1")
 app.include_router(supervisor_router, prefix="/api/v1")
 app.include_router(submissions_router, prefix="/api/v1")
 app.include_router(kb_router, prefix="/api/v1")
+app.include_router(best11_router, prefix="/api/v1")
 
 # Mount Strawberry GraphQL endpoint
 graphql_app = GraphQLRouter(schema)

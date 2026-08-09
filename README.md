@@ -134,6 +134,28 @@ python data/best11.py "Real Madrid" SP1 --season 2425 --formation auto
 python data/best11.py "Barcelona" SP1 --season 2425 --formation auto --json
 ```
 
+The feature is structured with design patterns (SOLID) across three
+layers:
+
+- `api/repositories/best11_repo.py` — **Repository**: `Best11Repository`
+  collects every piece of best-11 data from its sources (squad
+  providers + disk cache, team totals, per-match form/H2H stats), the
+  same way `TeamGraphRepository` wraps the KG provider.
+- `data/players/` — **Strategy** (rating modes: season / through-date /
+  H2H-blend; formation auto-fit; rotation subs) + **Facade**:
+  `Best11Service.solve()` orchestrates the repositories and strategies.
+- Backend service + route — `api/services/best11_service.py`
+  (`Best11ApiService`: league mapping, validation, error mapping) and
+  `api/routes/best11.py`. Both the REST endpoint and the GraphQL
+  resolver go through this one application service:
+
+```powershell
+curl "http://localhost:8000/api/v1/best11?team=Barcelona&league=La_Liga&season=2425&formation=auto&opponent=Real+Madrid"
+```
+
+`data/best11.py` remains the CLI facade; GraphQL resolvers call
+`solve_best11()` through it unchanged.
+
 ### Stage 5 — Build RAG Knowledge Base
 
 1. Extract tactical attributes from generated analysis data:

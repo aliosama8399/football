@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 _rag_system: Optional[FootballRAGSystem] = None
 _async_rag: Optional[AsyncRAGWrapper] = None
 _kb: Optional["KnowledgeBase"] = None
+_best11_repo: Optional["Best11Repository"] = None
+_best11_api_service: Optional["Best11ApiService"] = None
 
 def init_rag_system() -> FootballRAGSystem:
     """
@@ -118,6 +120,17 @@ def get_feedback_repo(db: AsyncSession = Depends(get_db)):
     from api.repositories.feedback_repo import FeedbackRepository
     return FeedbackRepository(db)
 
+def get_best11_repo() -> "Best11Repository":
+    """
+    Inject the Best-11 data repository singleton (collects squads, team
+    totals and per-match player form from their sources).
+    """
+    global _best11_repo
+    if _best11_repo is None:
+        from api.repositories.best11_repo import Best11Repository
+        _best11_repo = Best11Repository()
+    return _best11_repo
+
 # ── Service Dependency Injectors (Deferred Imports) ───────────────────────────
 
 def get_prediction_service(
@@ -141,3 +154,15 @@ def get_supervisor_service(
 ):
     from api.services.supervisor_service import SupervisorService
     return SupervisorService(db, user_repo, feedback_repo)
+
+def get_best11_api_service() -> "Best11ApiService":
+    """
+    Inject the Best-11 application service singleton. The service owns
+    the domain Best11Service and wires it to the Best-11 repository.
+    No Depends args so the GraphQL resolver can call it directly too.
+    """
+    global _best11_api_service
+    if _best11_api_service is None:
+        from api.services.best11_service import Best11ApiService
+        _best11_api_service = Best11ApiService(get_best11_repo())
+    return _best11_api_service
