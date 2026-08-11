@@ -2,13 +2,16 @@
 
 SOLID layering of the best-11 feature:
 
-    api/routes/best11.py            → HTTP concerns (query params, response)
-    Best11ApiService                → application use-case: league mapping,
-                                      validation, blocking-work offload, error
-                                      mapping to HTTP
-    data/players/service.py         → domain orchestration (Best11Service)
-    api/repositories/best11_repo.py → data collection from sources
-                                      (Repository pattern)
+    api/routes/best11.py             → HTTP concerns (query params, response)
+    Best11ApiService                 → application use-case: league mapping,
+                                       validation, blocking-work offload, error
+                                       mapping to HTTP
+    api/services/best11/service.py   → domain orchestration (Best11Service)
+    api/repositories/best11_repo.py  → collects all data from sources
+                                       (Repository pattern)
+    data/                            → raw collection & scraping only:
+                                       player_providers/, collectors/,
+                                       player_form.py, team_totals.py
 
 The GraphQL resolver and the REST route share this service, so league
 resolution, validation and error semantics live in exactly one place
@@ -23,8 +26,8 @@ from fastapi import HTTPException, status
 
 from api.repositories.best11_repo import Best11Repository
 from api.schemas import Best11Bench, Best11Entry, Best11Response, Best11Sub
+from api.services.best11 import Best11Service as DomainBest11Service
 from data._config import get_leagues
-from data.players import Best11Service as DomainBest11Service
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +38,9 @@ class Best11ApiService:
     def __init__(self, repository: Optional[Best11Repository] = None,
                  domain_service: Optional[DomainBest11Service] = None):
         self.repository = repository or Best11Repository()
-        # The domain service consumes the repository through its interfaces:
-        # squad / totals / per-match form data all flow through the repo.
-        self.domain = domain_service or DomainBest11Service(
-            squad_repository=self.repository,
-            totals_repository=self.repository,
-            form_repository=self.repository,
-        )
+        # The domain service consumes the repository (the collector) and
+        # the strategies (the processing layer) to produce the prediction.
+        self.domain = domain_service or DomainBest11Service(self.repository)
         self._league_codes = {info["name"]: code
                               for code, info in get_leagues().items()}
 

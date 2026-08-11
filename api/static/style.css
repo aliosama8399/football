@@ -1352,3 +1352,166 @@ body.tech-theme {
     border-color: var(--accent);
     box-shadow: 0 0 8px var(--accent-glow);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Scouting Tab — Top-N Signing Candidates
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.scout-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.scout-rank {
+    display: inline-block;
+    min-width: 22px;
+    margin-right: 6px;
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    color: #04060a;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.scout-team {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.scout-meta {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+
+.score-bar {
+    position: relative;
+    height: 14px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    margin-bottom: 12px;
+}
+
+.score-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    box-shadow: 0 0 10px var(--accent-glow);
+    transition: width 0.4s ease;
+}
+
+.score-val {
+    position: absolute;
+    top: -1px;
+    right: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-weight: bold;
+    color: var(--text-bright);
+    line-height: 14px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.scout-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.scout-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 52px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+}
+
+.scout-stat b {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--accent);
+}
+
+.scout-stat i {
+    font-style: normal;
+    font-size: 0.52rem;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.scout-stat.muted {
+    width: 100%;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.62rem;
+}
+
+.scout-extras {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+    opacity: 0.75;
+}
+
+.scout-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.scout-metric {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    border: 1px dashed var(--border-color);
+    padding: 2px 6px;
+}
+
+.scout-metric b {
+    color: var(--accent);
+}
+
+.scout-metric.fit {
+    border: 1px solid var(--accent);
+    background: var(--accent-glow);
+    color: var(--accent);
+    font-weight: bold;
+}
+
+.scout-metric.fit b {
+    color: var(--accent);
+    text-shadow: 0 0 6px var(--accent-glow);
+}
+
+.scout-transfer {
+    font-size: 0.64rem;
+    color: var(--text);
+    padding: 5px 8px;
+    border-left: 2px solid var(--accent);
+    background: var(--accent-glow);
+}
+
+.tech-check-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    color: var(--text-bright);
+    cursor: pointer;
+    user-select: none;
+}
+
+.tech-check {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+}

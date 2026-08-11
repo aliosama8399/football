@@ -45,6 +45,9 @@ function initTabNavigation() {
                 const best11League = document.getElementById('best11-league-select').value;
                 loadBest11Teams(best11League);
             }
+            if (currentTab === 'scout-tab') {
+                // Nothing to preload — the scout tab only needs user criteria.
+            }
             if (currentTab === 'supervisor-tab') {
                 fetchSupervisorQueue();
             }
@@ -395,6 +398,7 @@ function setupEventListeners() {
         loadBest11Teams(e.target.value);
     });
     document.getElementById('predict-best11-btn').addEventListener('click', predictBest11);
+    document.getElementById('run-scout-btn').addEventListener('click', scoutCandidates);
     
     // Contribute tab: league change → reload team selects
     document.getElementById('match-league-select').addEventListener('change', async (e) => {
@@ -1106,6 +1110,177 @@ function predictionPanel(result, teamName, opponent) {
             </div>
         </div>
     `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scouting Tab — Top-N Signing Candidates
+// ─────────────────────────────────────────────────────────────────────────────
+
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g,
+        c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+
+const SCOUT_LEAGUE_LABELS = {
+    all: 'ALL 5 LEAGUES',
+    E0: 'PREMIER LEAGUE',
+    SP1: 'LA LIGA',
+    D1: 'BUNDESLIGA',
+    I1: 'SERIE A',
+    F1: 'LIGUE 1'
+};
+
+// Position-relevant stat emphasis in the candidate card
+const SCOUT_KEY_STATS = {
+    GK: ['saves', 'goalsConceded', 'appearances'],
+    DF: ['tackles', 'interceptions', 'blocks', 'duelsWon'],
+    MF: ['goals', 'assists', 'keyPasses', 'dribblesSuccess'],
+    FW: ['goals', 'assists', 'shots', 'shotsOnTarget']
+};
+const SCOUT_STAT_LABELS = {
+    appearances: 'APPS', minutes: 'MIN', goals: 'GOALS', assists: 'ASSISTS',
+    shots: 'SHOTS', shotsOnTarget: 'SOT', saves: 'SAVES', goalsConceded: 'CONC',
+    keyPasses: 'KEY PASSES', tackles: 'TACKLES', interceptions: 'INT',
+    blocks: 'BLOCKS', duelsWon: 'DUELS', dribblesSuccess: 'DRIBBLES',
+    yellowCards: 'YELLOWS', redCards: 'REDS', rating: 'RATING'
+};
+
+async function scoutCandidates() {
+    const position = document.getElementById('scout-position-select').value;
+    const league = document.getElementById('scout-league-select').value;
+    const season = document.getElementById('scout-season').value.trim() || '2425';
+    const youth = document.getElementById('scout-youth').checked;
+    const top = Math.min(Math.max(parseInt(document.getElementById('scout-top').value, 10) || 5, 1), 20);
+    const teamNeeding = document.getElementById('scout-exclude-team').value.trim() || null;
+    const container = document.getElementById('scout-result-container');
+
+    container.innerHTML = `
+        <div class="empty-state">
+            <div class="empty-icon">🔭</div>
+            <div>SCANNING ${SCOUT_LEAGUE_LABELS[league] || league} · ${position} ${youth ? '· YOUTH ≤ 19' : ''}</div>
+            <div class="empty-desc">Building identity pool → enriching shortlisted teams with season stats → scoring…</div>
+        </div>
+    `;
+
+    const query = `
+        query Scout($position: String!, $league: String!, $season: String!, $youth: Boolean!, $top: Int!, $teamNeeding: String) {
+            scout(position: $position, league: $league, season: $season,
+                  youth: $youth, top: $top, teamNeeding: $teamNeeding) {
+                position season youth leagues poolSize top error
+                candidates {
+                    rank name team league position age nationality shirtNumber
+                    stats { appearances minutes goals assists shots shotsOnTarget
+                            saves goalsConceded keyPasses tackles interceptions
+                            blocks duelsWon dribblesSuccess yellowCards redCards rating }
+                    transfer { date type fromTeam toTeam }
+                    score scoreBreakdown
+                }
+                notes
+            }
+        }
+    `;
+    try {
+        const data = await graphqlQuery(query, { position, league, season, youth, top, teamNeeding });
+        renderScoutResults(container, data ? data.scout : null);
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<div class="empty-state" style="color:#ff3333"><div class="empty-icon">❌</div><div>ERROR RUNNING SCOUT</div><div class="empty-desc">${esc(e.message)}</div></div>`;
+    }
+}
+
+function renderScoutResults(container, result) {
+    if (!result) {
+        container.innerHTML = '<div class="empty-state" style="color:#ff3333"><div class="empty-icon">❌</div><div>NO RESPONSE</div></div>';
+        return;
+    }
+    if (result.error) {
+        container.innerHTML = `<div class="empty-state" style="color:#ff6600"><div class="empty-icon">⚠️</div><div>${esc(result.error)}</div></div>`;
+        return;
+    }
+    const candidates = result.candidates || [];
+    if (!candidates.length) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">🕳️</div>
+                <div>NO CANDIDATES MATCHED</div>
+                <div class="empty-desc">${esc((result.notes || []).join(' · '))}</div>
+            </div>`;
+        return;
+    }
+    const header = `
+        <div class="pred-header-card">
+            <div class="pred-title">
+                <span class="pred-vs">${esc(result.position)} SCOUTING REPORT <span class="vs-divider">·</span> ${esc(SCOUT_LEAGUE_LABELS[result.leagues && result.leagues.length === 1 ? result.leagues[0] : 'all'] || '')}${result.youth ? ' <span class="verdict-tag">YOUTH ≤ 19</span>' : ''}</span>
+                <span class="verdict-tag">POOL ${result.poolSize} · TOP ${result.top}</span>
+            </div>
+            <div style="font-size:0.65rem; color: var(--text-muted); padding: 0 14px 8px;">
+                RANKED BY POSITION-SPECIFIC WEIGHTED SCORE · SEASON ${esc(result.season)} · ${esc((result.notes || []).join(' · '))}
+            </div>
+        </div>
+    `;
+    container.innerHTML = header + '<div class="analysis-grid">' +
+        candidates.map(scoutCard).join('') + '</div>';
+}
+
+function scoutCard(c) {
+    const s = c.stats || {};
+    const key = (SCOUT_KEY_STATS[c.position] || []).filter(k => s[k] != null);
+    const extras = Object.keys(SCOUT_STAT_LABELS)
+        .filter(k => !key.includes(k) && s[k] != null);
+    const statCell = (k) => {
+        const v = s[k];
+        const pretty = (typeof v === 'number' && !Number.isInteger(v)) ? v.toFixed(1) : v;
+        return `<span class="scout-stat"><b>${pretty ?? '—'}</b><i>${SCOUT_STAT_LABELS[k]}</i></span>`;
+    };
+    const keyStats = key.length
+        ? `<div class="scout-stats">${key.map(statCell).join('')}</div>`
+        : '<div class="scout-stats"><span class="scout-stat muted">NO SEASON STATS (API-FOOTBALL)</span></div>';
+    const extraStats = extras.length
+        ? `<div class="scout-extras">${extras.map(statCell).join('')}</div>`
+        : '';
+    // Breakdown chips — translate `_per90` to "/90" and emphasise style_fit.
+    const fmtMetricLabel = (k) => k.replace(/_per90$/, ' / 90')
+        .replace(/_/g, ' ');
+    const breakdown = c.scoreBreakdown
+        ? Object.entries(c.scoreBreakdown)
+            .filter(([, v]) => v > 0.001)
+            .sort((a, b) => {
+                if (a[0] === 'style_fit') return -1;   // fit bonus first
+                if (b[0] === 'style_fit') return 1;
+                return b[1] - a[1];
+            })
+            .slice(0, 5)
+            .map(([k, v]) => {
+                if (k === 'style_fit') {
+                    return `<span class="scout-metric fit" title="cosine similarity to your club's style profile">FIT <b>${(v * 100).toFixed(0)}%</b></span>`;
+                }
+                const pct = (v * 100).toFixed(1);
+                return `<span class="scout-metric" title="${esc(k)}">${esc(fmtMetricLabel(k))} <b>+${pct}</b></span>`;
+            })
+            .join('')
+        : '';
+    const transfer = c.transfer
+        ? `<div class="scout-transfer">${esc(c.transfer.date || '')} · <b>${esc(c.transfer.type || 'MOVE')}</b> ${esc(c.transfer.fromTeam || '?')} → ${esc(c.transfer.toTeam || '?')}</div>`
+        : '';
+    const shirt = c.shirtNumber != null ? ` · #${c.shirtNumber}` : '';
+    const leagueName = c.league ? ` · ${esc(c.league.replace(/_/g, ' ').toUpperCase())}` : '';
+    const nationality = c.nationality ? ` · ${esc(c.nationality)}` : '';
+    const score = Math.max(0, Math.min(100, Number(c.score) || 0));
+    return `
+        <div class="analysis-card scout-card">
+            <div class="card-title">
+                <span class="scout-rank">#${c.rank}</span>
+                ${esc(c.name)} <span class="scout-team">· ${esc(c.team.replace(/_/g, ' '))}</span>
+            </div>
+            <div class="card-body">
+                <div class="scout-meta">${esc(c.position)}${shirt}${leagueName}${nationality}${c.age != null ? ` · ${c.age} YRS` : ''}</div>
+                <div class="score-bar"><div class="score-fill" style="width:${score}%"></div><span class="score-val">${score.toFixed(0)}/100</span></div>
+                ${keyStats}
+                ${extraStats}
+                ${breakdown ? `<div class="scout-breakdown">${breakdown}</div>` : ''}
+                ${transfer}
+            </div>
+        </div>`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

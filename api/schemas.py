@@ -148,6 +148,57 @@ class Best11Response(BaseModel):
     bench: List[Best11Bench] = Field(default_factory=list)
     notes: List[str] = Field(default_factory=list)
 
+# ── Scouting Schemas ──────────────────────────────────────────────────────────
+
+class ScoutStats(BaseModel):
+    appearances: Optional[float] = None
+    minutes: Optional[float] = None
+    goals: Optional[float] = None
+    assists: Optional[float] = None
+    shots: Optional[float] = None
+    shots_on_target: Optional[float] = None
+    saves: Optional[float] = None
+    goals_conceded: Optional[float] = None
+    key_passes: Optional[float] = None
+    tackles: Optional[float] = None
+    interceptions: Optional[float] = None
+    blocks: Optional[float] = None
+    duels_won: Optional[float] = None
+    dribbles_success: Optional[float] = None
+    yellow_cards: Optional[float] = None
+    red_cards: Optional[float] = None
+    rating: Optional[float] = None
+
+class ScoutTransfer(BaseModel):
+    date: Optional[str] = None
+    type: Optional[str] = None
+    from_team: Optional[str] = None
+    to_team: Optional[str] = None
+
+class ScoutCandidate(BaseModel):
+    rank: int
+    name: str
+    team: str
+    league: Optional[str] = None
+    position: Optional[str] = None
+    age: Optional[int] = None
+    nationality: Optional[str] = None
+    shirt_number: Optional[float] = None
+    stats: ScoutStats = Field(default_factory=ScoutStats)
+    transfer: Optional[ScoutTransfer] = None
+    score: float = Field(..., description="0..100 ranking score")
+    score_breakdown: Optional[dict] = Field(default=None, description="Per-metric weighted contributions")
+
+class ScoutResponse(BaseModel):
+    season: str
+    position: str
+    youth: bool
+    leagues: List[str] = Field(default_factory=list)
+    pool_size: int = Field(0, description="Candidates that passed the position/age filter before scoring")
+    top: int
+    candidates: List[ScoutCandidate] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+
 # ── Feedback Schemas ──────────────────────────────────────────────────────────
 
 class FeedbackCreate(BaseModel):

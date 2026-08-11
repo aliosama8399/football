@@ -56,6 +56,15 @@ class PlayerRecord:
     yellow_cards: Optional[int] = None
     red_cards: Optional[int] = None
 
+    # Scouting (API-Football v3 — None when the source doesn't provide)
+    rating: Optional[int] = None          # API-Football match rating (0-10, scaled)
+    dribbles_success: Optional[int] = None
+    duels_won: Optional[int] = None
+    fouls_committed: Optional[int] = None
+    penalties_won: Optional[int] = None
+    penalties_scored: Optional[int] = None
+    shirt_number: Optional[int] = None
+
     # Provider-specific extras (kept for diagnostics, never relied on)
     extra: dict = field(default_factory=dict)
 

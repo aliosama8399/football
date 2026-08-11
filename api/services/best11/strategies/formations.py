@@ -1,4 +1,4 @@
-"""Formation strategies for the best-11 feature.
+"""Formation strategies for the best-11 feature (processing layer).
 
 Strategy pattern: every formation mode implements FormationStrategy and
 returns (slots, notes). AutoFormationStrategy scores every shape as

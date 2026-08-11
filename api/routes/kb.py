@@ -8,7 +8,8 @@ from api.schemas import (
     KBBundleResponse,
     KBAnswerResponse,
 )
-from api.dependencies import get_knowledge_base
+from api.repositories.kb_repo import KnowledgeBaseRepository
+from api.dependencies import get_kb_repo
 from api.auth import get_current_user
 from api.database import User
 
@@ -19,14 +20,14 @@ router = APIRouter(prefix="/kb", tags=["Knowledge Base"])
 async def kb_retrieve(
     payload: KBRetrieveRequest,
     current_user: User = Depends(get_current_user),
-    knowledge_base = Depends(get_knowledge_base),
+    kb_repo: KnowledgeBaseRepository = Depends(get_kb_repo),
 ):
     """
     Retrieve the KB context bundle for a question — no LLM involved.
     Returns intent classification, facts, tables, semantic hits and sources.
     """
     bundle = await asyncio.to_thread(
-        knowledge_base.retrieve,
+        kb_repo.retrieve,
         payload.question,
         prefer_prediction=payload.prefer_prediction,
     )
@@ -37,7 +38,7 @@ async def kb_retrieve(
 async def kb_ask(
     payload: KBAskRequest,
     current_user: User = Depends(get_current_user),
-    knowledge_base = Depends(get_knowledge_base),
+    kb_repo: KnowledgeBaseRepository = Depends(get_kb_repo),
 ):
     """
     Ask the KB. Pass llm_provider to get a narrated answer from that provider
@@ -45,7 +46,7 @@ async def kb_ask(
     structured answer without any LLM.
     """
     answer = await asyncio.to_thread(
-        knowledge_base.ask,
+        kb_repo.ask,
         payload.question,
         llm_name=payload.llm_provider,
         prefer_prediction=payload.prefer_prediction,

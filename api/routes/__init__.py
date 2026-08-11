@@ -6,6 +6,7 @@ from api.routes.supervisor import router as supervisor_router
 from api.routes.submissions import router as submissions_router
 from api.routes.kb import router as kb_router
 from api.routes.best11 import router as best11_router
+from api.routes.scout import router as scout_router
 
 __all__ = [
     "auth_router",
@@ -15,5 +16,6 @@ __all__ = [
     "supervisor_router",
     "submissions_router",
     "kb_router",
-    "best11_router"
+    "best11_router",
+    "scout_router"
 ]

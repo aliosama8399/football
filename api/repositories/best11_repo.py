@@ -1,81 +1,99 @@
-"""Best11Repository — data collection for the best-11 feature.
+"""Best11Repository — collects all best-11 data from its sources.
 
-Repository that encapsulates collecting all best-11 data from its
-sources: fused squad providers (FBRef + understat, cached on disk),
-team totals (processed_matches.csv) and per-match player form (the
-player_match feed). This provides a clean, SOLID data-access layer for
-the backend service — mirrors TeamGraphRepository, which encapsulates
-queries to the connected KG provider.
+Repository that encapsulates collecting every piece of data the best-11
+service needs, the same way TeamGraphRepository encapsulates queries to
+the KG provider:
 
-The domain Best11Service consumes this repository through its repository
-interfaces (SquadRepositoryABC / TotalsRepositoryABC /
-PlayerFormRepositoryABC), so the backend can swap the collection
-implementation (files, DB, mocks) without touching the domain.
+    squads          → fused player providers (FBRef + understat), cached
+                      as JSON under data/raw/squads_cache/ (FBRef needs
+                      a real browser for Cloudflare; delete the cache or
+                      pass refresh=True to re-fetch)
+    team totals     → data/team_totals.py (processed_matches.csv)
+    per-match form  → data/player_form.py (player_match feed):
+                      cumulative through-date ratings, H2H stats,
+                      cumulative season blocks, latest match date
+
+This is a data-collection layer only — formations, rating strategies
+and lineup decisions live in api/services/best11/ (the processing layer).
 """
 
+import json
+import logging
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from data.player_form import (cumulative_player_stats, h2h_player_stats,
+                              latest_match_date, rate_squad_as_of)
+from data.player_providers.factory import get_player_provider
 from data.player_providers.schema import PlayerRecord
-from data.players.repository import (PlayerFormRepositoryABC,
-                                     SquadRepositoryABC, TotalsRepositoryABC,
-                                     get_player_form_repository,
-                                     get_squad_repository,
-                                     get_totals_repository)
+from data.team_totals import load_team_totals
+
+logger = logging.getLogger("best11.repository")
+
+CACHE_DIR = Path("data/raw/squads_cache")
 
 
-class Best11Repository(SquadRepositoryABC, TotalsRepositoryABC,
-                       PlayerFormRepositoryABC):
-    """
-    Collects all best-11 data from its sources behind one repository.
+class Best11Repository:
+    """Collects best-11 data from sources behind a single interface."""
 
-    Composes the domain data-access implementations (squad cache, team
-    totals, per-match form); any of them can be swapped via the
-    constructor for testing or for other sources.
-    """
-
-    def __init__(self,
-                 squad_repository: Optional[SquadRepositoryABC] = None,
-                 totals_repository: Optional[TotalsRepositoryABC] = None,
-                 player_form_repository: Optional[PlayerFormRepositoryABC] = None):
-        self.squad_repository = squad_repository or get_squad_repository()
-        self.totals_repository = totals_repository or get_totals_repository()
-        self.player_form_repository = player_form_repository or get_player_form_repository()
+    def __init__(self, cache_dir: Path = CACHE_DIR,
+                 provider: str = "all"):
+        self.cache_dir = cache_dir
+        self.provider = provider
 
     # ── Squads (provider fusion, cached on disk) ─────────────────────────────
+
+    def _cache_path(self, team: str, league_code: str, season: str,
+                    provider: str) -> Path:
+        safe = team.replace(" ", "_")
+        return self.cache_dir / f"{provider}_{safe}_{league_code}_{season}.json"
 
     def load_squad(self, team: str, league_code: str, season: str,
                    provider: str = "all", refresh: bool = False) -> List[PlayerRecord]:
         """Collect a team's squad for a season from the fused providers."""
-        return self.squad_repository.load_squad(team, league_code, season,
-                                                provider, refresh)
+        prov = provider or self.provider
+        path = self._cache_path(team, league_code, season, prov)
+        if not refresh and path.exists():
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            records = [PlayerRecord(**d) for d in raw]
+            if any("pos_list" not in (r.extra or {}) for r in records):
+                logger.info("squad cache %s lacks pos_list → refreshing", path.name)
+                refresh = True
+            else:
+                return records
+        provider_obj = get_player_provider(prov)
+        squad = provider_obj.fetch_team_squad(team, league_code, season)
+        if squad:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps([r.to_dict() for r in squad],
+                                       ensure_ascii=False, indent=1),
+                            encoding="utf-8")
+            logger.info("cached %s → %s", team, path)
+        return squad
 
     # ── Team totals ──────────────────────────────────────────────────────────
 
     def load_totals(self, league_code: str, season: str,
                     as_of: Optional[str] = None) -> Dict:
         """Collect team-season totals from the processed match dataset."""
-        return self.totals_repository.load_totals(league_code, season, as_of=as_of)
+        return load_team_totals(league_code, season, as_of=as_of)
 
     # ── Per-match player form ────────────────────────────────────────────────
 
-    def rate_squad_as_of(self, squad, as_of: str, league_code: str,
-                         season: str):
+    def rate_squad_as_of(self, squad, as_of: str, league_code: str, season: str):
         """Collect cumulative through-date ratings for a squad."""
-        return self.player_form_repository.rate_squad_as_of(
-            squad, as_of, league_code, season)
+        return rate_squad_as_of(squad, as_of, league_code, season)
 
     def cumulative_stats(self, league_code: str, season: str, as_of: str,
                          team: str) -> Dict[str, Dict[str, float]]:
         """Collect per-player cumulative stat dicts through as_of."""
-        return self.player_form_repository.cumulative_stats(
-            league_code, season, as_of, team)
+        return cumulative_player_stats(league_code, season, as_of, team)
 
     def h2h_stats(self, league_code: str, season: str, team: str,
                   opponent: str) -> Tuple[Dict[str, Dict[str, float]], int]:
         """Collect per-player stats in meetings vs opponent; (stats, n)."""
-        return self.player_form_repository.h2h_stats(
-            league_code, season, team, opponent)
+        return h2h_player_stats(league_code, season, team, opponent)
 
     def latest_match_date(self, league_code: str, season: str) -> Optional[str]:
         """Collect the most recent match date in the per-match feed (ISO)."""
-        return self.player_form_repository.latest_match_date(league_code, season)
+        return latest_match_date(league_code, season)

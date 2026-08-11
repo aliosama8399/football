@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 _rag_system: Optional[FootballRAGSystem] = None
 _async_rag: Optional[AsyncRAGWrapper] = None
 _kb: Optional["KnowledgeBase"] = None
+_kb_repo: Optional["KnowledgeBaseRepository"] = None
 _best11_repo: Optional["Best11Repository"] = None
 _best11_api_service: Optional["Best11ApiService"] = None
+_scout_repo: Optional["ScoutRepository"] = None
+_scout_api_service: Optional["ScoutApiService"] = None
 
 def init_rag_system() -> FootballRAGSystem:
     """
@@ -80,6 +83,20 @@ def get_knowledge_base() -> "KnowledgeBase":
         raise RuntimeError("KnowledgeBase not initialized. Call init_knowledge_base() on startup.")
     return _kb
 
+def get_kb_repo() -> "KnowledgeBaseRepository":
+    """
+    Inject the KnowledgeBase repository singleton. Wraps the
+    KnowledgeBase the same way TeamGraphRepository wraps the KG
+    provider; consumers (chat service, KB route, GraphQL KB resolvers)
+    depend on this repository instead of the concrete KBase class.
+    No Depends args so the GraphQL resolver can call it directly too.
+    """
+    global _kb_repo
+    if _kb_repo is None:
+        from api.repositories.kb_repo import KnowledgeBaseRepository
+        _kb_repo = KnowledgeBaseRepository()
+    return _kb_repo
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency that yields an async database session for PostgreSQL.
@@ -142,10 +159,10 @@ def get_prediction_service(
 
 def get_chat_service(
     chat_repo = Depends(get_chat_repo),
-    knowledge_base: "KnowledgeBase" = Depends(get_knowledge_base)
+    kb_repo: "KnowledgeBaseRepository" = Depends(get_kb_repo)
 ):
     from api.services.chat_service import ChatService
-    return ChatService(chat_repo, knowledge_base)
+    return ChatService(chat_repo, kb_repo)
 
 def get_supervisor_service(
     db: AsyncSession = Depends(get_db),
@@ -166,3 +183,26 @@ def get_best11_api_service() -> "Best11ApiService":
         from api.services.best11_service import Best11ApiService
         _best11_api_service = Best11ApiService(get_best11_repo())
     return _best11_api_service
+
+def get_scout_repo() -> "ScoutRepository":
+    """
+    Inject the Scout data repository singleton (collects identity pools,
+    per-player stats and transfer info from their sources).
+    """
+    global _scout_repo
+    if _scout_repo is None:
+        from api.repositories.scout_repo import ScoutRepository
+        _scout_repo = ScoutRepository()
+    return _scout_repo
+
+def get_scout_api_service() -> "ScoutApiService":
+    """
+    Inject the Scout application service singleton. The service owns
+    the domain ScoutService and wires it to the Scout repository.
+    No Depends args so the GraphQL resolver can call it directly too.
+    """
+    global _scout_api_service
+    if _scout_api_service is None:
+        from api.services.scout_service import ScoutApiService
+        _scout_api_service = ScoutApiService(get_scout_repo())
+    return _scout_api_service

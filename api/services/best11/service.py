@@ -1,22 +1,24 @@
-"""Best11Service — facade for the best-11 feature.
+"""Best11Service — domain orchestration for the best-11 feature.
 
 Facade pattern: clients get one solve() entry point; the service
-orchestrates the repositories (squad / totals / per-match form), the
-rating strategy (full-season or through-date), the optional H2H
-enhancer, the formation strategy and the substitution strategy.
-Components are injectable for testing; the service only depends on
-repository abstractions (Dependency Inversion).
+orchestrates the Best11Repository (collects all source data) with the
+rating, formation and substitution strategies (the processing layer).
+The repository is injected (Dependency Inversion): the service never
+touches a data module directly.
+
+Layers:
+    api/routes/best11.py             → HTTP concerns
+    api/services/best11_service.py   → application use-case (Best11ApiService)
+    api/services/best11/service.py   → domain orchestration (this service)
+    api/repositories/best11_repo.py  → collects data from sources
 """
 
 import logging
 from datetime import date
 from typing import Dict, List, Optional
 
-from data.player_ratings import MIN_MINUTES, PlayerRating
+from data.player_ratings import MIN_MINUTES
 
-from .repository import (PlayerFormRepositoryABC, SquadRepositoryABC,
-                         TotalsRepositoryABC, get_player_form_repository,
-                         get_squad_repository, get_totals_repository)
 from .strategies.formations import (AutoFormationStrategy,
                                     FixedFormationStrategy, _fill_lineup)
 from .strategies.ratings import (H2HBlendDecorator, RatingStrategy,
@@ -29,22 +31,12 @@ logger = logging.getLogger("best11.service")
 
 
 class Best11Service:
-    """Composes squad data, ratings and tactics into a lineup recommendation.
+    """Orchestrates the repository and strategies into a lineup prediction."""
 
-    All data access goes through the injected repositories (Repository
-    pattern): squad cache, team totals and per-match player form. When no
-    repository is injected, process-wide singletons are used.
-    """
-
-    def __init__(self,
-                 squad_repository: Optional[SquadRepositoryABC] = None,
-                 totals_repository: Optional[TotalsRepositoryABC] = None,
-                 form_repository: Optional[PlayerFormRepositoryABC] = None,
+    def __init__(self, repository,
                  rating_strategy: Optional[RatingStrategy] = None,
                  substitution_strategy: Optional[SubstitutionStrategy] = None):
-        self.squad_repository = squad_repository or get_squad_repository()
-        self.totals_repository = totals_repository or get_totals_repository()
-        self.form_repository = form_repository or get_player_form_repository()
+        self.repository = repository
         self.rating_strategy = rating_strategy
         self.substitution_strategy = substitution_strategy or RotationSubstitutionStrategy()
 
@@ -70,14 +62,14 @@ class Best11Service:
         minutes, shares, season, h2h), captain, subs, bench, notes.
         """
         # totals first: an uncollected season fails fast instead of scraping
-        totals = self.totals_repository.load_totals(league_code, season)
+        totals = self.repository.load_totals(league_code, season)
         if not totals:
             return {"team": team, "league_code": league_code, "season": season,
                     "formation": formation,
                     "error": f"no match data for {league_code} {season} — "
                              f"run data/collect_all.py + data/preprocess.py first"}
 
-        squad = self.squad_repository.load_squad(team, league_code, season, provider, refresh)
+        squad = self.repository.load_squad(team, league_code, season, provider, refresh)
         if not squad:
             return {"team": team, "formation": formation, "error": "no squad data"}
 
@@ -85,10 +77,11 @@ class Best11Service:
             as_of = self._auto_as_of(league_code, season)  # cumulative through latest match
 
         rating_strategy = self.rating_strategy or (
-            ThroughDateRatingStrategy(self.form_repository, self.totals_repository)
-            if as_of else SeasonRatingStrategy(self.totals_repository))
+            ThroughDateRatingStrategy(self.repository) if as_of
+            else SeasonRatingStrategy(self.repository))
         outcome = rating_strategy.rate(squad, league_code, season, as_of)
-        ratings, matched, used_through = outcome.ratings, outcome.matched, outcome.used_through
+        ratings, matched, used_through = (outcome.ratings, outcome.matched,
+                                          outcome.used_through)
 
         season_stats = {
             rec.name: {f: round(getattr(rec, f) or 0.0, 2) for f in
@@ -97,7 +90,7 @@ class Best11Service:
         if used_through:
             # season block must match the through-date ratings: cumulative stats
             try:
-                cum = self.form_repository.cumulative_stats(
+                cum = self.repository.cumulative_stats(
                     league_code, season, as_of, team)
                 for name, stats in cum.items():
                     season_stats[name] = {f: round(stats.get(f, 0.0) or 0.0, 2)
@@ -108,7 +101,7 @@ class Best11Service:
         h2h_stats, h2h_matches = {}, 0
         if opponent and opponent != team:
             try:
-                h2h_stats, h2h_matches = self.form_repository.h2h_stats(
+                h2h_stats, h2h_matches = self.repository.h2h_stats(
                     league_code, season, team, opponent)
             except Exception as e:
                 logger.warning("h2h stats failed for %s vs %s: %s", team, opponent, e)
@@ -158,6 +151,19 @@ class Best11Service:
             "notes": notes,
         }
 
+    def _auto_as_of(self, league_code: str, season: str) -> Optional[str]:
+        """Latest played match in the per-match feed for an in-progress season.
+
+        Lets best-11 default to cumulative-through-date stats (no future
+        leakage) for the current season, without any caller passing a date.
+        """
+        try:
+            return self.repository.latest_match_date(league_code, season)
+        except Exception as e:
+            logger.warning("latest_match_date failed for %s %s: %s",
+                           league_code, season, e)
+            return None
+
 
 def _h2h_entry(stats: Dict[str, float], matches: int) -> Dict:
     """H2H stat block for a lineup entry (empty when no data/appearance)."""
@@ -179,17 +185,3 @@ def _current_season_code() -> str:
     today = date.today()
     start = today.year if today.month >= 7 else today.year - 1
     return f"{start % 100:02d}{(start + 1) % 100:02d}"
-
-
-    def _auto_as_of(self, league_code: str, season: str) -> Optional[str]:
-        """Latest played match in the per-match feed for an in-progress season.
-
-        Lets best-11 default to cumulative-through-date stats (no future
-        leakage) for the current season, without any caller passing a date.
-        """
-        try:
-            return self.form_repository.latest_match_date(league_code, season)
-        except Exception as e:
-            logger.warning("latest_match_date failed for %s %s: %s",
-                           league_code, season, e)
-            return None

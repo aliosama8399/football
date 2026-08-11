@@ -5,22 +5,27 @@ from fastapi import HTTPException, status
 
 from api.utils import strip_markdown
 from api.repositories.chat_repo import ChatRepository
+from api.repositories.kb_repo import KnowledgeBaseRepository
 from api.config import rag_cfg
-from rag.knowledge_base.kb import KnowledgeBase
 
 
 class ChatService:
     """
     Business flow for conversations: create/list/get messages, plus KB-routed
-    Q&A. Every message goes through KnowledgeBase.ask() — the intent classifier
-    routes to the right resolver (prediction mode forces prediction intent).
-    Conversational memory is injected into the LLM narration prompt; assistant
-    replies persist their source citations (messages.sources JSON).
+    Q&A. Every message goes through the KnowledgeBaseRepository →
+    KnowledgeBase.ask() — the intent classifier routes to the right resolver
+    (prediction mode forces prediction intent). Conversational memory is
+    injected into the LLM narration prompt; assistant replies persist their
+    source citations (messages.sources JSON).
+
+    The KBase is injected as a repository (KnowledgeBaseRepository) so the
+    service depends on a data-access interface, not the concrete class.
     """
 
-    def __init__(self, chat_repo: ChatRepository, knowledge_base: KnowledgeBase):
+    def __init__(self, chat_repo: ChatRepository,
+                 knowledge_base_repo: KnowledgeBaseRepository):
         self.chat_repo = chat_repo
-        self.knowledge_base = knowledge_base
+        self.kb_repo = knowledge_base_repo
         # Same key the RAG orchestrator uses; missing/empty → none-safe
         # structured answers (no LLM).
         self._llm_name = (rag_cfg.get("llm_provider") or "").strip() or None
@@ -65,7 +70,7 @@ class ChatService:
 
         # KB ask runs blocking internals (CSV/Postgres/FAISS/GNN); offload it.
         answer = await asyncio.to_thread(
-            self.knowledge_base.ask,
+            self.kb_repo.ask,
             content,
             llm_name=self._llm_name,
             prefer_prediction=(conversation.mode == "prediction"),

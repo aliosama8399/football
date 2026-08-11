@@ -18,7 +18,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from data.best11 import solve_best11
+from api.repositories.best11_repo import Best11Repository
+from api.services.best11 import Best11Service, FORMATIONS as _FORMATIONS
+
+_repository = Best11Repository()
+_service = Best11Service(_repository)
+
+
+def solve_best11(team, league_code, season="2425", formation="auto"):
+    """Local proxy to the processing-layer service."""
+    return _service.solve(team, league_code, season, formation)
 from data.player_ratings import rate_squad
 from data.team_totals import load_team_totals
 
@@ -72,7 +81,6 @@ def main():
                 f"{r.name} {r.rating:.0f}" for r in top))
 
         lineup = result["lineup"]
-        from data.best11 import _FORMATIONS
         need = _FORMATIONS[result["formation"]]
         counts = {}
         for e in lineup:

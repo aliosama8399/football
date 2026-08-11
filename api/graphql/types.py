@@ -127,3 +127,59 @@ class Best11Result:
     bench: List[JSON] = strawberry.field(default_factory=list)
     notes: List[str] = strawberry.field(default_factory=list)
     error: Optional[str] = None
+
+# ── Scouting (top-N signing candidates) types ─────────────────────────────────
+
+@strawberry.type
+class ScoutStats:
+    appearances: Optional[float] = None
+    minutes: Optional[float] = None
+    goals: Optional[float] = None
+    assists: Optional[float] = None
+    shots: Optional[float] = None
+    shots_on_target: Optional[float] = None
+    saves: Optional[float] = None
+    goals_conceded: Optional[float] = None
+    key_passes: Optional[float] = None
+    tackles: Optional[float] = None
+    interceptions: Optional[float] = None
+    blocks: Optional[float] = None
+    duels_won: Optional[float] = None
+    dribbles_success: Optional[float] = None
+    yellow_cards: Optional[float] = None
+    red_cards: Optional[float] = None
+    rating: Optional[float] = None
+
+@strawberry.type
+class ScoutTransfer:
+    date: Optional[str] = None
+    type: Optional[str] = None
+    from_team: Optional[str] = None
+    to_team: Optional[str] = None
+
+@strawberry.type
+class ScoutCandidate:
+    rank: int
+    name: str
+    team: str
+    league: Optional[str] = None
+    position: Optional[str] = None
+    age: Optional[int] = None
+    nationality: Optional[str] = None
+    shirt_number: Optional[float] = None
+    stats: Optional[ScoutStats] = None
+    transfer: Optional[ScoutTransfer] = None
+    score: float
+    score_breakdown: Optional[JSON] = None
+
+@strawberry.type
+class ScoutResult:
+    season: str
+    position: str
+    youth: bool
+    leagues: List[str] = strawberry.field(default_factory=list)
+    pool_size: int = 0
+    top: int = 0
+    candidates: List[ScoutCandidate] = strawberry.field(default_factory=list)
+    notes: List[str] = strawberry.field(default_factory=list)
+    error: Optional[str] = None

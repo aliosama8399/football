@@ -39,14 +39,15 @@ def season_teams(league_code: str, season: str) -> list:
 
 
 def prewarm(league_code: str, season: str) -> None:
-    from data.best11 import _load_squad_cached
+    from api.repositories.best11_repo import Best11Repository
 
+    repo = Best11Repository()
     teams = season_teams(league_code, season)
     logger.info("%s %s: %d teams", league_code, season, len(teams))
     ok = 0
     for team in teams:
         try:
-            squad = _load_squad_cached(team, league_code, season, "all")
+            squad = repo.load_squad(team, league_code, season, "all")
         except Exception as e:
             logger.warning("%s failed: %s", team, e)
             squad = None

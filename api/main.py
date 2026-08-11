@@ -21,7 +21,8 @@ from api.routes import (
     supervisor_router,
     submissions_router,
     kb_router,
-    best11_router
+    best11_router,
+    scout_router
 )
 from api.graphql import schema
 
@@ -110,6 +111,7 @@ app.include_router(supervisor_router, prefix="/api/v1")
 app.include_router(submissions_router, prefix="/api/v1")
 app.include_router(kb_router, prefix="/api/v1")
 app.include_router(best11_router, prefix="/api/v1")
+app.include_router(scout_router, prefix="/api/v1")
 
 # Mount Strawberry GraphQL endpoint
 graphql_app = GraphQLRouter(schema)

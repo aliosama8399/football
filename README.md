@@ -127,23 +127,19 @@ python data/build_finetune_dataset.py
 
 ### Stage 4 — Best-11 Feature (ratings, H2H, lineups)
 
-No training here — team-share ratings are computed on the fly from `processed_matches.csv` (`data/team_totals.py`) + the squad caches. After Stage 1+2 you can smoke-test:
-
-```powershell
-python data/best11.py "Real Madrid" SP1 --season 2425 --formation auto
-python data/best11.py "Barcelona" SP1 --season 2425 --formation auto --json
-```
+No training here — team-share ratings are computed on the fly from `processed_matches.csv` (`data/team_totals.py`) + the squad caches. After Stage 1+2 you can smoke-test via the API (the old `data/best11.py` CLI was removed; use the REST/GraphQL entry points):
 
 The feature is structured with design patterns (SOLID) across three
 layers:
 
 - `api/repositories/best11_repo.py` — **Repository**: `Best11Repository`
-  collects every piece of best-11 data from its sources (squad
+  collects every piece of best-11 data from its sources (fused player
   providers + disk cache, team totals, per-match form/H2H stats), the
   same way `TeamGraphRepository` wraps the KG provider.
-- `data/players/` — **Strategy** (rating modes: season / through-date /
-  H2H-blend; formation auto-fit; rotation subs) + **Facade**:
-  `Best11Service.solve()` orchestrates the repositories and strategies.
+- `api/services/best11/` — **Strategy** (rating modes: season /
+  through-date / H2H-blend; formation auto-fit; rotation subs) +
+  **Facade**: `Best11Service.solve()` orchestrates the repository and
+  the strategies into the final prediction.
 - Backend service + route — `api/services/best11_service.py`
   (`Best11ApiService`: league mapping, validation, error mapping) and
   `api/routes/best11.py`. Both the REST endpoint and the GraphQL
@@ -153,8 +149,56 @@ layers:
 curl "http://localhost:8000/api/v1/best11?team=Barcelona&league=La_Liga&season=2425&formation=auto&opponent=Real+Madrid"
 ```
 
-`data/best11.py` remains the CLI facade; GraphQL resolvers call
-`solve_best11()` through it unchanged.
+`data/` holds the raw collection & scraping only
+(`player_providers/`, `collectors/`, `player_form.py`,
+`team_totals.py`); processing lives in `api/services/best11/` and
+collection is composed in `api/repositories/best11_repo.py`.
+
+### Stage 4b — Scouting Feature (top-N signing candidates)
+
+Find the best players to sign per position, with full season stats and
+transfer context, across all 5 configured leagues (or one). Use it to
+rank players **who fit your club's playing style**: pass your own team
+and the score blends 70 % position-specific production (per-90 xg, xa,
+goals, assists, shots, key passes, tackles, interceptions, blocks —
+read straight from the fused squad cache) with 30 % style fit (cosine
+similarity to your own players' per-90 profile at that position).
+
+Sources:
+
+- **fused squad cache** (`data/raw/squads_cache/`, FBRef + understat) —
+  free, offline, gives the full per-player season stats for both the
+  candidate pool *and* your club's style template. No API call needed
+  for the base score.
+- **API-Football v3** (free tier, 10 req/min) — only the *shortlisted*
+  top teams get enriched for live rating + the latest transfer block;
+  cached 24h under `data/raw/scout_cache/`. Set `API_FOOTBALL_KEY` and
+  `API_FOOTBALL_HOST` in `.env` (host: `v3.football.api-sports.io`,
+  header `x-apisports-key`).
+
+Same SOLID layering as best-11: `api/repositories/scout_repo.py`
+(collector + style template) → `api/services/scout/` (`ScoutService`
+facade + per-position `ScoringStrategy` in `strategies/scoring.py`) →
+`api/services/scout_service.py` (`ScoutApiService`) →
+`api/routes/scout.py`. REST + GraphQL share the same application
+service:
+
+```powershell
+# Top-5 forwards across all 5 leagues, ranked purely by production
+curl "http://localhost:8000/api/v1/scout?position=FW&league=all&season=2425"
+
+# Academy-only midfield targets in La Liga that fit Barcelona's style
+# (your own players excluded from the pool; fit weight 30 %)
+curl "http://localhost:8000/api/v1/scout?position=MF&league=SP1&season=2425&youth=true&team_needing=Barcelona"
+```
+
+GraphQL: `scout(position, league, season, youth, top, teamNeeding, refresh)`
+returns ranked candidates with `score` (0..100), `scoreBreakdown`
+(per-metric contributions + a `style_fit` cosine cell when a coach
+team is supplied), `stats` and `transfer` blocks. The pipeline scores
+the whole pool from the cache, shortlists `top × 3`, enriches only those
+teams with API-Football, then re-scores — so a 5-league query is no
+slower than a 1-league one once the shortlist is computed.
 
 ### Stage 5 — Build RAG Knowledge Base
 
