@@ -3,7 +3,9 @@ from typing import List, Optional
 from fastapi import HTTPException
 from api.graphql.types import (TeamNode, MatchRelation, Best11Entry,
                                Best11Sub, Best11Result, Best11Season,
-                               Best11H2H, KBBundle, KBAnswer, KBSource)
+                               Best11H2H, KBBundle, KBAnswer, KBSource,
+                               ScoutResult, ScoutCandidate, ScoutStats,
+                               ScoutTransfer)
 from api.graph_db import get_graph_db
 from api.repositories.graph_repo import TeamGraphRepository
 
@@ -11,10 +13,10 @@ def _get_repo() -> TeamGraphRepository:
     """Helper to resolve TeamGraphRepository inside execution context."""
     return TeamGraphRepository(get_graph_db())
 
-def _get_kb():
-    """Helper to resolve the global KnowledgeBase singleton inside execution context."""
-    from api.dependencies import get_knowledge_base
-    return get_knowledge_base()
+def _get_kb_repo():
+    """Helper to resolve the KnowledgeBase repository inside execution context."""
+    from api.dependencies import get_kb_repo
+    return get_kb_repo()
 
 def _kb_sources(srcs) -> List[KBSource]:
     return [KBSource(
@@ -97,7 +99,7 @@ class Query:
         """Matches between two teams, optionally scoped to one league-season
         (e.g. league='Premier_League', season='2425') — backed by the
         processed match dataset."""
-        store = _get_kb()._store
+        store = _get_kb_repo()
         matches = store.head_to_head(team_a, team_b, limit=limit,
                                      league=league, season=season)
         return [_match_relation(m) for m in matches]
@@ -159,6 +161,50 @@ class Query:
         )
 
     @strawberry.field
+    async def scout(self, position: str, league: str = "all",
+                    season: str = "2425", youth: bool = False,
+                    top: int = 5,
+                    team_needing: Optional[str] = None,
+                    refresh: bool = False) -> ScoutResult:
+        """Top-N scouting candidates to sign.
+
+        position: GK | DF | MF | FW. league: 'all' (5 leagues) or a
+        league code (E0/SP1/D1/I1/F1). youth: only players ≤ 19.
+        team_needing: your team — excluded from the pool so you scout
+        the competition. Stats come from API-Football (cached 24h);
+        the identity pool from football-data.org squads.
+        """
+        from api.dependencies import get_scout_api_service
+        try:
+            result = await get_scout_api_service().scout(
+                league, season, position, youth, top, team_needing, refresh)
+        except HTTPException as e:
+            return ScoutResult(season=season, position=position,
+                               youth=youth, error=e.detail)
+        except Exception as e:
+            return ScoutResult(season=season, position=position,
+                               youth=youth, error=str(e))
+        return ScoutResult(
+            season=result.season,
+            position=result.position,
+            youth=result.youth,
+            leagues=result.leagues,
+            pool_size=result.pool_size,
+            top=result.top,
+            candidates=[ScoutCandidate(
+                rank=c.rank, name=c.name, team=c.team, league=c.league,
+                position=c.position, age=c.age, nationality=c.nationality,
+                shirt_number=c.shirt_number,
+                stats=ScoutStats(**c.stats.dict()) if c.stats else None,
+                transfer=ScoutTransfer(**c.transfer.dict()) if c.transfer else None,
+                score=c.score,
+                score_breakdown=c.score_breakdown,
+            ) for c in result.candidates],
+            notes=result.notes,
+            error=None,
+        )
+
+    @strawberry.field
     def league_teams(self, league: str, season: Optional[str] = None) -> List[str]:
         """Query names of all teams competing in a league, optionally filtered by season."""
         repo = _get_repo()
@@ -169,7 +215,7 @@ class Query:
     @strawberry.field
     def kb_retrieve(self, question: str, prefer_prediction: bool = False) -> KBBundle:
         """Retrieve the KB context bundle for a question — no LLM involved."""
-        bundle = _get_kb().retrieve(question, prefer_prediction=prefer_prediction)
+        bundle = _get_kb_repo().retrieve(question, prefer_prediction=prefer_prediction)
         return KBBundle(
             question=bundle.question,
             intent=bundle.intent,
@@ -186,8 +232,8 @@ class Query:
     def kb_ask(self, question: str, llm_provider: Optional[str] = None,
                prefer_prediction: bool = False) -> KBAnswer:
         """Ask the KB. llm_provider=None → structured answer without any LLM."""
-        answer = _get_kb().ask(question, llm_name=llm_provider,
-                               prefer_prediction=prefer_prediction)
+        answer = _get_kb_repo().ask(question, llm_name=llm_provider,
+                                    prefer_prediction=prefer_prediction)
         return KBAnswer(
             content=answer.content,
             provider=answer.provider,

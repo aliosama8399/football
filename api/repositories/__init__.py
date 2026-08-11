@@ -3,11 +3,13 @@ from api.repositories.chat_repo import ChatRepository
 from api.repositories.feedback_repo import FeedbackRepository
 from api.repositories.graph_repo import TeamGraphRepository
 from api.repositories.best11_repo import Best11Repository
+from api.repositories.kb_repo import KnowledgeBaseRepository
 
 __all__ = [
     "UserRepository",
     "ChatRepository",
     "FeedbackRepository",
     "TeamGraphRepository",
-    "Best11Repository"
+    "Best11Repository",
+    "KnowledgeBaseRepository",
 ]

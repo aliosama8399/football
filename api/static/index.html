@@ -47,6 +47,10 @@
                 <span class="nav-icon">🧩</span>
                 <span class="nav-label">BEST XI</span>
             </button>
+            <button class="nav-item" data-tab="scout-tab">
+                <span class="nav-icon">🔭</span>
+                <span class="nav-label">SCOUTING</span>
+            </button>
             <button class="nav-item" data-tab="contribute-tab">
                 <span class="nav-icon">📝</span>
                 <span class="nav-label">DATA CONTRIBUTE</span>
@@ -224,7 +228,75 @@
                 </div>
             </div>
 
-            <!-- TAB 5: Data Contribute -->
+            <!-- TAB 5: Scouting -->
+            <div id="scout-tab" class="tab-content">
+                <div class="split-view">
+                    <!-- Left: Scout Criteria -->
+                    <div class="form-panel">
+                        <div class="panel-header">SCOUT PARAMETERS</div>
+                        <div class="panel-body">
+                            <div class="form-group">
+                                <label for="scout-position-select">POSITION TO SIGN</label>
+                                <select id="scout-position-select" class="tech-select">
+                                    <option value="FW">FORWARD (FW)</option>
+                                    <option value="MF">MIDFIELDER (MF)</option>
+                                    <option value="DF">DEFENDER (DF)</option>
+                                    <option value="GK">GOALKEEPER (GK)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="scout-league-select">SCOUTING RANGE</label>
+                                <select id="scout-league-select" class="tech-select">
+                                    <option value="all">ALL 5 LEAGUES</option>
+                                    <option value="E0">Premier League (England)</option>
+                                    <option value="SP1">La Liga (Spain)</option>
+                                    <option value="D1">Bundesliga (Germany)</option>
+                                    <option value="I1">Serie A (Italy)</option>
+                                    <option value="F1">Ligue 1 (France)</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="scout-season">SEASON</label>
+                                    <input type="text" id="scout-season" class="tech-input" value="2425">
+                                </div>
+                                <div class="form-group">
+                                    <label for="scout-top">TOP N</label>
+                                    <input type="number" id="scout-top" class="tech-input" min="1" max="20" value="5">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="scout-youth" class="tech-check-label">
+                                    <input type="checkbox" id="scout-youth" class="tech-check">
+                                    YOUTH TARGETS ONLY (≤ 19 YRS)
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="scout-exclude-team">MY TEAM (STYLE FIT)</label>
+                                <input type="text" id="scout-exclude-team" class="tech-input" placeholder="e.g. Barcelona (optional)">
+                            </div>
+                            <button id="run-scout-btn" class="tech-btn block-btn accent-fill">FIND TOP CANDIDATES</button>
+                            <div class="empty-state" style="padding:14px 0 0;">
+                                <div class="empty-desc">Rank players who match your playing style — pool from cached squads · season stats from API-Football (cached 24h) · position-specific 0-100 score with a fit bonus to your own club.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Scouting Results -->
+                    <div class="result-panel">
+                        <div class="panel-header">SIGNING SHORTLIST</div>
+                        <div class="panel-body" id="scout-result-container">
+                            <div class="empty-state">
+                                <div class="empty-icon">🔭</div>
+                                <div>AWAITING SCOUT CRITERIA</div>
+                                <div class="empty-desc">Pick a position and range — the scout ranks the top-N candidates by weighted season stats.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 6: Data Contribute -->
             <div id="contribute-tab" class="tab-content">
                 <div class="contribute-layout">
                     <!-- Section 1: Submit Match Record -->

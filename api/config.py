@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     football_admin_email: str = "admin@football.com"
     football_admin_password: str = "AdminPass123!"
 
+    # ── Player Scouting — API-Football v3 (free direct host) ──────
+    # Free plan = 10 req/min; the scout repository caches every call on
+    # disk under data/raw/scout_cache/ to stay under quota.
+    api_football_key: str = ""
+    api_football_host: str = "v3.football.api-sports.io"
+
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
         env_file_encoding="utf-8",

@@ -1,4 +1,4 @@
-"""Substitution strategies for the best-11 feature.
+"""Substitution strategies for the best-11 feature (processing layer).
 
 Strategy pattern: SubstitutionStrategy.suggest() turns the XI + all
 eligible players into like-for-like substitution suggestions.

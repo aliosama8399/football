@@ -1,4 +1,4 @@
-"""Strategy package for the best-11 feature.
+"""Strategy package for the best-11 feature (processing layer).
 
 Strategies are interchangeable, so rating mode, formation choice and
 substitution logic can be composed, tested and extended independently

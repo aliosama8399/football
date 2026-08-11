@@ -23,9 +23,11 @@ def _import_providers():
     from data.player_providers.fbref import FbrefPlayerProvider
     from data.player_providers.fod import FodPlayerProvider
     from data.player_providers.understat import UnderstatPlayerProvider
+    from data.player_providers.api_football import ApiFootballPlayerProvider
     _REGISTRY["fbref"] = FbrefPlayerProvider
     _REGISTRY["fod"] = FodPlayerProvider
     _REGISTRY["understat"] = UnderstatPlayerProvider
+    _REGISTRY["api_football"] = ApiFootballPlayerProvider
 
 
 def get_player_provider(provider_type: str = "", **kwargs) -> BasePlayerProvider:

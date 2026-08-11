@@ -1,20 +1,21 @@
-"""Rating strategies for the best-11 feature.
+"""Rating strategies for the best-11 feature (processing layer).
 
 Strategy pattern: every rating mode implements RatingStrategy.rate()
 returning a RatingOutcome (ratings + through-date metadata). The
 H2HBlendDecorator is a RatingEnhancer applied on top of any strategy,
 so match-specific lineups compose with either full-season or
 through-date ratings.
+
+These strategies are pure processing — they pull data through the
+injected Best11Repository (the collector) and never touch a data
+module directly (Dependency Inversion).
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from data.player_ratings import PlayerRating, rate_squad
-
-from ..repository import (PlayerFormRepositoryABC, TotalsRepositoryABC,
-                          get_player_form_repository, get_totals_repository)
 
 
 @dataclass
@@ -36,12 +37,12 @@ class RatingStrategy(ABC):
 class SeasonRatingStrategy(RatingStrategy):
     """Full-season ratings from the processed match dataset."""
 
-    def __init__(self, totals_repository: Optional[TotalsRepositoryABC] = None):
-        self.totals_repository = totals_repository or get_totals_repository()
+    def __init__(self, repository):
+        self.repository = repository
 
     def rate(self, squad, league_code: str, season: str,
              as_of: Optional[str]) -> RatingOutcome:
-        totals = self.totals_repository.load_totals(league_code, season)
+        totals = self.repository.load_totals(league_code, season)
         ratings = rate_squad(squad, totals)
         return RatingOutcome(ratings=ratings, matched=0, used_through=False)
 
@@ -53,21 +54,19 @@ class ThroughDateRatingStrategy(RatingStrategy):
     full-season ratings when the per-match feed is unavailable.
     """
 
-    def __init__(self, form_repository: Optional[PlayerFormRepositoryABC] = None,
-                 totals_repository: Optional[TotalsRepositoryABC] = None):
-        self.form_repository = form_repository or get_player_form_repository()
-        self.totals_repository = totals_repository or get_totals_repository()
+    def __init__(self, repository):
+        self.repository = repository
 
     def rate(self, squad, league_code: str, season: str,
              as_of: Optional[str]) -> RatingOutcome:
         try:
-            ratings, matched, used_through = self.form_repository.rate_squad_as_of(
+            ratings, matched, used_through = self.repository.rate_squad_as_of(
                 squad, as_of, league_code, season)
             return RatingOutcome(ratings=ratings, matched=matched,
                                  used_through=used_through)
         except Exception:
             # fall back to full-season ratings (per-match feed missing)
-            return SeasonRatingStrategy(self.totals_repository).rate(
+            return SeasonRatingStrategy(self.repository).rate(
                 squad, league_code, season, None)
 
 
@@ -128,10 +127,8 @@ class H2HBlendDecorator(RatingEnhancer):
                 r.rating = boosted[id(r)]
 
 
-def make_rating_strategy(as_of: Optional[str],
-                         form_repository: Optional[PlayerFormRepositoryABC] = None,
-                         totals_repository: Optional[TotalsRepositoryABC] = None) -> RatingStrategy:
+def make_rating_strategy(as_of: Optional[str], repository) -> RatingStrategy:
     """Strategy factory: through-date when a date is given, else season."""
     if as_of:
-        return ThroughDateRatingStrategy(form_repository, totals_repository)
-    return SeasonRatingStrategy(totals_repository)
+        return ThroughDateRatingStrategy(repository)
+    return SeasonRatingStrategy(repository)
