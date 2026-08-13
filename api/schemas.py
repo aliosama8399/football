@@ -111,6 +111,56 @@ class MatchPredictionResponse(BaseModel):
     source: str = Field(..., description="Either 'override' or 'live_model'")
     probabilities: Optional[dict] = None
 
+# ── Live Prediction Schemas ──────────────────────────────────────────────────
+
+class LivePredictionRequest(BaseModel):
+    home_team: str
+    away_team: str
+    minute: int = Field(..., ge=0, le=90, description="Current match minute (0-90)")
+    home_goals: int = Field(default=0, ge=0)
+    away_goals: int = Field(default=0, ge=0)
+
+    # Cumulative live stats so far — None means "not provided" (skipped in pace math).
+    home_xg: Optional[float] = None
+    away_xg: Optional[float] = None
+    home_shots: Optional[int] = None
+    away_shots: Optional[int] = None
+    home_sot: Optional[int] = None
+    away_sot: Optional[int] = None
+    home_corners: Optional[int] = None
+    away_corners: Optional[int] = None
+    home_fouls: Optional[int] = None
+    away_fouls: Optional[int] = None
+    home_yellows: Optional[int] = None
+    away_yellows: Optional[int] = None
+    home_reds: Optional[int] = Field(default=0, ge=0)
+    away_reds: Optional[int] = Field(default=0, ge=0)
+
+    explain: bool = Field(
+        default=False,
+        description="If true, call the LLM for a coach-actionable narrative (slower)."
+    )
+
+class LivePredictionResponse(BaseModel):
+    home_team: str
+    away_team: str
+    minute: int
+    home_goals: int
+    away_goals: int
+    predicted_result: str = Field(..., description="H | D | A")
+    probabilities: dict = Field(..., description="Blended live H/D/A probabilities")
+    pre_match_probabilities: dict = Field(..., description="TEA-GNN prior H/D/A probabilities")
+    delta: dict = Field(..., description="live - pre probability deltas")
+    expected_final_score: dict = Field(..., description="{'home': .., 'away': ..}")
+    key_drivers: List[dict] = Field(default_factory=list, description="Ranked live-stat deviations")
+    tactical_analysis: Optional[str] = None
+    tactical_breakdown: Optional[dict] = Field(
+        default=None,
+        description="Structured coach-advisor JSON: {match_state, analysis: {who_controls_now, why, how_outlook_changed, coach_recommendations}}",
+    )
+    explain: bool = False
+    source: str = Field(..., description="E.g. 'live_model' or 'live_model+llm'")
+
 # ── Best-11 Schemas ───────────────────────────────────────────────────────────
 
 class Best11Entry(BaseModel):

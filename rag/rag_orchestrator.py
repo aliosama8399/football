@@ -255,6 +255,81 @@ class FootballRAGSystem:
         )
         return self.query(question)
 
+    def predict_live_match(self, home_team: str, away_team: str, live_context: dict) -> str:
+        """
+        Expert 2 live-match narrative: pre-match GNN block + current match
+        state (minute, score, live probs, drivers) -> coach-actionable analysis.
+
+        None-safe: when no LLM is configured, returns the structured context
+        as JSON so the API still answers with the live model numbers.
+        """
+        gnn_result = self.predict_structured(home_team, away_team)
+        gnn_pred_text = self._get_gnn_prediction(home_team, away_team)
+
+        live_block = (
+            f"LIVE STATE (minute {live_context.get('minute', '?')}):\n"
+            f"Current score: {live_context.get('home_goals', 0)} - {live_context.get('away_goals', 0)}\n"
+            f"Live probabilities: Home Win={live_context.get('live_probs', {}).get('H', 0):.1%} | "
+            f"Draw={live_context.get('live_probs', {}).get('D', 0):.1%} | "
+            f"Away Win={live_context.get('live_probs', {}).get('A', 0):.1%}\n"
+            f"Pre-match probabilities: Home Win={live_context.get('pre_probs', {}).get('H', 0):.1%} | "
+            f"Draw={live_context.get('pre_probs', {}).get('D', 0):.1%} | "
+            f"Away Win={live_context.get('pre_probs', {}).get('A', 0):.1%}\n"
+            f"Expected final score: {live_context.get('expected_score', {}).get('home', '?')} - "
+            f"{live_context.get('expected_score', {}).get('away', '?')}\n"
+        )
+
+        drivers = live_context.get("drivers", [])
+        if drivers:
+            lines = ["LIVE STAT DRIVERS (deviation from season averages):"]
+            for d in drivers:
+                lines.append(
+                    f"  - {d.get('side', '?')} {d.get('label', d.get('stat', '?'))}: "
+                    f"{d.get('direction', 'neutral')} (live {d.get('live', '?')}/min vs season {d.get('season_avg', '?')}/min, "
+                    f"pace x{d.get('pace', '?')})"
+                )
+            live_block += "\n" + "\n".join(lines)
+
+        if self.llm is None:
+            return json.dumps({
+                "home_team": home_team,
+                "away_team": away_team,
+                "gnn_prediction": gnn_result,
+                "live_context": live_context,
+                "note": "LLM not configured; returning structured live context only.",
+            }, ensure_ascii=False)
+
+        question = (
+            f"You are Expert 2 (Fine-tuned LLM), an in-match tactical advisor to a coach.\n"
+            f"You are watching {home_team} (Home) vs {away_team} (Away).\n"
+            f"{gnn_pred_text}\n\n"
+            f"{live_block}\n\n"
+            f"Give a concise, coach-actionable analysis grounded ONLY in the live driver data.\n\n"
+            f"Respond with a SINGLE JSON object and nothing else: no markdown fences, no prose "
+            f"outside the object. Use exactly this structure:\n"
+            f"{{\n"
+            f'  "match_state": {{"minute": {live_context.get("minute", "?")}, '
+            f'"score": "{live_context.get("home_goals", 0)}-{live_context.get("away_goals", 0)}"}},\n'
+            f'  "analysis": {{\n'
+            f'    "who_controls_now": "2-3 sentences: who is actually controlling the match right now and why, from the driver numbers.",\n'
+            f'    "why": ["bullet 1", "bullet 2", "bullet 3"],\n'
+            f'    "how_outlook_changed": "2-3 sentences: how the live picture shifted vs the pre-match prediction.",\n'
+            f'    "coach_recommendations": [\n'
+            f'      {{"priority": 1, "action": "specific action", "reason": "grounded reason"}},\n'
+            f'      {{"priority": 2, "action": "specific action", "reason": "grounded reason"}},\n'
+            f'      {{"priority": 3, "action": "specific action", "reason": "grounded reason"}}\n'
+            f"    ]\n"
+            f"  }}\n"
+            f"}}\n\n"
+            f"Rules: who_controls_now, why and how_outlook_changed must be plain strings/bullets "
+            f"without markdown. coach_recommendations must have 2-4 items with integer priorities "
+            f"starting at 1, each with a concrete action (substitution, formation/tactical tweak, "
+            f"pressing/intensity) and a reason tied to a specific driver (e.g. shots/SOT/xG pace, "
+            f"corners, yellows, reds). If coaching advice would differ per side, keep both "
+            f"perspectives inside the same actions."
+        )
+        return self.query(question)
+
     def get_team_report(self, team_name: str) -> str:
         """
         Generate a full team tactical report.

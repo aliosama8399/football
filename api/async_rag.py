@@ -38,6 +38,18 @@ class AsyncRAGWrapper:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self.rag.predict_structured, home_team, away_team)
 
+    async def predict_live_match(self, home_team: str, away_team: str, live_context: dict) -> str:
+        """Asynchronously run the live in-match prediction narrative (GNN prior + live state + LLM)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, self.rag.predict_live_match, home_team, away_team, live_context
+        )
+
+    async def get_team_profile(self, team_name: str) -> Optional[dict]:
+        """Asynchronously fetch a team profile (season averages) from the KG provider."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self.rag.kg.get_team_profile, team_name)
+
     def get_available_teams(self) -> List[str]:
         """Fetch available team list (runs fast in-memory, no offloading needed)."""
         return self.rag.get_available_teams()

@@ -17,6 +17,7 @@ from api.routes import (
     auth_router,
     chat_router,
     predictions_router,
+    live_predictions_router,
     feedback_router,
     supervisor_router,
     submissions_router,
@@ -106,6 +107,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(predictions_router, prefix="/api/v1")
+app.include_router(live_predictions_router, prefix="/api/v1")
 app.include_router(feedback_router, prefix="/api/v1")
 app.include_router(supervisor_router, prefix="/api/v1")
 app.include_router(submissions_router, prefix="/api/v1")
