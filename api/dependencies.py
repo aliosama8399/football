@@ -1,3 +1,11 @@
+
+from api.repositories import KnowledgeBaseRepository
+from api.repositories import Best11Repository
+from api.services.best11_service import Best11ApiService
+from api.services.scout_service import ScoutApiService
+from api.repositories.scout_repo import ScoutRepository
+from api.services.scout_service import ScoutApiService
+from rag.knowledge_base.kb import KnowledgeBase
 import logging
 from typing import AsyncGenerator, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -156,6 +164,12 @@ def get_prediction_service(
 ):
     from api.services.prediction_service import PredictionService
     return PredictionService(feedback_repo, rag_wrapper)
+
+def get_live_prediction_service(
+    rag_wrapper: AsyncRAGWrapper = Depends(get_async_rag)
+):
+    from api.services.live_prediction_service import LivePredictionService
+    return LivePredictionService(rag_wrapper)
 
 def get_chat_service(
     chat_repo = Depends(get_chat_repo),

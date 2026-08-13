@@ -1515,3 +1515,176 @@ body.tech-theme {
     width: 16px;
     height: 16px;
 }
+
+/* ── Live Match Prediction ─────────────────────────────────────────────── */
+
+.live-score-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-top: 1px dashed var(--border-color);
+    border-bottom: 1px dashed var(--border-color);
+    margin-bottom: 10px;
+}
+
+.live-score {
+    font-family: var(--font-mono);
+    font-size: 1.6rem;
+    font-weight: bold;
+    color: var(--text-bright);
+    letter-spacing: 2px;
+}
+
+.live-verdict {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    padding: 4px 10px;
+    border: 1px solid var(--border-color);
+    color: var(--text);
+}
+
+.live-verdict.verdict-home { color: var(--accent); border-color: var(--accent); }
+.live-verdict.verdict-away { color: #ff6600; border-color: #ff6600; }
+
+.live-delta {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    margin-left: 6px;
+}
+
+.live-delta.up { color: var(--accent); }
+.live-delta.down { color: #ff6600; }
+
+.driver-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.driver-chip {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.04em;
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    background: var(--accent-glow);
+    color: var(--text-bright);
+}
+
+.driver-chip.over { border-color: var(--accent); color: var(--accent); }
+.driver-chip.under { border-color: #ff6600; color: #ff6600; }
+
+/* ── Coach Advisor (LLM) structured rendering ──────────────────────────────── */
+
+.card-badge {
+    float: right;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 2px 7px;
+    margin-top: -2px;
+}
+
+.ca-intro {
+    font-size: 0.95rem;
+    color: var(--text-bright);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 12px;
+}
+
+.ca-section {
+    margin-top: 14px;
+}
+
+.ca-label {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: var(--accent);
+    margin-bottom: 8px;
+}
+
+.ca-why {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+}
+
+.ca-why li {
+    position: relative;
+    padding-left: 16px;
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+.ca-why li::before {
+    content: '▸';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+}
+
+.ca-text {
+    font-size: 0.88rem;
+    line-height: 1.55;
+    margin: 0;
+}
+
+.ca-recs {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ca-rec {
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--text-muted);
+    background-color: rgba(255, 255, 255, 0.02);
+    padding: 10px 12px;
+}
+
+.ca-rec.high { border-left-color: var(--accent); }
+.ca-rec.mid { border-left-color: #ff6600; }
+
+.ca-rec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.ca-prio {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: bold;
+    color: #050505;
+    background-color: var(--accent);
+    padding: 2px 7px;
+    flex-shrink: 0;
+}
+
+.ca-rec.high .ca-prio { background-color: var(--accent); }
+.ca-rec.mid .ca-prio { background-color: #ff6600; }
+
+.ca-action {
+    font-size: 0.9rem;
+    font-weight: bold;
+    color: var(--text-bright);
+}
+
+.ca-rec-reason {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--text);
+}

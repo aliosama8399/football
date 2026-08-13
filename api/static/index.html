@@ -35,6 +35,10 @@
                 <span class="nav-icon">📊</span>
                 <span class="nav-label">GNN PREDICT</span>
             </button>
+            <button class="nav-item" data-tab="live-tab">
+                <span class="nav-icon">⚡</span>
+                <span class="nav-label">LIVE MATCH</span>
+            </button>
             <button class="nav-item" data-tab="chat-tab">
                 <span class="nav-icon">💬</span>
                 <span class="nav-label">TACTICAL CHAT</span>
@@ -107,6 +111,91 @@
                                 <div class="empty-icon">📡</div>
                                 <div>AWAITING MATCH SELECTION</div>
                                 <div class="empty-desc">Select teams and run prediction to fetch live GNN + LLM analysis.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 1.5: Live Match (realtime prediction) -->
+            <div id="live-tab" class="tab-content">
+                <div class="split-view">
+                    <!-- Left: Live Match State -->
+                    <div class="form-panel">
+                        <div class="panel-header">LIVE MATCH STATE</div>
+                        <div class="panel-body">
+                            <div class="form-group">
+                                <label for="live-league-select">LEAGUE SELECT</label>
+                                <select id="live-league-select" class="tech-select">
+                                    <option value="Premier_League">Premier League (England)</option>
+                                    <option value="La_Liga">La Liga (Spain)</option>
+                                    <option value="Serie_A">Serie A (Italy)</option>
+                                    <option value="Bundesliga">Bundesliga (Germany)</option>
+                                    <option value="Ligue_1">Ligue 1 (France)</option>
+                                </select>
+                            </div>
+                            <div class="matchup-selector">
+                                <div class="form-group">
+                                    <label for="live-home-team-select">HOME TEAM</label>
+                                    <select id="live-home-team-select" class="tech-select"></select>
+                                </div>
+                                <div class="vs-divider">VS</div>
+                                <div class="form-group">
+                                    <label for="live-away-team-select">AWAY TEAM</label>
+                                    <select id="live-away-team-select" class="tech-select"></select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="live-minute">MINUTE (0-90)</label>
+                                    <input type="number" id="live-minute" class="tech-input" min="0" max="90" value="60">
+                                </div>
+                                <div class="form-group">
+                                    <label for="live-home-goals">HOME GOALS</label>
+                                    <input type="number" id="live-home-goals" class="tech-input" min="0" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="live-away-goals">AWAY GOALS</label>
+                                    <input type="number" id="live-away-goals" class="tech-input" min="0" value="0">
+                                </div>
+                            </div>
+                            <div class="stats-grid">
+                                <div class="stat-pair"><label>H xG (opt)</label><input type="number" id="live-home-xg" class="tech-input stat-input" step="0.01" placeholder="—"></div>
+                                <div class="stat-pair"><label>A xG (opt)</label><input type="number" id="live-away-xg" class="tech-input stat-input" step="0.01" placeholder="—"></div>
+                                <div class="stat-pair"><label>HS</label><input type="number" id="live-home-shots" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>AS</label><input type="number" id="live-away-shots" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>HST</label><input type="number" id="live-home-sot" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>AST</label><input type="number" id="live-away-sot" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>HC</label><input type="number" id="live-home-corners" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>AC</label><input type="number" id="live-away-corners" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>HF</label><input type="number" id="live-home-fouls" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>AF</label><input type="number" id="live-away-fouls" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>HY</label><input type="number" id="live-home-yellows" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>AY</label><input type="number" id="live-away-yellows" class="tech-input stat-input" min="0" placeholder="—"></div>
+                                <div class="stat-pair"><label>HR</label><input type="number" id="live-home-reds" class="tech-input stat-input" min="0" value="0"></div>
+                                <div class="stat-pair"><label>AR</label><input type="number" id="live-away-reds" class="tech-input stat-input" min="0" value="0"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="live-explain" class="tech-check-label">
+                                    <input type="checkbox" id="live-explain" class="tech-check">
+                                    EXPLAIN (LLM COACH ADVISOR) — calls the language model for sub / tactical recommendations
+                                </label>
+                            </div>
+                            <button id="run-live-btn" class="tech-btn block-btn accent-fill">RUN LIVE PREDICTION</button>
+                            <div class="empty-state" style="padding:14px 0 0;">
+                                <div class="empty-desc">TEA-GNN pre-match prior blended with a live Poisson model: current score, minute and stat pace vs season averages. Empty stats are skipped; score + minute always count. At full time, submit the result under DATA CONTRIBUTE to feed retraining.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Live Prediction Result -->
+                    <div class="result-panel">
+                        <div class="panel-header">LIVE PREDICTION FEED</div>
+                        <div class="panel-body" id="live-output-container">
+                            <div class="empty-state">
+                                <div class="empty-icon">⚡</div>
+                                <div>NO LIVE MATCH STATE</div>
+                                <div class="empty-desc">Enter the current minute, score and stats to get a realtime final-result prediction.</div>
                             </div>
                         </div>
                     </div>

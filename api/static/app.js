@@ -288,8 +288,10 @@ function populateTeamSelects(teams) {
     const homeSelect = document.getElementById('home-team-select');
     const awaySelect = document.getElementById('away-team-select');
     const profileSelect = document.getElementById('profile-team-select');
+    const liveHomeSelect = document.getElementById('live-home-team-select');
+    const liveAwaySelect = document.getElementById('live-away-team-select');
     
-    const selects = [homeSelect, awaySelect, profileSelect];
+    const selects = [homeSelect, awaySelect, profileSelect, liveHomeSelect, liveAwaySelect];
     selects.forEach(select => {
         if (!select) return;
         select.innerHTML = '';
@@ -305,6 +307,8 @@ function populateTeamSelects(teams) {
     if (teams.length >= 2) {
         if (homeSelect) homeSelect.selectedIndex = 0;
         if (awaySelect) awaySelect.selectedIndex = 1;
+        if (liveHomeSelect) liveHomeSelect.selectedIndex = 0;
+        if (liveAwaySelect) liveAwaySelect.selectedIndex = 1;
     }
 }
 
@@ -379,6 +383,12 @@ function setupEventListeners() {
     
     // Run prediction button
     document.getElementById('run-prediction-btn').addEventListener('click', runMatchPrediction);
+    
+    // Live match tab
+    document.getElementById('live-league-select').addEventListener('change', (e) => {
+        loadLeagueTeams(e.target.value);
+    });
+    document.getElementById('run-live-btn').addEventListener('click', runLivePrediction);
     
     // Chat stream buttons
     document.getElementById('new-chat-btn').addEventListener('click', createNewConversation);
@@ -588,6 +598,230 @@ async function runMatchPrediction() {
             </div>
         `;
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live Match Prediction — realtime in-match final-result prediction
+// ─────────────────────────────────────────────────────────────────────────────
+
+function liveNum(id) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    const v = el.value.trim();
+    if (v === '') return null;
+    const n = parseFloat(v);
+    return isNaN(n) ? null : n;
+}
+
+async function runLivePrediction() {
+    const home = document.getElementById('live-home-team-select').value;
+    const away = document.getElementById('live-away-team-select').value;
+    const container = document.getElementById('live-output-container');
+
+    if (!token) {
+        alert("You must login first to run live predictions.");
+        showAuthModal();
+        return;
+    }
+    if (!home || !away || home === away) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div>PICK TWO DIFFERENT TEAMS</div></div>';
+        return;
+    }
+
+    const payload = {
+        home_team: home,
+        away_team: away,
+        minute: Math.min(90, Math.max(0, parseInt(document.getElementById('live-minute').value, 10) || 0)),
+        home_goals: Math.max(0, parseInt(document.getElementById('live-home-goals').value, 10) || 0),
+        away_goals: Math.max(0, parseInt(document.getElementById('live-away-goals').value, 10) || 0),
+        home_xg: liveNum('live-home-xg'),
+        away_xg: liveNum('live-away-xg'),
+        home_shots: liveNum('live-home-shots'),
+        away_shots: liveNum('live-away-shots'),
+        home_sot: liveNum('live-home-sot'),
+        away_sot: liveNum('live-away-sot'),
+        home_corners: liveNum('live-home-corners'),
+        away_corners: liveNum('live-away-corners'),
+        home_fouls: liveNum('live-home-fouls'),
+        away_fouls: liveNum('live-away-fouls'),
+        home_yellows: liveNum('live-home-yellows'),
+        away_yellows: liveNum('live-away-yellows'),
+        home_reds: Math.max(0, parseInt(document.getElementById('live-home-reds').value, 10) || 0),
+        away_reds: Math.max(0, parseInt(document.getElementById('live-away-reds').value, 10) || 0),
+        explain: document.getElementById('live-explain').checked,
+    };
+
+    container.innerHTML = `
+        <div class="empty-state">
+            <div class="empty-icon">⏳</div>
+            <div>COMPUTING LIVE PREDICTION...${payload.explain ? ' (LLM EXPLANATION)' : ''}</div>
+            <div class="empty-desc">TEA-GNN prior + Poisson conditioning on minute ${payload.minute}' ${payload.home_goals}-${payload.away_goals}.</div>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`${API_BASE}/predictions/live`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || "Live prediction request failed");
+        }
+        const data = await res.json();
+        renderLivePrediction(data);
+    } catch (e) {
+        container.innerHTML = `
+            <div class="empty-state" style="color: #ff3333">
+                <div class="empty-icon">❌</div>
+                <div>ERROR COMPUTING LIVE PREDICTION</div>
+                <div class="empty-desc">${esc(e.message)}</div>
+            </div>
+        `;
+    }
+}
+
+function pct(v) {
+    return Math.round((v || 0) * 100) + '%';
+}
+
+function fmtDelta(v) {
+    const p = Math.round(Math.abs(v || 0) * 100);
+    return (v >= 0 ? '+' : '-') + p + ' pts';
+}
+
+function renderLivePrediction(d) {
+    const container = document.getElementById('live-output-container');
+    const home = d.home_team.replace(/_/g, ' ');
+    const away = d.away_team.replace(/_/g, ' ');
+    const verdict = d.predicted_result === 'H' ? 'HOME WIN'
+        : d.predicted_result === 'A' ? 'AWAY WIN' : 'DRAW';
+    const probs = d.probabilities || { H: 0, D: 0, A: 0 };
+    const pre = d.pre_match_probabilities || { H: 0, D: 0, A: 0 };
+    const del = d.delta || {};
+    const es = d.expected_final_score || {};
+
+    const probRow = (label, val, deltaVal) => `
+        <div class="prob-row">
+            <span class="prob-label">${label}</span>
+            <div class="prob-bar-wrapper">
+                <div class="prob-bar-fill" style="width: ${pct(val)}"></div>
+            </div>
+            <span class="prob-val">${pct(val)} <span class="live-delta ${(deltaVal || 0) >= 0 ? 'up' : 'down'}">${fmtDelta(deltaVal)}</span></span>
+        </div>`;
+
+    const driverHtml = (d.key_drivers || []).map(drv => {
+        const cls = drv.direction === 'over' ? 'driver-chip over' : drv.direction === 'under' ? 'driver-chip under' : 'driver-chip';
+        const sideLabel = drv.side === 'home' ? home : away;
+        return `<span class="${cls}" title="live ${drv.live}/min vs season ${drv.season_avg}/min">${esc(sideLabel)} ${esc(drv.label)} ${drv.direction === 'over' ? '▲' : '▼'} x${drv.pace}</span>`;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="pred-header-card">
+            <div class="pred-title">
+                <span class="pred-vs">${esc(home)} <span class="vs-divider">VS</span> ${esc(away)}</span>
+                <span class="verdict-tag">LIVE ${d.minute}'</span>
+            </div>
+            <div class="live-score-line">
+                <span class="live-score">${d.home_goals} - ${d.away_goals}</span>
+                <span class="live-verdict ${d.predicted_result === 'H' ? 'verdict-home' : d.predicted_result === 'A' ? 'verdict-away' : ''}">${verdict}</span>
+            </div>
+            <div style="font-size: 0.65rem; color: var(--text-muted); padding: 0 14px 8px;">
+                EXPECTED FINAL SCORE <b class="accent-text">${es.home ?? '?'} - ${es.away ?? '?'}</b>
+                · BLENDED LIVE MODEL (${esc(d.source === 'live_model+llm' ? 'GNN + POISSON + LLM' : 'GNN + POISSON')}) · PRE-MATCH PRIOR ${pct(pre.H)}/${pct(pre.D)}/${pct(pre.A)}
+            </div>
+        </div>
+
+        <div class="analysis-grid">
+            <div class="analysis-card full-width">
+                <div class="card-title">LIVE PROBABILITIES (DELTA VS PRE-MATCH)</div>
+                <div class="card-body">
+                    <div class="probability-container">
+                        ${probRow('HOME', probs.H, del.H)}
+                        ${probRow('DRAW', probs.D, del.D)}
+                        ${probRow('AWAY', probs.A, del.A)}
+                    </div>
+                </div>
+            </div>
+
+            ${driverHtml ? `
+            <div class="analysis-card full-width">
+                <div class="card-title">LIVE STATE DRIVERS</div>
+                <div class="card-body">
+                    <div class="driver-row">${driverHtml}</div>
+                </div>
+            </div>` : ''}
+
+            ${d.tactical_analysis || d.tactical_breakdown ? renderCoachAdvisor(d) : ''}
+        </div>
+    `;
+}
+
+// ── Coach Advisor (LLM) — structured rendering with plain-text fallback ──────
+
+function parseCoachAdvisor(d) {
+    let raw = d.tactical_breakdown || d.tactical_analysis;
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    let t = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+    try { return JSON.parse(t); } catch (e) {}
+    const s = t.indexOf('{');
+    const e2 = t.lastIndexOf('}');
+    if (s !== -1 && e2 > s) {
+        try { return JSON.parse(t.slice(s, e2 + 1)); } catch (e2b) {}
+    }
+    return null;
+}
+
+function renderCoachAdvisor(d) {
+    const bd = parseCoachAdvisor(d);
+    const a = bd && bd.analysis;
+    if (!a) {
+        const text = typeof (d.tactical_analysis) === 'string' ? d.tactical_analysis : JSON.stringify(bd || d.tactical_breakdown || '');
+        return `
+            <div class="analysis-card full-width">
+                <div class="card-title">COACH ADVISOR (LLM)</div>
+                <div class="card-body"><p style="white-space: pre-wrap;">${esc(text)}</p></div>
+            </div>`;
+    }
+    const why = Array.isArray(a.why) ? a.why : [];
+    const recs = Array.isArray(a.coach_recommendations) ? a.coach_recommendations.slice(0, 4) : [];
+    const intro = a.who_controls_now || '';
+    const outlook = a.how_outlook_changed || '';
+    const ms = bd.match_state;
+
+    return `
+        <div class="analysis-card full-width">
+            <div class="card-title">⚡ COACH ADVISOR (LLM)${ms && ms.minute != null ? `<span class="card-badge">LIVE ${ms.minute}'${ms.score ? ' · ' + esc(ms.score) : ''}</span>` : ''}</div>
+            <div class="card-body">
+                ${intro ? `<div class="ca-intro">${esc(intro)}</div>` : ''}
+                ${why.length ? `
+                <div class="ca-section">
+                    <div class="ca-label">LIVE SIGNALS — WHY</div>
+                    <ul class="ca-why">${why.map(w => `<li>${esc(w)}</li>`).join('')}</ul>
+                </div>` : ''}
+                ${outlook ? `
+                <div class="ca-section">
+                    <div class="ca-label">HOW THE OUTLOOK CHANGED</div>
+                    <p class="ca-text">${esc(outlook)}</p>
+                </div>` : ''}
+                ${recs.length ? `
+                <div class="ca-section">
+                    <div class="ca-label">COACH RECOMMENDATIONS</div>
+                    <div class="ca-recs">${recs.map(r => `
+                        <div class="ca-rec ${r.priority <= 2 ? 'high' : r.priority === 3 ? 'mid' : ''}">
+                            <div class="ca-rec-head"><span class="ca-prio">P${r.priority}</span><span class="ca-action">${esc(r.action || '')}</span></div>
+                            ${r.reason ? `<div class="ca-rec-reason">${esc(r.reason)}</div>` : ''}
+                        </div>`).join('')}
+                    </div>
+                </div>` : ''}
+            </div>
+        </div>
+    `;
 }
 
 // Conversations & Chatbot
