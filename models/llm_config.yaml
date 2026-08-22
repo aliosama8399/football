@@ -15,8 +15,8 @@
 # ============================================================
 
 # ── Which provider to use by default ──────────────────────
-# Choices: ollama | openai | gemini | anthropic | huggingface
-default_provider: openai
+# Choices: ollama | huggingface | gemini | anthropic | huggingface
+default_provider: huggingface
 
 # ── Provider-specific settings ────────────────────────────
 providers:
@@ -75,7 +75,7 @@ rag:
   # NOTE: huggingface is reserved for the fine-tuned football model ONLY
   # (models/hf_provider.py, aliosama8399/football-analysisN) — select it
   # explicitly per-request via /kb/ask llm_provider="huggingface" if needed.
-  llm_provider:    openai
+  llm_provider:    huggingface
 
   # GNN "Expert 1" prediction model checkpoint (BasePredictionProvider)
   # Default: tuned TEA-GNN (#1 in tuned comparison: 60.96% accuracy).

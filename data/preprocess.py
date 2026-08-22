@@ -90,18 +90,22 @@ class FootballDataProcessor:
             df = df[df['Date'].notna()].copy()
             print(f"  OK Removed {bad_dates} rows with unparseable dates")
         
-        # Standardize team names via team_registry (5 leagues per C2)
-        # We have the Div (league code) column available — use it for scoped lookup.
+        # Standardize team names via fast vectorized unique-lookup
         if 'Div' in df.columns:
-            df['HomeTeam'] = df.apply(lambda r: self.standardize_team_name(r['HomeTeam'], r['Div']), axis=1)
-            df['AwayTeam'] = df.apply(lambda r: self.standardize_team_name(r['AwayTeam'], r['Div']), axis=1)
+            for div in df['Div'].dropna().unique():
+                div_mask = df['Div'] == div
+                home_lookup = {t: self.standardize_team_name(t, div) for t in df.loc[div_mask, 'HomeTeam'].unique()}
+                away_lookup = {t: self.standardize_team_name(t, div) for t in df.loc[div_mask, 'AwayTeam'].unique()}
+                df.loc[div_mask, 'HomeTeam'] = df.loc[div_mask, 'HomeTeam'].map(home_lookup)
+                df.loc[div_mask, 'AwayTeam'] = df.loc[div_mask, 'AwayTeam'].map(away_lookup)
         else:
-            # Fallback: unscoped (all-league search)
-            df['HomeTeam'] = df['HomeTeam'].apply(self.standardize_team_name)
-            df['AwayTeam'] = df['AwayTeam'].apply(self.standardize_team_name)
+            home_lookup = {t: self.standardize_team_name(t) for t in df['HomeTeam'].unique()}
+            away_lookup = {t: self.standardize_team_name(t) for t in df['AwayTeam'].unique()}
+            df['HomeTeam'] = df['HomeTeam'].map(home_lookup)
+            df['AwayTeam'] = df['AwayTeam'].map(away_lookup)
         
-        # Calculate result
-        df['Result'] = df.apply(lambda x: 'H' if x['FTHG'] > x['FTAG'] else ('A' if x['FTHG'] < x['FTAG'] else 'D'), axis=1)
+        # Calculate result (vectorized)
+        df['Result'] = np.select([df['FTHG'] > df['FTAG'], df['FTHG'] < df['FTAG']], ['H', 'A'], default='D')
         
         # Total goals
         df['TotalGoals'] = df['FTHG'] + df['FTAG']
@@ -771,7 +775,7 @@ class FootballDataProcessor:
         # Rate-limited via config.weather_rate_limit_sec (default 0.2 sec/call).
         # With 17k matches × 0.2s ≈ 1 hour total — this is the long-pole wait.
         try:
-            from weather_api import add_weather_to_matches
+            from .collectors.weather_api import add_weather_to_matches
             import os
             weather_flag = os.environ.get('SKIP_WEATHER', '').lower() in ('1', 'true', 'yes')
             if not weather_flag and len(fduk_df) > 0:

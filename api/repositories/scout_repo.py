@@ -80,25 +80,38 @@ class ScoutRepository:
         cache (data/raw/squads_cache/), so the identity pass is free,
         works offline and yields full season stats (xg/xa/goals/assists/
         tackles/...) already fused from FBRef + understat.
+        
+        Loads squad data concurrently across teams for fast response times.
         """
+        from concurrent.futures import ThreadPoolExecutor
+
         pool: List[PlayerRecord] = []
+        targets = []
         for lc in league_codes:
             teams = self._teams_in_league(lc, season)
             for team in teams:
-                try:
-                    squad = self.squads.load_squad(team, lc, season)
-                except Exception as e:
-                    logger.warning("identity fetch failed for %s %s: %s",
-                                   team, lc, e)
+                targets.append((team, lc, season))
+
+        def _fetch_squad(target):
+            t, lc, s = target
+            try:
+                return self.squads.load_squad(t, lc, s)
+            except Exception as e:
+                logger.warning("identity fetch failed for %s %s: %s", t, lc, e)
+                return []
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            squad_results = list(executor.map(_fetch_squad, targets))
+
+        for squad in squad_results:
+            for rec in squad:
+                if rec.position != position:
                     continue
-                for rec in squad:
-                    if rec.position != position:
-                        continue
-                    if youth and (rec.age is None or rec.age > 19):
-                        continue
-                    if exclude_team and _normalize(rec.team) == _normalize(exclude_team):
-                        continue
-                    pool.append(rec)
+                if youth and (rec.age is None or rec.age > 19):
+                    continue
+                if exclude_team and _normalize(rec.team) == _normalize(exclude_team):
+                    continue
+                pool.append(rec)
         return pool
 
     # ── Coach-style template: aggregate per-90 of the coach's position-mates

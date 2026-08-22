@@ -58,15 +58,12 @@ class ChatService:
                 detail="Conversation not found"
             )
 
-        await self.chat_repo.save_message(conversation_id=conversation_id, sender="user", content=content)
-
-        past_messages = await self.chat_repo.get_messages(conversation_id=conversation_id)
-
-        # Conversational memory: the last few turns before this question.
-        memory_lines = []
-        for msg in past_messages[:-1][-6:]:
-            memory_lines.append(f"{msg.sender.upper()}: {msg.content}")
+        # Conversational memory: fetch up to 6 recent messages before saving new turn
+        past_messages = await self.chat_repo.get_recent_messages(conversation_id=conversation_id, limit=6)
+        memory_lines = [f"{msg.sender.upper()}: {msg.content}" for msg in past_messages]
         memory_context = "\n".join(memory_lines) or None
+
+        await self.chat_repo.save_message(conversation_id=conversation_id, sender="user", content=content)
 
         # KB ask runs blocking internals (CSV/Postgres/FAISS/GNN); offload it.
         answer = await asyncio.to_thread(

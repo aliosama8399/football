@@ -399,6 +399,28 @@ TEAM_REGISTRY = {
 }
 
 
+import logging
+import difflib
+
+_logger = logging.getLogger("team_registry")
+_UNMAPPED_LOGGED = set()
+
+
+def _fuzzy_match(name: str, candidates: dict[str, str], threshold: float = 0.82) -> str | None:
+    """Attempt fuzzy matching against known aliases / canonical names."""
+    try:
+        from rapidfuzz import process, fuzz
+        match = process.extractOne(name, candidates.keys(), scorer=fuzz.token_sort_ratio)
+        if match and match[1] >= (threshold * 100):
+            return candidates[match[0]]
+    except ImportError:
+        # Fallback to difflib standard library
+        close = difflib.get_close_matches(name, candidates.keys(), n=1, cutoff=threshold)
+        if close:
+            return candidates[close[0]]
+    return None
+
+
 def normalize_team_name(name: str, league_code: str = None) -> str:
     """
     Normalize a team name to its canonical form for the given league.
@@ -409,23 +431,47 @@ def normalize_team_name(name: str, league_code: str = None) -> str:
                      search all leagues (slower, used for cross-league merges).
 
     Returns:
-        Canonical team name string. If alias is unknown, returns the input
-        stripped and unchanged (the fuzzy fallback in preprocess.py:merge_xg
-        handles any residual mismatches via token-set ratio).
+        Canonical team name string. If alias is unknown, attempts fuzzy matching
+        against the registry; if still unmapped, logs a warning and returns the
+        stripped name.
     """
     import pandas as pd
     if pd.isna(name):
         return name
     name = str(name).strip()
 
-    # If league specified, look only there
+    # 1. Exact match in specified league
     if league_code and league_code in TEAM_REGISTRY:
-        return TEAM_REGISTRY[league_code].get(name, name)
-
-    # League unspecified — search all leagues (cross-league case)
-    for league_map in TEAM_REGISTRY.values():
+        league_map = TEAM_REGISTRY[league_code]
         if name in league_map:
             return league_map[name]
+        # 2. Fuzzy match in specified league
+        fuzzy = _fuzzy_match(name, league_map)
+        if fuzzy:
+            _logger.info("Fuzzy matched team '%s' -> '%s' (league %s)", name, fuzzy, league_code)
+            return fuzzy
+        # Log unmapped
+        if (name, league_code) not in _UNMAPPED_LOGGED:
+            _UNMAPPED_LOGGED.add((name, league_code))
+            _logger.warning("Unmapped team name '%s' for league '%s' — falling back to raw.", name, league_code)
+        return name
+
+    # 3. League unspecified — search all leagues (cross-league case)
+    all_mappings = {}
+    for l_code, league_map in TEAM_REGISTRY.items():
+        if name in league_map:
+            return league_map[name]
+        all_mappings.update(league_map)
+
+    # 4. Fuzzy match across all leagues
+    fuzzy = _fuzzy_match(name, all_mappings)
+    if fuzzy:
+        _logger.info("Fuzzy matched team '%s' -> '%s' (cross-league)", name, fuzzy)
+        return fuzzy
+
+    if (name, None) not in _UNMAPPED_LOGGED:
+        _UNMAPPED_LOGGED.add((name, None))
+        _logger.warning("Unmapped team name '%s' (cross-league) — falling back to raw.", name)
     return name
 
 

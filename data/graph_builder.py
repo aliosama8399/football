@@ -157,6 +157,34 @@ class FootballGraphBuilder:
             features.append(float(val) if not pd.isna(val) else 0.0)
         return features
     
+    def _compute_latest_node_features(self, df_subset: pd.DataFrame) -> torch.FloatTensor:
+        """Vectorized extraction of latest rolling + cumulative node features per team."""
+        home_cols = [f'Home{s}' for s in self.NODE_FEATURE_SUFFIXES]
+        away_cols = [f'Away{s}' for s in self.NODE_FEATURE_SUFFIXES]
+        
+        # Available columns with fallback to 0.0
+        for c in home_cols + away_cols:
+            if c not in df_subset.columns:
+                df_subset[c] = 0.0
+
+        node_feats = np.zeros((self.num_teams, len(self.NODE_FEATURE_SUFFIXES)), dtype=np.float32)
+        if len(df_subset) == 0:
+            return torch.tensor(node_feats, dtype=torch.float)
+
+        # For each team, locate their latest row (either home or away)
+        for team, idx in self.team_to_idx.items():
+            matches = df_subset[(df_subset['HomeTeam'] == team) | (df_subset['AwayTeam'] == team)]
+            if len(matches) == 0:
+                continue
+            last_match = matches.iloc[-1]
+            if last_match['HomeTeam'] == team:
+                vals = last_match[home_cols].fillna(0.0).values.astype(np.float32)
+            else:
+                vals = last_match[away_cols].fillna(0.0).values.astype(np.float32)
+            node_feats[idx] = vals
+
+        return torch.tensor(node_feats, dtype=torch.float)
+
     def build_train_test_graphs(self):
         """
         Build graph data for training and testing.
@@ -166,112 +194,66 @@ class FootballGraphBuilder:
         - Train on edges from 2015-2024 seasons (9 seasons)
         - Test on edges from 2024-25 season
         - Edge features: match stats (NO goals/result to prevent leakage),
-          StandardScaler-normalized (fit on train edges)
-        - Node features: latest rolling + cumulative team stats
-        - The classifier uses: node_embed(home) + node_embed(away) only
-          (edge features are used by NNConv in graph convolution but NOT
-           in the final classifier for the target edge)
-        
-        TEA-GNN extras built here:
-        - edge_time: FloatTensor[num_edges], years-ago per match (recency signal)
-        - league_id: LongTensor[num_nodes], 0..4 (cross-league context)
-        
-        This is fair because:
-        - Node features (rolling + cumulative stats) are known BEFORE the match
-        - Graph structure from training edges is known
-        - We predict labels on held-out test edges
+          StandardScaler-normalized (fit ONLY on train edges)
+        - Node features: latest rolling + cumulative team stats (fully populated)
+        - TEA-GNN extras: edge_time (recency) and league_id (cross-league context)
         """
         train_seasons = [1516, 1617, 1718, 1819, 1920, 2021, 2122, 2223, 2324]
         test_seasons = [2425]
         
-        train_mask = self.df['Season'].isin(train_seasons)
-        test_mask = self.df['Season'].isin(test_seasons)
+        train_mask_df = self.df['Season'].isin(train_seasons)
+        test_mask_df = self.df['Season'].isin(test_seasons)
+        valid_mask = train_mask_df | test_mask_df
         
-        # ── Node features: use latest rolling+cumulative stats per team from TRAINING data ──
-        node_features = torch.zeros(self.num_teams, len(self.NODE_FEATURE_SUFFIXES))
-        
-        for _, row in self.df[train_mask].iterrows():
-            hi = self.team_to_idx[row['HomeTeam']]
-            ai = self.team_to_idx[row['AwayTeam']]
-            node_features[hi] = torch.tensor(self._get_node_features(row, 'Home'), dtype=torch.float)
-            node_features[ai] = torch.tensor(self._get_node_features(row, 'Away'), dtype=torch.float)
-        
-        # ── ALL edges (train + test form the graph structure) ──
-        all_src, all_dst = [], []
-        all_edge_feats = []
-        all_tabular_feats = []
-        all_edge_dates = []   # for TEA-GNN edge_time computation
-        train_edge_indices = []
-        test_edge_indices = []
-        all_labels = []
-        
-        edge_idx = 0
-        for df_idx, row in self.df.iterrows():
-            if not (train_mask[df_idx] or test_mask[df_idx]):
-                continue
-            
-            hi = self.team_to_idx[row['HomeTeam']]
-            ai = self.team_to_idx[row['AwayTeam']]
-            
-            # Add directed edge: Home → Away
-            all_src.append(hi)
-            all_dst.append(ai)
-            all_edge_feats.append(self._get_hist_edge_features(row))
-            all_tabular_feats.append(self._get_tabular_features(row))
-            all_edge_dates.append(row['Date'])
-            
-            label = self.label_map.get(row['FTR'], -1)
-            all_labels.append(label)
-            
-            if train_mask[df_idx]:
-                train_edge_indices.append(edge_idx)
-            else:
-                test_edge_indices.append(edge_idx)
-            
-            edge_idx += 1
-        
-        # Also update node features from test data (rolling+cum stats are pre-match, so valid)
-        test_node_features = node_features.clone()
-        for _, row in self.df[test_mask].iterrows():
-            hi = self.team_to_idx[row['HomeTeam']]
-            ai = self.team_to_idx[row['AwayTeam']]
-            test_node_features[hi] = torch.tensor(self._get_node_features(row, 'Home'), dtype=torch.float)
-            test_node_features[ai] = torch.tensor(self._get_node_features(row, 'Away'), dtype=torch.float)
-        
-        edge_index = torch.tensor([all_src, all_dst], dtype=torch.long)
-        edge_attr_raw = torch.tensor(all_edge_feats, dtype=torch.float)
-        edge_y = torch.tensor(all_labels, dtype=torch.long)
-        train_mask_t = torch.zeros(edge_idx, dtype=torch.bool)
-        test_mask_t = torch.zeros(edge_idx, dtype=torch.bool)
-        train_mask_t[train_edge_indices] = True
-        test_mask_t[test_edge_indices] = True
-        
-        # Scale edge_attr (12 match stats) using StandardScaler fit on TRAIN edges only
+        df_sub = self.df[valid_mask].copy().reset_index(drop=True)
+        is_train = df_sub['Season'].isin(train_seasons).values
+        is_test = df_sub['Season'].isin(test_seasons).values
+
+        # ── 1. Node features (train vs test snapshots) ──
+        node_features = self._compute_latest_node_features(self.df[train_mask_df])
+        test_node_features = self._compute_latest_node_features(self.df[valid_mask])
+
+        # ── 2. Vectorized Edge attributes, topology & targets ──
+        src_nodes = df_sub['HomeTeam'].map(self.team_to_idx).values.astype(np.int64)
+        dst_nodes = df_sub['AwayTeam'].map(self.team_to_idx).values.astype(np.int64)
+        edge_index = torch.tensor(np.array([src_nodes, dst_nodes]), dtype=torch.long)
+
+        # Ensure all columns exist and fillna
+        for c in self.HIST_EDGE_FEATURE_COLS:
+            if c not in df_sub.columns:
+                df_sub[c] = 0.0
+        for c in self.TABULAR_FEATURES:
+            if c not in df_sub.columns:
+                df_sub[c] = 0.0
+
+        edge_attrs_np = df_sub[self.HIST_EDGE_FEATURE_COLS].fillna(0.0).values.astype(np.float32)
+        tabular_np = df_sub[self.TABULAR_FEATURES].fillna(0.0).values.astype(np.float32)
+        labels_np = df_sub['FTR'].map(self.label_map).fillna(1).values.astype(np.int64)
+
+        train_mask_t = torch.tensor(is_train, dtype=torch.bool)
+        test_mask_t = torch.tensor(is_test, dtype=torch.bool)
+        edge_y = torch.tensor(labels_np, dtype=torch.long)
+
+        # ── 3. StandardScaler fit strictly on train split only ──
         edge_scaler = StandardScaler()
-        edge_scaler.fit(edge_attr_raw[train_mask_t.numpy()].numpy())
-        edge_attr_scaled = torch.tensor(
-            edge_scaler.transform(edge_attr_raw.numpy()), dtype=torch.float
-        )
-        
-        # Tabular features: scale using training data
-        tabular_np = np.array(all_tabular_feats, dtype=np.float32)
+        edge_scaler.fit(edge_attrs_np[is_train])
+        edge_attr_scaled = torch.tensor(edge_scaler.transform(edge_attrs_np), dtype=torch.float)
+
         tabular_scaler = StandardScaler()
-        tabular_scaler.fit(tabular_np[train_mask_t.numpy()])
-        tabular_scaled = tabular_scaler.transform(tabular_np)
-        tabular_tensor = torch.tensor(tabular_scaled, dtype=torch.float)
-        
-        # ── TEA-GNN: edge_time = years-ago per edge (recent = small value = less decay) ──
-        # Inline computation (avoids circular import with models/tea_gnn.py)
-        dates_series = pd.to_datetime(pd.Series(all_edge_dates))
-        reference_date = dates_series.max()
-        years_ago = (reference_date - dates_series).dt.days / 365.0
-        edge_time = torch.tensor(years_ago.values, dtype=torch.float32)
-        
+        tabular_scaler.fit(tabular_np[is_train])
+        tabular_tensor = torch.tensor(tabular_scaler.transform(tabular_np), dtype=torch.float)
+
+        # ── 4. TEA-GNN edge_time (years-ago recency signal) ──
+        dates = pd.to_datetime(df_sub['Date'])
+        ref_date = dates.max()
+        years_ago = ((ref_date - dates).dt.days / 365.0).values.astype(np.float32)
+        edge_time = torch.tensor(years_ago, dtype=torch.float32)
+
         graph_data = {
             'x': node_features,                  # Node features (train)
             'x_test': test_node_features,         # Node features (updated for test)
             'edge_index': edge_index,             # All edges
-            'edge_attr': edge_attr_scaled,        # Edge features (scaled, no goals!)
+            'edge_attr': edge_attr_scaled,        # Edge features (scaled on train only, no goals!)
             'edge_y': edge_y,                     # Labels
             'train_mask': train_mask_t,            # Which edges are training
             'test_mask': test_mask_t,              # Which edges are testing

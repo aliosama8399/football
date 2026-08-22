@@ -19,18 +19,23 @@ Pipeline:
 All functions are deterministic and unit-testable; nothing here touches IO.
 """
 
+import functools
 import math
 from typing import Dict, List, Optional
 
 TOTAL_MINUTES = 90
 MAX_GOALS = 10  # per side truncation for the Poisson tables (plenty of headroom)
 
+# Precomputed factorials 0..10 for high-frequency Poisson calculations
+FACTORIALS = (1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800)
+
 
 # ── Poisson outcome math ─────────────────────────────────────────────────────
 
 def poisson_pmf(lmbda: float, k: int) -> float:
     """P(X = k) for X ~ Poisson(lmbda)."""
-    return math.exp(-lmbda) * (lmbda ** k) / math.factorial(k)
+    fact = FACTORIALS[k] if k < len(FACTORIALS) else math.factorial(k)
+    return math.exp(-lmbda) * (lmbda ** k) / fact
 
 
 def outcome_probs(lmbda_h: float, lmbda_a: float, max_goals: int = MAX_GOALS) -> Dict[str, float]:
@@ -55,17 +60,10 @@ def outcome_probs(lmbda_h: float, lmbda_a: float, max_goals: int = MAX_GOALS) ->
     return {"H": home / total, "D": draw / total, "A": away / total}
 
 
-def rates_from_probs(probs: Dict[str, float],
-                     lmbda_h0: float = 1.4, lmbda_a0: float = 1.1) -> Dict[str, float]:
-    """
-    Invert the Poisson outcome model: find (lambda_h, lambda_a) whose outcome
-    probabilities best match the given pre-match H/D/A probs.
-
-    Uses damped gradient-free search (coarse grid + local refinement) so the
-    module has zero hard dependencies beyond stdlib.
-    """
-    t_h, t_d, t_a = probs.get("H", 1 / 3), probs.get("D", 1 / 3), probs.get("A", 1 / 3)
-
+@functools.lru_cache(maxsize=2048)
+def _rates_from_probs_cached(t_h: float, t_d: float, t_a: float,
+                             lmbda_h0: float, lmbda_a0: float) -> tuple[float, float]:
+    """Internal memoized solver for independent Poisson goal rates."""
     def loss(lh: float, la: float) -> float:
         o = outcome_probs(lh, la)
         return ((o["H"] - t_h) ** 2 + (o["D"] - t_d) ** 2 + (o["A"] - t_a) ** 2)
@@ -92,7 +90,22 @@ def rates_from_probs(probs: Dict[str, float],
 
     if best is None:
         best = (lmbda_h0, lmbda_a0)
-    return {"home": round(best[0], 4), "away": round(best[1], 4)}
+    return (round(best[0], 4), round(best[1], 4))
+
+
+def rates_from_probs(probs: Dict[str, float],
+                     lmbda_h0: float = 1.4, lmbda_a0: float = 1.1) -> Dict[str, float]:
+    """
+    Invert the Poisson outcome model: find (lambda_h, lambda_a) whose outcome
+    probabilities best match the given pre-match H/D/A probs.
+
+    Memoized via LRU cache on rounded probabilities to avoid redundant optimizations.
+    """
+    t_h = round(float(probs.get("H", 1 / 3)), 4)
+    t_d = round(float(probs.get("D", 1 / 3)), 4)
+    t_a = round(float(probs.get("A", 1 / 3)), 4)
+    lh, la = _rates_from_probs_cached(t_h, t_d, t_a, lmbda_h0, lmbda_a0)
+    return {"home": lh, "away": la}
 
 
 def conditional_remaining_probs(
