@@ -60,18 +60,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error initializing KG database connection pool: {e}")
         
-    # 4. Load Football RAG System singleton (loads sentence-transformers and FAISS index).
+    # 4. Load Football RAG System singleton and stash on app.state
     #    Falls back to llm='none' if the configured LLM cannot be constructed (see dependencies.py).
     try:
-        init_rag_system()
+        rag_sys = init_rag_system()
+        app.state.rag_system = rag_sys
+        from api.async_rag import AsyncRAGWrapper
+        app.state.async_rag = AsyncRAGWrapper(rag_sys)
     except Exception as e:
         logger.error(f"Error loading RAG system structures: {e}")
         raise
 
-    # 4.5. KnowledgeBase facade (chat-KB). Construction is lazy — internals
-    #      (CSV, Postgres, FAISS, GNN) load on first question; never fatal.
+    # 4.5. KnowledgeBase facade (chat-KB). Construction and pre-warm on app.state
     try:
-        init_knowledge_base()
+        kb = init_knowledge_base()
+        app.state.knowledge_base = kb
     except Exception as e:
         logger.error(f"Error initializing KnowledgeBase: {e}")
 
@@ -82,8 +85,9 @@ async def lifespan(app: FastAPI):
     close_graph_db()
     # 6. Clean up RAG resources
     try:
-        rag = get_rag_system()
-        rag.close()
+        rag = getattr(app.state, "rag_system", None) or get_rag_system()
+        if hasattr(rag, "close"):
+            rag.close()
     except Exception as e:
         logger.error(f"Error closing RAG orchestrator resources: {e}")
 

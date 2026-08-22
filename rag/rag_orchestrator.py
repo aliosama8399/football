@@ -189,21 +189,31 @@ class FootballRAGSystem:
             }, ensure_ascii=False)
 
         # Generate with context (works for both BaseLLMProvider and HuggingFaceProvider)
-        if hasattr(self.llm, "generate_with_context"):
-            return self.llm.generate_with_context(
-                prompt=question,
-                kg_context=kg_context,
-                vector_context=vec_context,
+        try:
+            if hasattr(self.llm, "generate_with_context"):
+                return self.llm.generate_with_context(
+                    prompt=question,
+                    kg_context=kg_context,
+                    vector_context=vec_context,
+                )
+            # Generic fallback: HF exposes generate(); other providers expose _call_api().
+            full_prompt = self._build_prompt(question, kg_context, vec_context)
+            if hasattr(self.llm, "generate"):
+                return self.llm.generate(full_prompt)
+            if hasattr(self.llm, "_call_api"):
+                return self.llm._call_api(full_prompt)
+            raise AttributeError(
+                f"LLM {type(self.llm).__name__} exposes neither generate() nor _call_api()."
             )
-        # Generic fallback: HF exposes generate(); other providers expose _call_api().
-        full_prompt = self._build_prompt(question, kg_context, vec_context)
-        if hasattr(self.llm, "generate"):
-            return self.llm.generate(full_prompt)
-        if hasattr(self.llm, "_call_api"):
-            return self.llm._call_api(full_prompt)
-        raise AttributeError(
-            f"LLM {type(self.llm).__name__} exposes neither generate() nor _call_api()."
-        )
+        except Exception as e:
+            logger.error("LLM inference failed in query(): %s. Returning structured context fallback.", e)
+            return json.dumps({
+                "question": question,
+                "teams_detected": teams,
+                "kg_context": kg_context,
+                "vector_context": vec_context,
+                "note": "LLM runtime failure; degraded to quantitative/context fallback.",
+            }, ensure_ascii=False)
 
     def _get_gnn_prediction(self, home_team: str, away_team: str) -> str:
         """Return a human-readable GNN prediction block (for LLM prompts). Empty on failure."""
@@ -253,7 +263,16 @@ class FootballRAGSystem:
             f"{gnn_pred_text}\n\n"
             f"Provide your final match prediction with reasoning, integrating your analysis with Expert 1's prediction."
         )
-        return self.query(question)
+        try:
+            return self.query(question)
+        except Exception as e:
+            logger.error("Expert 2 (LLM) failed in predict_match: %s. Returning Expert 1 GNN only.", e)
+            return json.dumps({
+                "home_team": home_team,
+                "away_team": away_team,
+                "gnn_prediction": gnn_result,
+                "note": "LLM runtime failure; returning Expert 1 (GNN) result only.",
+            }, ensure_ascii=False)
 
     def predict_live_match(self, home_team: str, away_team: str, live_context: dict) -> str:
         """
@@ -328,7 +347,17 @@ class FootballRAGSystem:
             f"corners, yellows, reds). If coaching advice would differ per side, keep both "
             f"perspectives inside the same actions."
         )
-        return self.query(question)
+        try:
+            return self.query(question)
+        except Exception as e:
+            logger.error("Expert 2 (LLM) failed in predict_live_match: %s. Returning structured fallback.", e)
+            return json.dumps({
+                "home_team": home_team,
+                "away_team": away_team,
+                "gnn_prediction": gnn_result,
+                "live_context": live_context,
+                "note": "LLM runtime failure; returning structured live context only.",
+            }, ensure_ascii=False)
 
     def get_team_report(self, team_name: str) -> str:
         """

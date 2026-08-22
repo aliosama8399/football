@@ -45,6 +45,16 @@ class ChatRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_recent_messages(self, conversation_id: int, limit: int = 6) -> List[Message]:
+        """Fetch the most recent N messages for a conversation, returned in chronological order."""
+        stmt = select(Message).where(
+            Message.conversation_id == conversation_id
+        ).order_by(Message.created_at.desc()).limit(limit)
+        result = await self.db.execute(stmt)
+        messages = list(result.scalars().all())
+        messages.reverse()
+        return messages
+
     async def save_message(self, conversation_id: int, sender: str, content: str,
                            sources: Optional[str] = None) -> Message:
         """Save a new chat message and update the parent conversation's timestamp."""

@@ -375,17 +375,22 @@ def get_llm_provider(provider_type: str = "", **kwargs) -> BaseLLMProvider:
     None-safe: passing "" / None / "none" returns None (LLM disabled) instead
     of raising, so callers can gracefully degrade when no LLM is configured.
     """
-    if not provider_type or str(provider_type).strip().lower() == "none":
+    if not provider_type or str(provider_type).strip().lower() in ("", "none", "null"):
         return None
 
-    if not provider_type:
-        provider_type = _load_config().get("default_provider", "ollama")
+    prov_clean = str(provider_type).strip().lower()
 
-    cls = LLM_REGISTRY.get(provider_type.lower())
-    if not cls:
+    if prov_clean == "huggingface" and _HFProvider is None:
         raise ValueError(
-            f"Unknown provider '{provider_type}'.\n"
-            f"Supported: {list(LLM_REGISTRY.keys())}\n"
-            f"To add a new one, see the registry comment in llm_providers.py."
+            "HuggingFace provider 'huggingface' is registered but unavailable because "
+            "local model dependencies (transformers/torch) could not be imported."
         )
+
+    if prov_clean not in LLM_REGISTRY:
+        raise ValueError(
+            f"Invalid LLM provider '{provider_type}'. Supported providers: {sorted(LLM_REGISTRY.keys())}.\n"
+            f"Check your rag.llm_provider setting in models/llm_config.yaml."
+        )
+
+    cls = LLM_REGISTRY[prov_clean]
     return cls(**kwargs)

@@ -9,7 +9,7 @@ from rag.knowledge_base.kb import KnowledgeBase
 import logging
 from typing import AsyncGenerator, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 from api.database import AsyncSessionLocal
 from rag.rag_orchestrator import FootballRAGSystem
@@ -18,7 +18,7 @@ from api.async_rag import AsyncRAGWrapper
 
 logger = logging.getLogger(__name__)
 
-# Global singleton RAG System instance
+# Global singleton RAG System instance (fallback / cli / scripts)
 _rag_system: Optional[FootballRAGSystem] = None
 _async_rag: Optional[AsyncRAGWrapper] = None
 _kb: Optional["KnowledgeBase"] = None
@@ -50,19 +50,26 @@ def init_rag_system() -> FootballRAGSystem:
                 raise
     return _rag_system
 
-def get_rag_system() -> FootballRAGSystem:
+def get_rag_system(request: Request) -> FootballRAGSystem:
     """
-    Dependency that returns the active FootballRAGSystem instance.
+    Dependency that returns the active FootballRAGSystem instance,
+    preferring app.state when called inside a FastAPI request context.
     """
+    if hasattr(request, "app") and hasattr(request.app.state, "rag_system"):
+        return request.app.state.rag_system
     global _rag_system
     if _rag_system is None:
-        raise RuntimeError("RAG System has not been initialized. Call init_rag_system() on startup.")
+        return init_rag_system()
     return _rag_system
 
-def get_async_rag(rag_sys: FootballRAGSystem = Depends(get_rag_system)) -> AsyncRAGWrapper:
+def get_async_rag(request: Request,
+                  rag_sys: FootballRAGSystem = Depends(get_rag_system)) -> AsyncRAGWrapper:
     """
-    Dependency that returns the ThreadPoolExecutor wrapped AsyncRAGWrapper.
+    Dependency that returns the ThreadPoolExecutor wrapped AsyncRAGWrapper,
+    preferring app.state when available.
     """
+    if hasattr(request, "app") and hasattr(request.app.state, "async_rag"):
+        return request.app.state.async_rag
     global _async_rag
     if _async_rag is None:
         _async_rag = AsyncRAGWrapper(rag_sys)
