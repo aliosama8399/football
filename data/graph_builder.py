@@ -270,9 +270,9 @@ class FootballGraphBuilder:
         
         print(f"\n[OK] Graph built:")
         print(f"  Nodes:            {self.num_teams}")
-        print(f"  Total edges:      {edge_idx}")
-        print(f"  Train edges:      {len(train_edge_indices)}")
-        print(f"  Test edges:       {len(test_edge_indices)}")
+        print(f"  Total edges:      {edge_index.shape[1]}")
+        print(f"  Train edges:      {int(train_mask_t.sum())}")
+        print(f"  Test edges:       {int(test_mask_t.sum())}")
         print(f"  Node features:    {len(self.NODE_FEATURE_SUFFIXES)} (rolling + cumulative + season)")
         print(f"  Edge features:    {len(self.HIST_EDGE_FEATURE_COLS)} (scaled, no goals!)")
         print(f"  Tabular features: {len(self.TABULAR_FEATURES)} (for Hybrid)")

@@ -140,9 +140,12 @@ class KnowledgeBase:
                 return self._predictor
             self._predictor_tried = True
             try:
-                from rag.providers.gnn_provider import GNNPredictionProvider
+                try:
+                    from rag.providers.gnn_provider_onnx import ONNXPredictionProvider as GNNPredictionProvider
+                except ImportError:
+                    from rag.providers.gnn_provider import GNNPredictionProvider
                 self._predictor = GNNPredictionProvider()
-                logger.info("KB: GNN predictor attached (lazy)")
+                logger.info("KB: GNN predictor attached (lazy, ONNX)")
             except Exception as e:
                 logger.warning("KB: GNN predictor unavailable (%s) — prediction facts skipped", e)
                 self._predictor = None

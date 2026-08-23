@@ -15,8 +15,8 @@
 # ============================================================
 
 # ── Which provider to use by default ──────────────────────
-# Choices: ollama | huggingface | gemini | anthropic | huggingface
-default_provider: huggingface
+# Choices: ollama | huggingface | onnx | gemini | anthropic
+default_provider: onnx
 
 # ── Provider-specific settings ────────────────────────────
 providers:
@@ -60,6 +60,16 @@ providers:
     max_new_tokens: 2048
     temperature:    0.7
 
+  onnx:
+    # onnxruntime-genai CUDA artifact (REAL-TIME: ~65 tok/s on GPU vs ~1 tok/s CPU)
+    # Rebuild with:
+    #   conda run -n football python -m onnxruntime_genai.models.builder ^
+    #     -m aliosama8399/football-analysisN -o models/export/slm_gpu -p fp16 -e cuda
+    # Provider auto-detects genai_config.json -> GPU KV-cache backend.
+    model_path:     "models/export/slm_gpu"
+    max_new_tokens: 2048
+    temperature:    0.7
+
 # ── LLM generation parameters ─────────────────────────────
 generation:
   temperature: 0.7
@@ -71,16 +81,13 @@ rag:
   kg_provider:     postgres       # neo4j | postgres
   vector_provider: faiss       # faiss
   # LLM used by the RAG module (chat + /kb/ask narration).
-  #   openai | gemini | ollama | none (disabled)
-  # NOTE: huggingface is reserved for the fine-tuned football model ONLY
-  # (models/hf_provider.py, aliosama8399/football-analysisN) — select it
-  # explicitly per-request via /kb/ask llm_provider="huggingface" if needed.
-  llm_provider:    huggingface
+  #   openai | gemini | ollama | onnx | none (disabled)
+  # onnx is the ONNX export of the finetuned SLM (replaces huggingface for inference)
+  llm_provider:    onnx
 
-  # GNN "Expert 1" prediction model checkpoint (BasePredictionProvider)
-  # Default: tuned TEA-GNN (#1 in tuned comparison: 60.96% accuracy).
-  # Set to "" or a non-existent path to disable the GNN (predict() returns None).
-  gnn_model_path: "models/saved/gnn_tea-gnn_tuned.pt"
+  # GNN "Expert 1" prediction model — now ONNX (replaces torch checkpoint)
+  # Export: conda run -n football python models/export_gnn.py
+  gnn_model_path: "models/export/gnn/tea_gnn.onnx"
 
   # ── Neo4j ──────────────────────────────────────────────
   neo4j_uri:      "bolt://localhost:7687"

@@ -18,12 +18,13 @@ flow, which feeds the matches table used for retraining.
 """
 
 import logging
+import time
 from typing import Optional
 
 from fastapi import HTTPException, status
 
 from api.schemas import LivePredictionRequest, LivePredictionResponse
-from api.utils import extract_json_object, strip_markdown
+from api.utils import extract_json_object, strip_markdown, get_phase_logger
 from api.async_rag import AsyncRAGWrapper
 from rag.live_adjustment import (
     rates_from_probs,
@@ -35,7 +36,7 @@ from rag.live_adjustment import (
     TOTAL_MINUTES,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_phase_logger("api.services.live_prediction")
 
 # stat key -> team-profile field holding the season average (per-90)
 SEASON_AVG_FIELDS = {
@@ -64,11 +65,62 @@ def _argmax_result(probs: dict) -> str:
     return max(("H", "D", "A"), key=lambda k: probs.get(k, 0.0))
 
 
+def _backfill_breakdown(breakdown: dict, drivers: list, payload: LivePredictionRequest) -> None:
+    """
+    Ensure the coach-advisor JSON always carries the sections the UI renders.
+    When the LLM omits/empties a section (early stop, lazy output), backfill
+    deterministically from the quantitative driver data so the card is never
+    hollow. Marks backfilled items with reason prefix "(model data)".
+    """
+    analysis = breakdown.setdefault("analysis", {})
+    if not isinstance(analysis, dict):
+        analysis = breakdown["analysis"] = {}
+
+    if not (analysis.get("why") or []):
+        why = [
+            f"{d.get('side', 'team')} {d.get('label', 'stat')} running at x{d.get('pace', '?')} pace "
+            f"(live {d.get('live')}/min vs season {d.get('season_avg')}/min)"
+            for d in (drivers or [])[:3]
+        ]
+        analysis["why"] = why or ["Live stat pace vs season baseline is the primary signal."]
+
+    if not analysis.get("how_outlook_changed"):
+        d = payload.minute
+        analysis["how_outlook_changed"] = (
+            f"Live state at {d}' ({payload.home_goals}-{payload.away_goals}) shifts the "
+            f"pre-match outlook toward the in-play probabilities shown above."
+        )
+
+    recs = analysis.get("coach_recommendations")
+    if not isinstance(recs, list) or not recs:
+        built = []
+        for i, drv in enumerate((drivers or [])[:3]):
+            side = "Home" if drv.get("side") == "home" else "Away"
+            direction = "sustain" if drv.get("direction") == "over" else "correct"
+            built.append({
+                "priority": i + 1,
+                "action": f"{direction} the {drv.get('label', 'stat')} trend on the {side.lower()} side",
+                "reason": f"(model data) {side} {drv.get('label')} at x{drv.get('pace')} pace "
+                          f"(live {drv.get('live')}/min vs season {drv.get('season_avg')}/min)",
+            })
+        if not built:
+            built.append({
+                "priority": 1,
+                "action": "Maintain current shape; no dominant live deviation detected",
+                "reason": "(model data) all tracked stat paces are near season baseline",
+            })
+        analysis["coach_recommendations"] = built
+
+
 class LivePredictionService:
     def __init__(self, rag_wrapper: AsyncRAGWrapper):
         self.rag_wrapper = rag_wrapper
 
     async def predict(self, payload: LivePredictionRequest) -> LivePredictionResponse:
+        t0 = time.perf_counter()
+        logger.info("[service] live predict start: %s vs %s @%d' (%d-%d)",
+                    payload.home_team, payload.away_team, payload.minute,
+                    payload.home_goals, payload.away_goals)
         available_teams = self.rag_wrapper.get_available_teams()
         if payload.home_team not in available_teams or payload.away_team not in available_teams:
             raise HTTPException(
@@ -80,6 +132,8 @@ class LivePredictionService:
         gnn = await self.rag_wrapper.predict_structured(payload.home_team, payload.away_team)
         pre_probs = gnn["probabilities"] if gnn and gnn.get("probabilities") else dict(UNIFORM_PROBS)
         pre_probs = {"H": pre_probs.get("H", 1/3), "D": pre_probs.get("D", 1/3), "A": pre_probs.get("A", 1/3)}
+        logger.info("[service] GNN pre-match prior: %s",
+                    {k: round(v, 3) for k, v in pre_probs.items()})
 
         # ── 3. Calibrate pre-match goal rates ───────────────────────────────
         rates = rates_from_probs(pre_probs)
@@ -152,17 +206,30 @@ class LivePredictionService:
                 "pace": {"home": pace_h["pace"], "away": pace_a["pace"]},
             }
             try:
+                t_llm = time.perf_counter()
+                logger.info("[service] requesting LLM live narrative...")
                 raw = await self.rag_wrapper.predict_live_match(
                     payload.home_team, payload.away_team, live_context
                 )
                 breakdown = extract_json_object(raw)
                 analysis_text = strip_markdown(raw)
+                if breakdown is None and analysis_text:
+                    # truncated-JSON recovery also runs on the cleaned text
+                    breakdown = extract_json_object(analysis_text)
+                if breakdown:
+                    _backfill_breakdown(breakdown, drivers, payload)
                 source = "live_model+llm"
+                logger.info("[service] LLM live narrative done in %.1fs (%d chars, breakdown=%s)",
+                            time.perf_counter() - t_llm, len(analysis_text or ""),
+                            breakdown is not None)
             except Exception as e:
                 logger.error("Live LLM narrative failed: %s", e)
                 analysis_text = None
 
         delta = {k: round(blended.get(k, 0.0) - pre_probs.get(k, 0.0), 4) for k in ("H", "D", "A")}
+        logger.info("[service] live predict done in %.1fs (source=%s verdict=%s blended=%s)",
+                    time.perf_counter() - t0, source, _argmax_result(blended),
+                    {k: round(v, 3) for k, v in blended.items()})
 
         return LivePredictionResponse(
             home_team=payload.home_team,

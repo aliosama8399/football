@@ -110,6 +110,11 @@ class MatchPredictionResponse(BaseModel):
     tactical_analysis: Optional[str] = None
     source: str = Field(..., description="Either 'override' or 'live_model'")
     probabilities: Optional[dict] = None
+    analysis_breakdown: Optional[dict] = Field(
+        default=None,
+        description="Structured LLM analysis when the narrative is JSON "
+                    "{prediction_verdict, confidence_rating, home_team_analysis, away_team_analysis, tactical_matchup_summary}",
+    )
 
 # ── Live Prediction Schemas ──────────────────────────────────────────────────
 

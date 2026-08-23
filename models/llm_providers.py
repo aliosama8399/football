@@ -355,13 +355,21 @@ except ImportError:
     _HFProvider = None
     _HF_AVAILABLE = False
 
+try:
+    from models.onnx_llm_provider import OnnxLLMProvider as _OnnxProvider
+    _ONNX_AVAILABLE = True
+except ImportError:
+    _OnnxProvider = None
+    _ONNX_AVAILABLE = False
+
 
 LLM_REGISTRY: dict[str, type] = {
     "ollama":       OllamaProvider,
     "openai":       OpenAIProvider,
     "gemini":       GeminiProvider,
     "anthropic":    AnthropicProvider,
-    "huggingface":  _HFProvider,   # Qwen3-0.6B + LoRA (aliosama8399/football-analysis)
+    "onnx":         _OnnxProvider,   # ONNX export of Qwen3-0.6B (models/export/slm) — replaces huggingface
+    "huggingface":  _OnnxProvider,   # alias: any huggingface request now serves ONNX (per user request)
 }
 
 
@@ -380,10 +388,10 @@ def get_llm_provider(provider_type: str = "", **kwargs) -> BaseLLMProvider:
 
     prov_clean = str(provider_type).strip().lower()
 
-    if prov_clean == "huggingface" and _HFProvider is None:
+    if prov_clean in ("huggingface", "onnx") and _OnnxProvider is None:
         raise ValueError(
-            "HuggingFace provider 'huggingface' is registered but unavailable because "
-            "local model dependencies (transformers/torch) could not be imported."
+            "ONNX provider 'onnx' is registered but unavailable because "
+            "optimum/onnxruntime could not be imported. Run: conda run -n football pip install \"optimum[onnx]\""
         )
 
     if prov_clean not in LLM_REGISTRY:
