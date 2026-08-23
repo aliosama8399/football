@@ -33,7 +33,11 @@ from typing import Optional
 
 from rag.providers.kg_provider         import get_kg_provider
 from rag.providers.vector_provider     import get_vector_provider
-from rag.providers.gnn_provider        import BasePredictionProvider, GNNPredictionProvider
+from rag.providers.gnn_provider        import BasePredictionProvider  # ABC only
+try:
+    from rag.providers.gnn_provider_onnx import ONNXPredictionProvider as GNNPredictionProvider
+except ImportError:
+    from rag.providers.gnn_provider import GNNPredictionProvider  # fallback to torch if ONNX missing
 from models.llm_providers              import get_llm_provider
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -341,11 +345,12 @@ class FootballRAGSystem:
             f"  }}\n"
             f"}}\n\n"
             f"Rules: who_controls_now, why and how_outlook_changed must be plain strings/bullets "
-            f"without markdown. coach_recommendations must have 2-4 items with integer priorities "
-            f"starting at 1, each with a concrete action (substitution, formation/tactical tweak, "
-            f"pressing/intensity) and a reason tied to a specific driver (e.g. shots/SOT/xG pace, "
-            f"corners, yellows, reds). If coaching advice would differ per side, keep both "
-            f"perspectives inside the same actions."
+            f"without markdown. You MUST include EXACTLY 3 coach_recommendations items with "
+            f"integer priorities 1..3 — NEVER leave coach_recommendations empty — each with a "
+            f"concrete action (substitution, formation/tactical tweak, pressing/intensity) and a "
+            f"reason tied to a specific driver (e.g. shots/SOT/xG pace, corners, yellows, reds). "
+            f"If coaching advice would differ per side, keep both perspectives inside the same "
+            f"actions. Keep each sentence short (max 15 words)."
         )
         try:
             return self.query(question)

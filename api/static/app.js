@@ -487,23 +487,38 @@ async function runMatchPrediction() {
             confidenceRating = "Low";
         }
 
-        // Parse the LLM response if it is structured JSON
-        let analysis = {
-            prediction_verdict: data.tactical_analysis,
-            confidence_rating: confidenceRating,
-            home_team_analysis: { strengths: ["Form continuity", "Expected tactical alignment"], weaknesses: ["Transition vulnerability"] },
-            away_team_analysis: { strengths: ["High press efficiency", "Set piece delivery"], weaknesses: ["Defensive depth control"] },
-            tactical_matchup_summary: data.tactical_analysis
-        };
-        
+        // Parse the LLM response if it is structured JSON.
+        // Backend may also provide data.analysis_breakdown (extracted server-side
+        // via api/utils.extract_json_object). No static placeholders — sections
+        // without real data are simply not rendered.
+        const breakdown = (data.analysis_breakdown && typeof data.analysis_breakdown === 'object')
+            ? data.analysis_breakdown : null;
+        let parsedJson = null;
         try {
-            // Check if backend returned JSON string inside tactical_analysis
-            const parsed = JSON.parse(data.tactical_analysis);
-            if (parsed && typeof parsed === 'object') {
-                analysis = { ...analysis, ...parsed };
+            const p = JSON.parse(data.tactical_analysis);
+            if (p && typeof p === 'object') parsedJson = p;
+        } catch (e) { /* plain-text narrative */ }
+
+        // The full narrative ALWAYS lands in TACTICAL ENCOUNTER SUMMARY.
+        // Structured fields (verdict / scouting) layer on top when available
+        // (parsed JSON or backend-extracted breakdown).
+        let analysis;
+        if (parsedJson || breakdown) {
+            analysis = {
+                confidence_rating: confidenceRating,
+                tactical_matchup_summary: data.tactical_analysis,
+                ...(parsedJson || {}),
+                ...(breakdown || {}),
+            };
+            if (!analysis.prediction_verdict && parsedJson === null) {
+                analysis.prediction_verdict = '';
             }
-        } catch (e) {
-            // Keep original plain text if it failed to parse
+        } else {
+            analysis = {
+                prediction_verdict: '',
+                confidence_rating: confidenceRating,
+                tactical_matchup_summary: data.tactical_analysis
+            };
         }
         
         const probs = data.probabilities || { H: 0.33, D: 0.34, A: 0.33 };
@@ -544,41 +559,17 @@ async function runMatchPrediction() {
             </div>
 
             <div class="analysis-grid">
+                ${analysis.prediction_verdict ? `
                 <div class="analysis-card full-width">
                     <div class="card-title">EXPERT THESIS</div>
                     <div class="card-body">
-                        <p style="font-weight: 600; margin-bottom: 8px;">Confidence: <span class="accent-text">${analysis.confidence_rating}</span></p>
+                        <p style="font-weight: 600; margin-bottom: 8px;">Confidence: <span class="accent-text">${esc(analysis.confidence_rating || confidenceRating)}</span></p>
                         <p>${analysis.prediction_verdict}</p>
                     </div>
-                </div>
-                
-                <div class="analysis-card">
-                    <div class="card-title">${home.replace(/_/g, ' ').toUpperCase()} SCOUTING</div>
-                    <div class="card-body">
-                        <p style="color: var(--accent); margin-bottom: 6px; font-weight: bold; font-size: 0.75rem;">STRENGTHS</p>
-                        <ul class="card-list" style="margin-bottom: 12px;">
-                            ${analysis.home_team_analysis.strengths.map(s => `<li>${s}</li>`).join('')}
-                        </ul>
-                        <p style="color: #ff6600; margin-bottom: 6px; font-weight: bold; font-size: 0.75rem;">WEAKNESSES</p>
-                        <ul class="card-list">
-                            ${analysis.home_team_analysis.weaknesses.map(w => `<li>${w}</li>`).join('')}
-                        </ul>
-                    </div>
-                </div>
-                
-                <div class="analysis-card">
-                    <div class="card-title">${away.replace(/_/g, ' ').toUpperCase()} SCOUTING</div>
-                    <div class="card-body">
-                        <p style="color: var(--accent); margin-bottom: 6px; font-weight: bold; font-size: 0.75rem;">STRENGTHS</p>
-                        <ul class="card-list" style="margin-bottom: 12px;">
-                            ${analysis.away_team_analysis.strengths.map(s => `<li>${s}</li>`).join('')}
-                        </ul>
-                        <p style="color: #ff6600; margin-bottom: 6px; font-weight: bold; font-size: 0.75rem;">WEAKNESSES</p>
-                        <ul class="card-list">
-                            ${analysis.away_team_analysis.weaknesses.map(w => `<li>${w}</li>`).join('')}
-                        </ul>
-                    </div>
-                </div>
+                </div>` : ''}
+
+                ${renderScouting(home, analysis.home_team_analysis)}
+                ${renderScouting(away, analysis.away_team_analysis)}
 
                 <div class="analysis-card full-width">
                     <div class="card-title">TACTICAL ENCOUNTER SUMMARY</div>
@@ -685,6 +676,27 @@ async function runLivePrediction() {
     }
 }
 
+// ── Dynamic team-scouting card from structured LLM breakdown ─────────────────
+// Renders ONLY real data from the response (analysis.home_team_analysis /
+// away_team_analysis). No static placeholders when data is missing.
+
+function renderScouting(teamName, ta) {
+    if (!ta || typeof ta !== 'object') return '';
+    const strengths = Array.isArray(ta.strengths) ? ta.strengths.filter(Boolean) : [];
+    const weaknesses = Array.isArray(ta.weaknesses) ? ta.weaknesses.filter(Boolean) : [];
+    if (!strengths.length && !weaknesses.length) return '';
+    const list = items => `<ul class="card-list">${items.map(s => `<li>${esc(s)}</li>`).join('')}</ul>`;
+    return `
+        <div class="analysis-card">
+            <div class="card-title">${esc(String(teamName).replace(/_/g, ' ').toUpperCase())} SCOUTING</div>
+            <div class="card-body">
+                ${strengths.length ? `<p style="color: var(--accent); margin-bottom: 6px; font-weight: bold; font-size: 0.75rem;">STRENGTHS</p>${list(strengths)}` : ''}
+                ${strengths.length && weaknesses.length ? '<div style="height:12px"></div>' : ''}
+                ${weaknesses.length ? `<p style="color: #ff6600; margin-bottom: 6px; font-weight: bold; font-size: 0.75rem;">WEAKNESSES</p>${list(weaknesses)}` : ''}
+            </div>
+        </div>`;
+}
+
 function pct(v) {
     return Math.round((v || 0) * 100) + '%';
 }
@@ -781,11 +793,20 @@ function renderCoachAdvisor(d) {
     const bd = parseCoachAdvisor(d);
     const a = bd && bd.analysis;
     if (!a) {
-        const text = typeof (d.tactical_analysis) === 'string' ? d.tactical_analysis : JSON.stringify(bd || d.tactical_breakdown || '');
+        const rawText = typeof (d.tactical_analysis) === 'string' ? d.tactical_analysis : '';
+        // Degraded orchestrator payload ({"question":..,"note":..}) or an
+        // unparseable JSON blob -> never dump it raw; show a friendly notice.
+        const degraded = (bd && (bd.note || bd.question)) ||
+            (rawText.trim().startsWith('{') && !bd);
+        const text = degraded ? '' : rawText;
         return `
             <div class="analysis-card full-width">
                 <div class="card-title">COACH ADVISOR (LLM)</div>
-                <div class="card-body"><p style="white-space: pre-wrap;">${esc(text)}</p></div>
+                <div class="card-body">
+                    ${degraded
+                        ? `<p style="color: var(--text-muted);">Coach advisor narrative unavailable right now — live probabilities and drivers above are from the quantitative model.</p>`
+                        : `<p style="white-space: pre-wrap;">${esc(text)}</p>`}
+                </div>
             </div>`;
     }
     const why = Array.isArray(a.why) ? a.why : [];
