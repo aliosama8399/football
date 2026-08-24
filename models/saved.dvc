@@ -1,0 +1,6 @@
+outs:
+- md5: ed1c70ca40ff9c45c3ce012d30a86d65.dir
+  size: 30567084
+  nfiles: 24
+  hash: md5
+  path: saved
