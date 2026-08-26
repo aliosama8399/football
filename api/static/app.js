@@ -152,6 +152,20 @@ function switchAuthTab(tab) {
     });
 }
 
+function formatApiError(err, fallback = 'Operation failed') {
+    if (!err) return fallback;
+    if (typeof err === 'string') return err;
+    if (typeof err.detail === 'string') return err.detail;
+    if (Array.isArray(err.detail)) {
+        return err.detail.map(d => {
+            const field = d.loc ? d.loc[d.loc.length - 1] : '';
+            return field ? `• ${field}: ${d.msg}` : `• ${d.msg}`;
+        }).join('\n');
+    }
+    if (typeof err.message === 'string') return err.message;
+    return fallback;
+}
+
 async function handleLogin(e) {
     e.preventDefault();
     const usernameInput = document.getElementById('login-username').value;
@@ -178,7 +192,7 @@ async function handleLogin(e) {
             loadLeagueTeams(selectedLeague);
         } else {
             const err = await res.json();
-            alert(`Authentication failed: ${err.detail || 'Invalid credentials'}`);
+            alert(`Authentication failed:\n${formatApiError(err, 'Invalid credentials')}`);
         }
     } catch (e) {
         console.error(e);
@@ -207,7 +221,7 @@ async function handleRegister(e) {
             document.getElementById('login-username').value = username;
         } else {
             const err = await res.json();
-            alert(`Registration failed: ${err.detail || 'Unknown error'}`);
+            alert(`Registration failed:\n${formatApiError(err, 'Could not create account')}`);
         }
     } catch (e) {
         console.error(e);
@@ -244,7 +258,7 @@ async function handleChangePassword(e) {
             hideAuthModal();
         } else {
             const err = await res.json();
-            alert(`Password change failed: ${err.detail || 'Unknown error'}`);
+            alert(`Password change failed:\n${formatApiError(err, 'Could not change password')}`);
         }
     } catch (e) {
         console.error(e);

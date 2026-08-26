@@ -33,6 +33,10 @@ from data.graph_builder import FootballGraphBuilder
 
 
 def _resolve_onnx_path() -> Path:
+    env_path = os.getenv("FOOTBALL_GNN_MODEL_PATH", "").strip()
+    if env_path:
+        p = Path(env_path)
+        return p if p.is_absolute() else BASE_DIR / p
     try:
         if CFG_PATH.exists():
             with open(CFG_PATH) as f:

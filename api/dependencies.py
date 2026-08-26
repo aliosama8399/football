@@ -48,6 +48,34 @@ def init_rag_system() -> FootballRAGSystem:
             except Exception as e2:
                 logger.critical("RAG System init failed even with LLM disabled: %s", e2, exc_info=True)
                 raise
+
+        # ── Eagerly warm up models so the startup log shows the real backend ─
+        import torch
+        gpu_ok = torch.cuda.is_available()
+        logger.info("torch.cuda.is_available()=%s", gpu_ok)
+        if gpu_ok:
+            dev = torch.cuda.get_device_name(0)
+            logger.info("GPU detected: %s", dev)
+        else:
+            logger.warning("CUDA NOT visible to torch — running on CPU. (For GPU, ensure the image has nvidia wheels and the container was started with 'gpus: all')")
+
+        # Force-load both experts so "[LLM] READY" / ONNX lines appear NOW, not on first request.
+        try:
+            llm = getattr(_rag_system, "llm", None)
+            if llm is not None and hasattr(llm, "_load"):
+                logger.info("Warming up LLM (Expert 2)...")
+                llm._load()
+                logger.info("LLM warm; backend=%s", getattr(llm, "_backend", "unknown"))
+        except Exception as e:
+            logger.warning("LLM eager load failed (%s); it will retry lazily on first request.", type(e).__name__)
+        try:
+            predictor = getattr(_rag_system, "predictor", None)
+            if predictor is not None and hasattr(predictor, "load"):
+                logger.info("Warming up GNN (Expert 1)...")
+                predictor.load()
+                logger.info("GNN warm; backend=%s", type(predictor).__name__)
+        except Exception as e:
+            logger.warning("GNN eager load failed (%s); it will retry lazily on first request.", type(e).__name__)
     return _rag_system
 
 def get_rag_system(request: Request) -> FootballRAGSystem:

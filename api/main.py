@@ -27,9 +27,28 @@ from api.routes import (
 )
 from api.graphql import schema
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+import os
+from logging.handlers import RotatingFileHandler
+
+# Configure logging — stdout + rotating file
+_log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
+os.makedirs(_log_dir, exist_ok=True)
+_log_file = os.path.join(_log_dir, "api.log")
+
+_fmt = logging.Formatter("%(asctime)s %(levelname)-8s [%(name)s] %(message)s")
+
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(_fmt)
+
+_file_handler = RotatingFileHandler(
+    _log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+)
+_file_handler.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_stream_handler, _file_handler])
 logger = logging.getLogger(__name__)
+logger.info("Logging to file: %s", os.path.abspath(_log_file))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -62,21 +81,42 @@ async def lifespan(app: FastAPI):
         
     # 4. Load Football RAG System singleton and stash on app.state
     #    Falls back to llm='none' if the configured LLM cannot be constructed (see dependencies.py).
+    rag_status = "DOWN"
+    llm_status = "-"
+    gnn_status = "-"
     try:
         rag_sys = init_rag_system()
         app.state.rag_system = rag_sys
         from api.async_rag import AsyncRAGWrapper
         app.state.async_rag = AsyncRAGWrapper(rag_sys)
+        rag_status = "OK"
+        llm_status = getattr(getattr(rag_sys, "llm", None), "_backend", None) or \
+            ("onnx" if getattr(rag_sys, "llm", None) is not None else "disabled")
+        gnn_status = type(getattr(rag_sys, "predictor", None)).__name__ if \
+            getattr(rag_sys, "predictor", None) else "disabled"
     except Exception as e:
         logger.error(f"Error loading RAG system structures: {e}")
-        raise
 
     # 4.5. KnowledgeBase facade (chat-KB). Construction and pre-warm on app.state
+    kb_status = "OK"
     try:
         kb = init_knowledge_base()
         app.state.knowledge_base = kb
     except Exception as e:
         logger.error(f"Error initializing KnowledgeBase: {e}")
+        kb_status = "DOWN"
+
+    logger.info("=" * 62)
+    logger.info("STARTUP SUMMARY")
+    logger.info(f"  DB (Postgres/Alembic) : OK")
+    logger.info(f"  KG provider           : {settings.kg_provider}")
+    logger.info(f"  Vector store          : faiss (embedded, ./rag/vector_store)")
+    logger.info(f"  LLM (Expert 2)        : backend={llm_status}")
+    logger.info(f"  GNN (Expert 1)        : {gnn_status}")
+    logger.info(f"  RAG orchestrator      : {rag_status}")
+    logger.info(f"  Knowledge base        : {kb_status}")
+    logger.info("=" * 62)
+    logger.info("Application startup COMPLETE — serving on port 8001")
 
     yield
     

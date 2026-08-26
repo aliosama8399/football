@@ -39,10 +39,12 @@ class Neo4jProvider(BaseKGProvider):
     """Reads from a Neo4j database using Cypher queries."""
 
     def __init__(self):
+        import os
         cfg  = _load_rag_cfg().get("rag", {})
-        self.uri      = cfg.get("neo4j_uri",      "bolt://localhost:7687")
-        self.user     = cfg.get("neo4j_user",     "neo4j")
-        self.password = cfg.get("neo4j_password",  "password")
+        # env overrides first (docker-compose), then llm_config.yaml, then defaults
+        self.uri      = os.getenv("NEO4J_URI")      or cfg.get("neo4j_uri",      "bolt://localhost:7687")
+        self.user     = os.getenv("NEO4J_USER")     or cfg.get("neo4j_user",     "neo4j")
+        self.password = os.getenv("NEO4J_PASSWORD") or cfg.get("neo4j_password",  "password")
         self._driver  = None
 
     # ── Connection ─────────────────────────────────────────────────────────
@@ -163,10 +165,11 @@ class PostgreSQLProvider(BaseKGProvider):
     """Reads from a PostgreSQL database using psycopg2 / SQLAlchemy."""
 
     def __init__(self):
+        import os
         cfg = _load_rag_cfg().get("rag", {})
-        self.dsn = cfg.get(
+        self.dsn = os.getenv("POSTGRES_DSN") or cfg.get(
             "postgres_dsn",
-            "postgresql://postgres:password@localhost:5432/football_rag",
+            "postgresql://postgres:123@localhost:5432/football_rag",
         )
         self._conn   = None
         self._engine = None
