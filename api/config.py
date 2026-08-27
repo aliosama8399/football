@@ -30,13 +30,13 @@ class Settings(BaseSettings):
     
     # DB DSN (defaults from yaml config if available)
     postgres_dsn: str = Field(
-        default=rag_cfg.get("postgres_dsn", "postgresql://postgres:123@localhost:5432/football_rag"),
+        default_factory=lambda: os.getenv("POSTGRES_DSN") or rag_cfg.get("postgres_dsn", "postgresql://postgres:123@localhost:5432/football_rag"),
         alias="postgres_dsn"
     )
     
     # KG Provider (defaults from yaml config if available)
     kg_provider: str = Field(
-        default=rag_cfg.get("kg_provider", "postgres"),
+        default_factory=lambda: os.getenv("KG_PROVIDER") or rag_cfg.get("kg_provider", "postgres"),
         alias="kg_provider"
     )
     

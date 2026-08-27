@@ -406,7 +406,7 @@ def insert_matches(cur, df: pd.DataFrame, batch_size: int = 500):
 
 def main(drop: bool = False):
     cfg = _load_cfg().get("rag", {})
-    dsn = cfg.get("postgres_dsn", "postgresql://postgres:password@localhost:5432/football_rag")
+    dsn = os.getenv("POSTGRES_DSN") or cfg.get("postgres_dsn", "postgresql://postgres:123@localhost:5432/football_rag")
 
     logger.info("Connecting to PostgreSQL …")
     conn = psycopg2.connect(dsn)

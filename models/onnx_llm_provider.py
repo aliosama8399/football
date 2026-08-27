@@ -64,6 +64,10 @@ class OnnxLLMProvider:
 
     @staticmethod
     def _resolve_onnx_path() -> Path:
+        # 1) explicit env override (used by docker-compose)
+        env_path = os.getenv("FOOTBALL_ONNX_MODEL_PATH", "").strip()
+        if env_path:
+            return Path(env_path)
         import yaml
         cfg_path = Path(__file__).parent / "llm_config.yaml"
         if cfg_path.exists():
@@ -92,11 +96,23 @@ class OnnxLLMProvider:
         genai_cfg = self.model_path / "genai_config.json"
         if genai_cfg.exists():
             try:
+                # Report GPU visibility BEFORE loading so misconfig is obvious
+                try:
+                    import onnxruntime as _ort
+                    providers = _ort.get_available_providers()
+                    logger.info("[LLM] onnxruntime providers available: %s", providers)
+                    if "CUDAExecutionProvider" not in providers:
+                        logger.warning("[LLM] CUDAExecutionProvider NOT available — "
+                                       "genai artifact '%s' was built for CUDA and will fail "
+                                       "or fall back to CPU.", genai_cfg.parent.name)
+                except Exception:
+                    pass
+
                 import numpy as np
                 import onnxruntime_genai as og
                 from transformers import AutoTokenizer
 
-                logger.info("Loading ONNX LLM (onnxruntime-genai CUDA) from: %s", self.model_path)
+                logger.info("[LLM] Loading onnxruntime-genai (CUDA) artifact: %s", self.model_path)
                 self._og, self._np = og, np
                 self._gmodel = og.Model(str(self.model_path))
                 self._gtok = og.Tokenizer(self._gmodel)
@@ -106,10 +122,12 @@ class OnnxLLMProvider:
                 self._backend = "genai"
                 self._is_onnx = True
                 self._loaded = True
-                logger.info("ONNX LLM ready (genai CUDA): %s", self.model_path)
+                device = "CUDA (GPU)" if os.getenv("FOOTBALL_ONNX_EP", "").lower() != "cpu" else "CPU"
+                logger.info("[LLM] READY — backend=onnxruntime-genai | device=%s | artifact=%s",
+                            device, self.model_path)
                 return
             except Exception as e:
-                logger.warning("genai CUDA load failed (%s); trying optimum ORT path.",
+                logger.warning("[LLM] genai CUDA load failed (%s); trying optimum ORT path.",
                                type(e).__name__)
 
         # ── Backend 2: optimum ORTModelForCausalLM (CPU by default) ──────────
@@ -242,11 +260,15 @@ class OnnxLLMProvider:
         # use_cache follows the loaded artifact: True for the merged with-past
         # export (fast, low-memory decode), False for a no-past export
         # ("text-generation" task). Harmless for the HF fallback path.
-        use_cache = bool(getattr(self._model, "can_use_cache", False)) if getattr(self, "_is_onnx", False) else False
+        json_mode = ('"match_state"' in text) or ("SINGLE JSON" in text) or ("Tactical Analysis" in text)
+        do_sample = (self.temperature > 0) and not json_mode
         gen_kwargs = dict(
             max_new_tokens=self.max_new_tokens,
-            temperature=self.temperature,
-            do_sample=self.temperature > 0,
+            temperature=max(self.temperature, 1e-4) if do_sample else 1.0,
+            do_sample=do_sample,
+            top_p=0.9 if do_sample else 1.0,
+            repetition_penalty=1.15,
+            no_repeat_ngram_size=3,
             pad_token_id=self._tokenizer.eos_token_id,
             use_cache=use_cache,
         )

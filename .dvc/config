@@ -1,0 +1,4 @@
+[core]
+    remote = local
+['remote "local"']
+    url = D:\SASUniversityEdition\Machine\MODEL\football\models\model_storage

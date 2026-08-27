@@ -247,9 +247,9 @@ def create_match_edges(session, df: pd.DataFrame, batch_size: int = 500):
 
 def main(clear: bool = False):
     cfg = _load_cfg().get("rag", {})
-    uri      = cfg.get("neo4j_uri",      "bolt://localhost:7687")
-    user     = cfg.get("neo4j_user",     "neo4j")
-    password = cfg.get("neo4j_password",  "password")
+    uri      = os.getenv("NEO4J_URI")      or cfg.get("neo4j_uri",      "bolt://localhost:7687")
+    user     = os.getenv("NEO4J_USER")     or cfg.get("neo4j_user",     "neo4j")
+    password = os.getenv("NEO4J_PASSWORD") or cfg.get("neo4j_password",  "password")
 
     logger.info("Connecting to Neo4j at %s …", uri)
     driver = GraphDatabase.driver(uri, auth=(user, password))

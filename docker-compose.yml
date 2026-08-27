@@ -1,0 +1,89 @@
+# ══════════════════════════════════════════════════════════════════════════
+# Football Analysis — full deployment stack
+#
+# SERVICES
+#   fastapi   → the REST/GraphQL API  (this repo, Dockerfile, GPU build)  :8001
+#   postgres  → relational DB + default KG provider                       :5432
+#   neo4j     → alternative KG provider (graph DB)                  :7474 / :7687
+#   (vector)  → FAISS is EMBEDDED (in-process, file-based) — no server
+#               container. The index lives in ./rag/vector_store and is
+#               mounted read-only into the fastapi container below.
+#
+# GPU: the fastapi service requests all NVIDIA GPUs (nvidia-container-toolkit
+# required on the host). The image is built with --build-arg GPU=1 and loads
+# onnxruntime-gpu + onnxruntime-genai-cuda; the SLM artifact must be the CUDA
+# one (models/export/slm_gpu, built with -e cuda — see README Stage 5b).
+#
+#   kg/vector selection lives in models/llm_config.yaml:
+#     rag.kg_provider: postgres | neo4j      rag.vector_provider: faiss
+# ══════════════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── 1. FASTAPI APP (GPU) ──────────────────────────────────────────────────
+  fastapi:
+    build:
+      context: .
+      args:
+        GPU: "1"
+    container_name: football-api
+    gpus: all                          # requires nvidia-container-toolkit
+    ports:
+      - "8001:8001"
+    environment:
+      POSTGRES_DSN: postgresql://postgres:123@postgres:5432/football_rag
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password
+      # CUDA artifact built with `-e cuda` (README Stage 5b)
+      FOOTBALL_ONNX_MODEL_PATH: /app/models/export/slm_gpu
+      HF_HUB_OFFLINE: "0"
+    volumes:
+      # ONNX artifacts are gitignored & dockerignored → mount from host.
+      - ./models/export:/app/models/export:ro
+      # FAISS vector index + metadata (your vector database files)
+      - ./rag/vector_store:/app/rag/vector_store:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── 2. POSTGRESQL (relational + default KG provider) ─────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: football-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "123"
+      POSTGRES_DB: football_rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d football_rag"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ── 3. NEO4J (alternative KG graph provider) ──────────────────────────────
+  # Populate with:  python rag/build_neo4j_kg.py   (host, against localhost:7687)
+  # Switch provider: set rag.kg_provider: neo4j in models/llm_config.yaml
+  neo4j:
+    image: neo4j:5-community
+    container_name: football-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/password          # matches llm_config.yaml defaults
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_heap_max__size: 512M
+    ports:
+      - "7474:7474"   # HTTP browser console
+      - "7687:7687"   # Bolt
+    volumes:
+      - neo4jdata:/data
+
+volumes:
+  pgdata:
+  neo4jdata:

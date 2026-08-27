@@ -266,6 +266,45 @@ python -m uvicorn api.main:app --reload --port 8001
 
 Open **`http://localhost:8001`** (Admin Portal default credentials: `admin` / `AdminPass123!`).
 
+#### Stage 6b — Docker deployment (uv + compose)
+
+Artifacts are **not** in the image (`models/export/` is gitignored *and* dockerignored) —
+they are mounted from the host. For the CPU container, build the LLM artifact once
+with `-e cpu` (see Stage 5b; output to `models/export/slm_gpu_cpu`), then:
+
+```powershell
+uv lock                 # optional: pins uv.lock for reproducible builds
+docker compose up --build
+```
+
+**Services started by compose:**
+
+| Service | Container | Port(s) | Role |
+|---|---|---|---|
+| `fastapi` | football-api | **8001** | REST + GraphQL app (this repo) |
+| `postgres` | football-postgres | 5432 | Relational DB + default KG provider (volume `pgdata`) |
+| `neo4j` | football-neo4j | 7474 / 7687 | Alternative KG graph provider (volume `neo4jdata`; populate via `python rag/build_neo4j_kg.py`, switch with `rag.kg_provider: neo4j`) |
+
+The **vector database is FAISS — embedded, not a container**: it runs inside the
+FastAPI process and reads the index files from `./rag/vector_store`, which compose
+mounts read-only into the app. Build that index on the host once (Stage 5).
+
+- API → http://localhost:8001 · Neo4j browser → http://localhost:7474 (`neo4j`/`password`)
+- Postgres → localhost:5432 (`postgres` / `123` / `football_rag`)
+
+`docker-compose.yml` sets `FOOTBALL_ONNX_MODEL_PATH=/app/models/export/slm_gpu`,
+mounts `./models/export` + `./rag/vector_store` read-only, and requests **all GPUs**
+(`gpus: all`) — host needs the NVIDIA driver + `nvidia-container-toolkit`
+(test with `docker run --rm --gpus all nvidia/cuda:12.6.3-runtime-ubuntu22.04 nvidia-smi`).
+The image swaps in CUDA wheels at build time (`--build-arg GPU=1`, default):
+`onnxruntime-gpu==1.26.0` + `onnxruntime-genai-cuda==0.14.1` + torch cu126.
+For a CPU-only deployment build with `--build-arg GPU=0`, point
+`FOOTBALL_ONNX_MODEL_PATH` at a `-e cpu` artifact, and drop the `gpus:` line.
+
+Startup logs print a **STARTUP SUMMARY** block (DB / KG / vector / LLM backend /
+GNN / RAG / KB status) plus `[LLM] READY — backend=onnxruntime-genai | device=CUDA (GPU)`
+so you can confirm exactly which device served the model.
+
 ---
 
 ## 📅 Adding a New Season (e.g. 2025-26)
