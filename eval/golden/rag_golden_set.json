@@ -1,0 +1,3100 @@
+[
+  {
+    "id": "h2h_001",
+    "type": "h2h",
+    "as_of_date": "2024-08-18",
+    "query": "What is the head-to-head record between Auxerre and Nice prior to 2024-08-18?",
+    "teams": [
+      "Auxerre",
+      "Nice"
+    ],
+    "ground_truth": "Prior to 2024-08-18, Auxerre and Nice played 2 matches. Auxerre won 0, Nice won 0, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 2,
+      "home_wins": 0,
+      "away_wins": 0,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_002",
+    "type": "recent_form",
+    "as_of_date": "2024-08-18",
+    "query": "What was Auxerre's 5-match form leading into their match on 2024-08-18?",
+    "teams": [
+      "Auxerre"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-08-18, Auxerre had a record of D-L-L-D-L, scoring 4 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 4,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_003",
+    "type": "prediction",
+    "as_of_date": "2024-08-18",
+    "query": "Predict the tactical outcome and key performance factors for Auxerre vs Nice on 2024-08-18.",
+    "teams": [
+      "Auxerre",
+      "Nice"
+    ],
+    "ground_truth": "Match played on 2024-08-18 ended with Auxerre 2-1 Nice (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_004",
+    "type": "h2h",
+    "as_of_date": "2024-08-18",
+    "query": "What is the head-to-head record between Chelsea and Manchester City prior to 2024-08-18?",
+    "teams": [
+      "Chelsea",
+      "Manchester City"
+    ],
+    "ground_truth": "Prior to 2024-08-18, Chelsea and Manchester City played 16 matches. Chelsea won 3, Manchester City won 11, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 16,
+      "home_wins": 3,
+      "away_wins": 11,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_005",
+    "type": "recent_form",
+    "as_of_date": "2024-08-18",
+    "query": "What was Chelsea's 5-match form leading into their match on 2024-08-18?",
+    "teams": [
+      "Chelsea"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-08-18, Chelsea had a record of W-W-W-W-W, scoring 14 goals and conceding 4.",
+    "expected_numbers": {
+      "goals_for": 14,
+      "goals_against": 4
+    }
+  },
+  {
+    "id": "pred_006",
+    "type": "prediction",
+    "as_of_date": "2024-08-18",
+    "query": "Predict the tactical outcome and key performance factors for Chelsea vs Manchester City on 2024-08-18.",
+    "teams": [
+      "Chelsea",
+      "Manchester City"
+    ],
+    "ground_truth": "Match played on 2024-08-18 ended with Chelsea 0-2 Manchester City (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-2"
+  },
+  {
+    "id": "h2h_007",
+    "type": "h2h",
+    "as_of_date": "2024-08-24",
+    "query": "What is the head-to-head record between Espanyol and Real Sociedad prior to 2024-08-24?",
+    "teams": [
+      "Espanyol",
+      "Real Sociedad"
+    ],
+    "ground_truth": "Prior to 2024-08-24, Espanyol and Real Sociedad played 8 matches. Espanyol won 2, Real Sociedad won 6, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 8,
+      "home_wins": 2,
+      "away_wins": 6,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_008",
+    "type": "recent_form",
+    "as_of_date": "2024-08-24",
+    "query": "What was Espanyol's 5-match form leading into their match on 2024-08-24?",
+    "teams": [
+      "Espanyol"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-08-24, Espanyol had a record of W-D-D-D-L, scoring 10 goals and conceding 10.",
+    "expected_numbers": {
+      "goals_for": 10,
+      "goals_against": 10
+    }
+  },
+  {
+    "id": "pred_009",
+    "type": "prediction",
+    "as_of_date": "2024-08-24",
+    "query": "Predict the tactical outcome and key performance factors for Espanyol vs Real Sociedad on 2024-08-24.",
+    "teams": [
+      "Espanyol",
+      "Real Sociedad"
+    ],
+    "ground_truth": "Match played on 2024-08-24 ended with Espanyol 0-1 Real Sociedad (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-1"
+  },
+  {
+    "id": "h2h_010",
+    "type": "h2h",
+    "as_of_date": "2024-08-25",
+    "query": "What is the head-to-head record between Nice and Toulouse prior to 2024-08-25?",
+    "teams": [
+      "Nice",
+      "Toulouse"
+    ],
+    "ground_truth": "Prior to 2024-08-25, Nice and Toulouse played 8 matches. Nice won 3, Toulouse won 1, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 8,
+      "home_wins": 3,
+      "away_wins": 1,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_011",
+    "type": "recent_form",
+    "as_of_date": "2024-08-25",
+    "query": "What was Nice's 5-match form leading into their match on 2024-08-25?",
+    "teams": [
+      "Nice"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-08-25, Nice had a record of W-W-L-D-L, scoring 8 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_012",
+    "type": "prediction",
+    "as_of_date": "2024-08-25",
+    "query": "Predict the tactical outcome and key performance factors for Nice vs Toulouse on 2024-08-25.",
+    "teams": [
+      "Nice",
+      "Toulouse"
+    ],
+    "ground_truth": "Match played on 2024-08-25 ended with Nice 1-1 Toulouse (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "1-1"
+  },
+  {
+    "id": "h2h_013",
+    "type": "h2h",
+    "as_of_date": "2024-08-31",
+    "query": "What is the head-to-head record between Arsenal and Brighton prior to 2024-08-31?",
+    "teams": [
+      "Arsenal",
+      "Brighton"
+    ],
+    "ground_truth": "Prior to 2024-08-31, Arsenal and Brighton played 14 matches. Arsenal won 6, Brighton won 5, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 14,
+      "home_wins": 6,
+      "away_wins": 5,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_014",
+    "type": "recent_form",
+    "as_of_date": "2024-08-31",
+    "query": "What was Arsenal's 5-match form leading into their match on 2024-08-31?",
+    "teams": [
+      "Arsenal"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-08-31, Arsenal had a record of W-W-W-W-W, scoring 10 goals and conceding 1.",
+    "expected_numbers": {
+      "goals_for": 10,
+      "goals_against": 1
+    }
+  },
+  {
+    "id": "pred_015",
+    "type": "prediction",
+    "as_of_date": "2024-08-31",
+    "query": "Predict the tactical outcome and key performance factors for Arsenal vs Brighton on 2024-08-31.",
+    "teams": [
+      "Arsenal",
+      "Brighton"
+    ],
+    "ground_truth": "Match played on 2024-08-31 ended with Arsenal 1-1 Brighton (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "1-1"
+  },
+  {
+    "id": "h2h_016",
+    "type": "h2h",
+    "as_of_date": "2024-08-31",
+    "query": "What is the head-to-head record between Bochum and Borussia M.Gladbach prior to 2024-08-31?",
+    "teams": [
+      "Bochum",
+      "Borussia M.Gladbach"
+    ],
+    "ground_truth": "Prior to 2024-08-31, Bochum and Borussia M.Gladbach played 6 matches. Bochum won 1, Borussia M.Gladbach won 5, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 6,
+      "home_wins": 1,
+      "away_wins": 5,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_017",
+    "type": "recent_form",
+    "as_of_date": "2024-08-31",
+    "query": "What was Bochum's 5-match form leading into their match on 2024-08-31?",
+    "teams": [
+      "Bochum"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-08-31, Bochum had a record of W-W-L-L-L, scoring 8 goals and conceding 15.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 15
+    }
+  },
+  {
+    "id": "pred_018",
+    "type": "prediction",
+    "as_of_date": "2024-08-31",
+    "query": "Predict the tactical outcome and key performance factors for Bochum vs Borussia M.Gladbach on 2024-08-31.",
+    "teams": [
+      "Bochum",
+      "Borussia M.Gladbach"
+    ],
+    "ground_truth": "Match played on 2024-08-31 ended with Bochum 0-2 Borussia M.Gladbach (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-2"
+  },
+  {
+    "id": "h2h_019",
+    "type": "h2h",
+    "as_of_date": "2024-09-01",
+    "query": "What is the head-to-head record between Real Madrid and Real Betis prior to 2024-09-01?",
+    "teams": [
+      "Real Madrid",
+      "Real Betis"
+    ],
+    "ground_truth": "Prior to 2024-09-01, Real Madrid and Real Betis played 12 matches. Real Madrid won 4, Real Betis won 2, and 6 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 4,
+      "away_wins": 2,
+      "draws": 6
+    }
+  },
+  {
+    "id": "form_020",
+    "type": "recent_form",
+    "as_of_date": "2024-09-01",
+    "query": "What was Real Madrid's 5-match form leading into their match on 2024-09-01?",
+    "teams": [
+      "Real Madrid"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-09-01, Real Madrid had a record of D-D-D-W-D, scoring 9 goals and conceding 6.",
+    "expected_numbers": {
+      "goals_for": 9,
+      "goals_against": 6
+    }
+  },
+  {
+    "id": "pred_021",
+    "type": "prediction",
+    "as_of_date": "2024-09-01",
+    "query": "Predict the tactical outcome and key performance factors for Real Madrid vs Real Betis on 2024-09-01.",
+    "teams": [
+      "Real Madrid",
+      "Real Betis"
+    ],
+    "ground_truth": "Match played on 2024-09-01 ended with Real Madrid 2-0 Real Betis (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-0"
+  },
+  {
+    "id": "h2h_022",
+    "type": "h2h",
+    "as_of_date": "2024-09-15",
+    "query": "What is the head-to-head record between Genoa and Roma prior to 2024-09-15?",
+    "teams": [
+      "Genoa",
+      "Roma"
+    ],
+    "ground_truth": "Prior to 2024-09-15, Genoa and Roma played 10 matches. Genoa won 1, Roma won 6, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 10,
+      "home_wins": 1,
+      "away_wins": 6,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_023",
+    "type": "recent_form",
+    "as_of_date": "2024-09-15",
+    "query": "What was Genoa's 5-match form leading into their match on 2024-09-15?",
+    "teams": [
+      "Genoa"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-09-15, Genoa had a record of L-W-D-W-L, scoring 5 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_024",
+    "type": "prediction",
+    "as_of_date": "2024-09-15",
+    "query": "Predict the tactical outcome and key performance factors for Genoa vs Roma on 2024-09-15.",
+    "teams": [
+      "Genoa",
+      "Roma"
+    ],
+    "ground_truth": "Match played on 2024-09-15 ended with Genoa 1-1 Roma (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "1-1"
+  },
+  {
+    "id": "h2h_025",
+    "type": "h2h",
+    "as_of_date": "2024-09-20",
+    "query": "What is the head-to-head record between Verona and Torino prior to 2024-09-20?",
+    "teams": [
+      "Verona",
+      "Torino"
+    ],
+    "ground_truth": "Prior to 2024-09-20, Verona and Torino played 10 matches. Verona won 0, Torino won 4, and 6 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 10,
+      "home_wins": 0,
+      "away_wins": 4,
+      "draws": 6
+    }
+  },
+  {
+    "id": "form_026",
+    "type": "recent_form",
+    "as_of_date": "2024-09-20",
+    "query": "What was Verona's 5-match form leading into their match on 2024-09-20?",
+    "teams": [
+      "Verona"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-09-20, Verona had a record of D-W-L-W-L, scoring 8 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_027",
+    "type": "prediction",
+    "as_of_date": "2024-09-20",
+    "query": "Predict the tactical outcome and key performance factors for Verona vs Torino on 2024-09-20.",
+    "teams": [
+      "Verona",
+      "Torino"
+    ],
+    "ground_truth": "Match played on 2024-09-20 ended with Verona 2-3 Torino (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "2-3"
+  },
+  {
+    "id": "h2h_028",
+    "type": "h2h",
+    "as_of_date": "2024-09-21",
+    "query": "What is the head-to-head record between Real Madrid and Espanyol prior to 2024-09-21?",
+    "teams": [
+      "Real Madrid",
+      "Espanyol"
+    ],
+    "ground_truth": "Prior to 2024-09-21, Real Madrid and Espanyol played 8 matches. Real Madrid won 7, Espanyol won 1, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 8,
+      "home_wins": 7,
+      "away_wins": 1,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_029",
+    "type": "recent_form",
+    "as_of_date": "2024-09-21",
+    "query": "What was Real Madrid's 5-match form leading into their match on 2024-09-21?",
+    "teams": [
+      "Real Madrid"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-09-21, Real Madrid had a record of D-W-D-W-W, scoring 9 goals and conceding 2.",
+    "expected_numbers": {
+      "goals_for": 9,
+      "goals_against": 2
+    }
+  },
+  {
+    "id": "pred_030",
+    "type": "prediction",
+    "as_of_date": "2024-09-21",
+    "query": "Predict the tactical outcome and key performance factors for Real Madrid vs Espanyol on 2024-09-21.",
+    "teams": [
+      "Real Madrid",
+      "Espanyol"
+    ],
+    "ground_truth": "Match played on 2024-09-21 ended with Real Madrid 4-1 Espanyol (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "4-1"
+  },
+  {
+    "id": "h2h_031",
+    "type": "h2h",
+    "as_of_date": "2024-09-21",
+    "query": "What is the head-to-head record between Osasuna and Las Palmas prior to 2024-09-21?",
+    "teams": [
+      "Osasuna",
+      "Las Palmas"
+    ],
+    "ground_truth": "Prior to 2024-09-21, Osasuna and Las Palmas played 2 matches. Osasuna won 0, Las Palmas won 0, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 2,
+      "home_wins": 0,
+      "away_wins": 0,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_032",
+    "type": "recent_form",
+    "as_of_date": "2024-09-21",
+    "query": "What was Osasuna's 5-match form leading into their match on 2024-09-21?",
+    "teams": [
+      "Osasuna"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-09-21, Osasuna had a record of D-W-L-W-L, scoring 6 goals and conceding 10.",
+    "expected_numbers": {
+      "goals_for": 6,
+      "goals_against": 10
+    }
+  },
+  {
+    "id": "pred_033",
+    "type": "prediction",
+    "as_of_date": "2024-09-21",
+    "query": "Predict the tactical outcome and key performance factors for Osasuna vs Las Palmas on 2024-09-21.",
+    "teams": [
+      "Osasuna",
+      "Las Palmas"
+    ],
+    "ground_truth": "Match played on 2024-09-21 ended with Osasuna 2-1 Las Palmas (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_034",
+    "type": "h2h",
+    "as_of_date": "2024-09-22",
+    "query": "What is the head-to-head record between Athletic Club and Celta Vigo prior to 2024-09-22?",
+    "teams": [
+      "Athletic Club",
+      "Celta Vigo"
+    ],
+    "ground_truth": "Prior to 2024-09-22, Athletic Club and Celta Vigo played 12 matches. Athletic Club won 5, Celta Vigo won 5, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 5,
+      "away_wins": 5,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_035",
+    "type": "recent_form",
+    "as_of_date": "2024-09-22",
+    "query": "What was Athletic Club's 5-match form leading into their match on 2024-09-22?",
+    "teams": [
+      "Athletic Club"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-09-22, Athletic Club had a record of L-W-L-W-W, scoring 7 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_036",
+    "type": "prediction",
+    "as_of_date": "2024-09-22",
+    "query": "Predict the tactical outcome and key performance factors for Athletic Club vs Celta Vigo on 2024-09-22.",
+    "teams": [
+      "Athletic Club",
+      "Celta Vigo"
+    ],
+    "ground_truth": "Match played on 2024-09-22 ended with Athletic Club 3-1 Celta Vigo (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "3-1"
+  },
+  {
+    "id": "h2h_037",
+    "type": "h2h",
+    "as_of_date": "2024-09-25",
+    "query": "What is the head-to-head record between Barcelona and Getafe prior to 2024-09-25?",
+    "teams": [
+      "Barcelona",
+      "Getafe"
+    ],
+    "ground_truth": "Prior to 2024-09-25, Barcelona and Getafe played 12 matches. Barcelona won 8, Getafe won 1, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 8,
+      "away_wins": 1,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_038",
+    "type": "recent_form",
+    "as_of_date": "2024-09-25",
+    "query": "What was Barcelona's 5-match form leading into their match on 2024-09-25?",
+    "teams": [
+      "Barcelona"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-09-25, Barcelona had a record of W-W-W-W-W, scoring 20 goals and conceding 4.",
+    "expected_numbers": {
+      "goals_for": 20,
+      "goals_against": 4
+    }
+  },
+  {
+    "id": "pred_039",
+    "type": "prediction",
+    "as_of_date": "2024-09-25",
+    "query": "Predict the tactical outcome and key performance factors for Barcelona vs Getafe on 2024-09-25.",
+    "teams": [
+      "Barcelona",
+      "Getafe"
+    ],
+    "ground_truth": "Match played on 2024-09-25 ended with Barcelona 1-0 Getafe (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "1-0"
+  },
+  {
+    "id": "h2h_040",
+    "type": "h2h",
+    "as_of_date": "2024-10-04",
+    "query": "What is the head-to-head record between Augsburg and Borussia M.Gladbach prior to 2024-10-04?",
+    "teams": [
+      "Augsburg",
+      "Borussia M.Gladbach"
+    ],
+    "ground_truth": "Prior to 2024-10-04, Augsburg and Borussia M.Gladbach played 12 matches. Augsburg won 4, Borussia M.Gladbach won 5, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 4,
+      "away_wins": 5,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_041",
+    "type": "recent_form",
+    "as_of_date": "2024-10-04",
+    "query": "What was Augsburg's 5-match form leading into their match on 2024-10-04?",
+    "teams": [
+      "Augsburg"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-04, Augsburg had a record of D-L-W-L-L, scoring 7 goals and conceding 14.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 14
+    }
+  },
+  {
+    "id": "pred_042",
+    "type": "prediction",
+    "as_of_date": "2024-10-04",
+    "query": "Predict the tactical outcome and key performance factors for Augsburg vs Borussia M.Gladbach on 2024-10-04.",
+    "teams": [
+      "Augsburg",
+      "Borussia M.Gladbach"
+    ],
+    "ground_truth": "Match played on 2024-10-04 ended with Augsburg 2-1 Borussia M.Gladbach (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_043",
+    "type": "h2h",
+    "as_of_date": "2024-10-05",
+    "query": "What is the head-to-head record between Las Palmas and Celta Vigo prior to 2024-10-05?",
+    "teams": [
+      "Las Palmas",
+      "Celta Vigo"
+    ],
+    "ground_truth": "Prior to 2024-10-05, Las Palmas and Celta Vigo played 2 matches. Las Palmas won 1, Celta Vigo won 1, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 2,
+      "home_wins": 1,
+      "away_wins": 1,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_044",
+    "type": "recent_form",
+    "as_of_date": "2024-10-05",
+    "query": "What was Las Palmas's 5-match form leading into their match on 2024-10-05?",
+    "teams": [
+      "Las Palmas"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-05, Las Palmas had a record of L-L-L-D-L, scoring 5 goals and conceding 11.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 11
+    }
+  },
+  {
+    "id": "pred_045",
+    "type": "prediction",
+    "as_of_date": "2024-10-05",
+    "query": "Predict the tactical outcome and key performance factors for Las Palmas vs Celta Vigo on 2024-10-05.",
+    "teams": [
+      "Las Palmas",
+      "Celta Vigo"
+    ],
+    "ground_truth": "Match played on 2024-10-05 ended with Las Palmas 0-1 Celta Vigo (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-1"
+  },
+  {
+    "id": "h2h_046",
+    "type": "h2h",
+    "as_of_date": "2024-10-05",
+    "query": "What is the head-to-head record between Leicester and Bournemouth prior to 2024-10-05?",
+    "teams": [
+      "Leicester",
+      "Bournemouth"
+    ],
+    "ground_truth": "Prior to 2024-10-05, Leicester and Bournemouth played 10 matches. Leicester won 2, Bournemouth won 4, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 10,
+      "home_wins": 2,
+      "away_wins": 4,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_047",
+    "type": "recent_form",
+    "as_of_date": "2024-10-05",
+    "query": "What was Leicester's 5-match form leading into their match on 2024-10-05?",
+    "teams": [
+      "Leicester"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-05, Leicester had a record of L-L-D-D-L, scoring 7 goals and conceding 11.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 11
+    }
+  },
+  {
+    "id": "pred_048",
+    "type": "prediction",
+    "as_of_date": "2024-10-05",
+    "query": "Predict the tactical outcome and key performance factors for Leicester vs Bournemouth on 2024-10-05.",
+    "teams": [
+      "Leicester",
+      "Bournemouth"
+    ],
+    "ground_truth": "Match played on 2024-10-05 ended with Leicester 1-0 Bournemouth (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "1-0"
+  },
+  {
+    "id": "h2h_049",
+    "type": "h2h",
+    "as_of_date": "2024-10-20",
+    "query": "What is the head-to-head record between Venezia and Atalanta prior to 2024-10-20?",
+    "teams": [
+      "Venezia",
+      "Atalanta"
+    ],
+    "ground_truth": "Prior to 2024-10-20, Venezia and Atalanta played 2 matches. Venezia won 0, Atalanta won 2, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 2,
+      "home_wins": 0,
+      "away_wins": 2,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_050",
+    "type": "recent_form",
+    "as_of_date": "2024-10-20",
+    "query": "What was Venezia's 5-match form leading into their match on 2024-10-20?",
+    "teams": [
+      "Venezia"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-20, Venezia had a record of L-L-W-L-L, scoring 4 goals and conceding 9.",
+    "expected_numbers": {
+      "goals_for": 4,
+      "goals_against": 9
+    }
+  },
+  {
+    "id": "pred_051",
+    "type": "prediction",
+    "as_of_date": "2024-10-20",
+    "query": "Predict the tactical outcome and key performance factors for Venezia vs Atalanta on 2024-10-20.",
+    "teams": [
+      "Venezia",
+      "Atalanta"
+    ],
+    "ground_truth": "Match played on 2024-10-20 ended with Venezia 0-2 Atalanta (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-2"
+  },
+  {
+    "id": "h2h_052",
+    "type": "h2h",
+    "as_of_date": "2024-10-20",
+    "query": "What is the head-to-head record between Montpellier and Marseille prior to 2024-10-20?",
+    "teams": [
+      "Montpellier",
+      "Marseille"
+    ],
+    "ground_truth": "Prior to 2024-10-20, Montpellier and Marseille played 11 matches. Montpellier won 1, Marseille won 6, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 11,
+      "home_wins": 1,
+      "away_wins": 6,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_053",
+    "type": "recent_form",
+    "as_of_date": "2024-10-20",
+    "query": "What was Montpellier's 5-match form leading into their match on 2024-10-20?",
+    "teams": [
+      "Montpellier"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-20, Montpellier had a record of L-L-W-L-L, scoring 7 goals and conceding 14.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 14
+    }
+  },
+  {
+    "id": "pred_054",
+    "type": "prediction",
+    "as_of_date": "2024-10-20",
+    "query": "Predict the tactical outcome and key performance factors for Montpellier vs Marseille on 2024-10-20.",
+    "teams": [
+      "Montpellier",
+      "Marseille"
+    ],
+    "ground_truth": "Match played on 2024-10-20 ended with Montpellier 0-5 Marseille (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-5"
+  },
+  {
+    "id": "h2h_055",
+    "type": "h2h",
+    "as_of_date": "2024-10-21",
+    "query": "What is the head-to-head record between Nottingham Forest and Crystal Palace prior to 2024-10-21?",
+    "teams": [
+      "Nottingham Forest",
+      "Crystal Palace"
+    ],
+    "ground_truth": "Prior to 2024-10-21, Nottingham Forest and Crystal Palace played 4 matches. Nottingham Forest won 1, Crystal Palace won 0, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 4,
+      "home_wins": 1,
+      "away_wins": 0,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_056",
+    "type": "recent_form",
+    "as_of_date": "2024-10-21",
+    "query": "What was Nottingham Forest's 5-match form leading into their match on 2024-10-21?",
+    "teams": [
+      "Nottingham Forest"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-21, Nottingham Forest had a record of D-W-D-L-D, scoring 5 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_057",
+    "type": "prediction",
+    "as_of_date": "2024-10-21",
+    "query": "Predict the tactical outcome and key performance factors for Nottingham Forest vs Crystal Palace on 2024-10-21.",
+    "teams": [
+      "Nottingham Forest",
+      "Crystal Palace"
+    ],
+    "ground_truth": "Match played on 2024-10-21 ended with Nottingham Forest 1-0 Crystal Palace (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "1-0"
+  },
+  {
+    "id": "h2h_058",
+    "type": "h2h",
+    "as_of_date": "2024-10-26",
+    "query": "What is the head-to-head record between St. Pauli and Wolfsburg prior to 2024-10-26?",
+    "teams": [
+      "St. Pauli",
+      "Wolfsburg"
+    ],
+    "ground_truth": "Prior to 2024-10-26, St. Pauli and Wolfsburg played 0 matches. St. Pauli won 0, Wolfsburg won 0, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 0,
+      "home_wins": 0,
+      "away_wins": 0,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_059",
+    "type": "recent_form",
+    "as_of_date": "2024-10-26",
+    "query": "What was St. Pauli's 5-match form leading into their match on 2024-10-26?",
+    "teams": [
+      "St. Pauli"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-26, St. Pauli had a record of L-D-W-L-L, scoring 5 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_060",
+    "type": "prediction",
+    "as_of_date": "2024-10-26",
+    "query": "Predict the tactical outcome and key performance factors for St. Pauli vs Wolfsburg on 2024-10-26.",
+    "teams": [
+      "St. Pauli",
+      "Wolfsburg"
+    ],
+    "ground_truth": "Match played on 2024-10-26 ended with St. Pauli 0-0 Wolfsburg (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "0-0"
+  },
+  {
+    "id": "h2h_061",
+    "type": "h2h",
+    "as_of_date": "2024-10-26",
+    "query": "What is the head-to-head record between Angers and Saint-Etienne prior to 2024-10-26?",
+    "teams": [
+      "Angers",
+      "Saint-Etienne"
+    ],
+    "ground_truth": "Prior to 2024-10-26, Angers and Saint-Etienne played 7 matches. Angers won 1, Saint-Etienne won 3, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 7,
+      "home_wins": 1,
+      "away_wins": 3,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_062",
+    "type": "recent_form",
+    "as_of_date": "2024-10-26",
+    "query": "What was Angers's 5-match form leading into their match on 2024-10-26?",
+    "teams": [
+      "Angers"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-26, Angers had a record of D-D-L-D-D, scoring 5 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_063",
+    "type": "prediction",
+    "as_of_date": "2024-10-26",
+    "query": "Predict the tactical outcome and key performance factors for Angers vs Saint-Etienne on 2024-10-26.",
+    "teams": [
+      "Angers",
+      "Saint-Etienne"
+    ],
+    "ground_truth": "Match played on 2024-10-26 ended with Angers 4-2 Saint-Etienne (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "4-2"
+  },
+  {
+    "id": "h2h_064",
+    "type": "h2h",
+    "as_of_date": "2024-10-27",
+    "query": "What is the head-to-head record between Strasbourg and Nantes prior to 2024-10-27?",
+    "teams": [
+      "Strasbourg",
+      "Nantes"
+    ],
+    "ground_truth": "Prior to 2024-10-27, Strasbourg and Nantes played 11 matches. Strasbourg won 6, Nantes won 3, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 11,
+      "home_wins": 6,
+      "away_wins": 3,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_065",
+    "type": "recent_form",
+    "as_of_date": "2024-10-27",
+    "query": "What was Strasbourg's 5-match form leading into their match on 2024-10-27?",
+    "teams": [
+      "Strasbourg"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-10-27, Strasbourg had a record of D-D-W-D-L, scoring 9 goals and conceding 10.",
+    "expected_numbers": {
+      "goals_for": 9,
+      "goals_against": 10
+    }
+  },
+  {
+    "id": "pred_066",
+    "type": "prediction",
+    "as_of_date": "2024-10-27",
+    "query": "Predict the tactical outcome and key performance factors for Strasbourg vs Nantes on 2024-10-27.",
+    "teams": [
+      "Strasbourg",
+      "Nantes"
+    ],
+    "ground_truth": "Match played on 2024-10-27 ended with Strasbourg 3-1 Nantes (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "3-1"
+  },
+  {
+    "id": "h2h_067",
+    "type": "h2h",
+    "as_of_date": "2024-11-02",
+    "query": "What is the head-to-head record between Saint-Etienne and Strasbourg prior to 2024-11-02?",
+    "teams": [
+      "Saint-Etienne",
+      "Strasbourg"
+    ],
+    "ground_truth": "Prior to 2024-11-02, Saint-Etienne and Strasbourg played 7 matches. Saint-Etienne won 2, Strasbourg won 3, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 7,
+      "home_wins": 2,
+      "away_wins": 3,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_068",
+    "type": "recent_form",
+    "as_of_date": "2024-11-02",
+    "query": "What was Saint-Etienne's 5-match form leading into their match on 2024-11-02?",
+    "teams": [
+      "Saint-Etienne"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-11-02, Saint-Etienne had a record of L-D-W-L-L, scoring 7 goals and conceding 17.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 17
+    }
+  },
+  {
+    "id": "pred_069",
+    "type": "prediction",
+    "as_of_date": "2024-11-02",
+    "query": "Predict the tactical outcome and key performance factors for Saint-Etienne vs Strasbourg on 2024-11-02.",
+    "teams": [
+      "Saint-Etienne",
+      "Strasbourg"
+    ],
+    "ground_truth": "Match played on 2024-11-02 ended with Saint-Etienne 2-0 Strasbourg (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-0"
+  },
+  {
+    "id": "h2h_070",
+    "type": "h2h",
+    "as_of_date": "2024-11-02",
+    "query": "What is the head-to-head record between Paris Saint Germain and Lens prior to 2024-11-02?",
+    "teams": [
+      "Paris Saint Germain",
+      "Lens"
+    ],
+    "ground_truth": "Prior to 2024-11-02, Paris Saint Germain and Lens played 8 matches. Paris Saint Germain won 4, Lens won 2, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 8,
+      "home_wins": 4,
+      "away_wins": 2,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_071",
+    "type": "recent_form",
+    "as_of_date": "2024-11-02",
+    "query": "What was Paris Saint Germain's 5-match form leading into their match on 2024-11-02?",
+    "teams": [
+      "Paris Saint Germain"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-11-02, Paris Saint Germain had a record of D-W-D-W-W, scoring 12 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 12,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_072",
+    "type": "prediction",
+    "as_of_date": "2024-11-02",
+    "query": "Predict the tactical outcome and key performance factors for Paris Saint Germain vs Lens on 2024-11-02.",
+    "teams": [
+      "Paris Saint Germain",
+      "Lens"
+    ],
+    "ground_truth": "Match played on 2024-11-02 ended with Paris Saint Germain 1-0 Lens (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "1-0"
+  },
+  {
+    "id": "h2h_073",
+    "type": "h2h",
+    "as_of_date": "2024-11-03",
+    "query": "What is the head-to-head record between Freiburg and Mainz 05 prior to 2024-11-03?",
+    "teams": [
+      "Freiburg",
+      "Mainz 05"
+    ],
+    "ground_truth": "Prior to 2024-11-03, Freiburg and Mainz 05 played 12 matches. Freiburg won 4, Mainz 05 won 4, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 4,
+      "away_wins": 4,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_074",
+    "type": "recent_form",
+    "as_of_date": "2024-11-03",
+    "query": "What was Freiburg's 5-match form leading into their match on 2024-11-03?",
+    "teams": [
+      "Freiburg"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-11-03, Freiburg had a record of W-L-W-W-L, scoring 8 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_075",
+    "type": "prediction",
+    "as_of_date": "2024-11-03",
+    "query": "Predict the tactical outcome and key performance factors for Freiburg vs Mainz 05 on 2024-11-03.",
+    "teams": [
+      "Freiburg",
+      "Mainz 05"
+    ],
+    "ground_truth": "Match played on 2024-11-03 ended with Freiburg 0-0 Mainz 05 (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "0-0"
+  },
+  {
+    "id": "h2h_076",
+    "type": "h2h",
+    "as_of_date": "2024-11-23",
+    "query": "What is the head-to-head record between Atletico Madrid and Alaves prior to 2024-11-23?",
+    "teams": [
+      "Atletico Madrid",
+      "Alaves"
+    ],
+    "ground_truth": "Prior to 2024-11-23, Atletico Madrid and Alaves played 10 matches. Atletico Madrid won 7, Alaves won 2, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 10,
+      "home_wins": 7,
+      "away_wins": 2,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_077",
+    "type": "recent_form",
+    "as_of_date": "2024-11-23",
+    "query": "What was Atletico Madrid's 5-match form leading into their match on 2024-11-23?",
+    "teams": [
+      "Atletico Madrid"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-11-23, Atletico Madrid had a record of D-W-L-W-W, scoring 7 goals and conceding 3.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 3
+    }
+  },
+  {
+    "id": "pred_078",
+    "type": "prediction",
+    "as_of_date": "2024-11-23",
+    "query": "Predict the tactical outcome and key performance factors for Atletico Madrid vs Alaves on 2024-11-23.",
+    "teams": [
+      "Atletico Madrid",
+      "Alaves"
+    ],
+    "ground_truth": "Match played on 2024-11-23 ended with Atletico Madrid 2-1 Alaves (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_079",
+    "type": "h2h",
+    "as_of_date": "2024-11-23",
+    "query": "What is the head-to-head record between Celta Vigo and Barcelona prior to 2024-11-23?",
+    "teams": [
+      "Celta Vigo",
+      "Barcelona"
+    ],
+    "ground_truth": "Prior to 2024-11-23, Celta Vigo and Barcelona played 12 matches. Celta Vigo won 3, Barcelona won 7, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 3,
+      "away_wins": 7,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_080",
+    "type": "recent_form",
+    "as_of_date": "2024-11-23",
+    "query": "What was Celta Vigo's 5-match form leading into their match on 2024-11-23?",
+    "teams": [
+      "Celta Vigo"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-11-23, Celta Vigo had a record of W-L-L-W-D, scoring 5 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_081",
+    "type": "prediction",
+    "as_of_date": "2024-11-23",
+    "query": "Predict the tactical outcome and key performance factors for Celta Vigo vs Barcelona on 2024-11-23.",
+    "teams": [
+      "Celta Vigo",
+      "Barcelona"
+    ],
+    "ground_truth": "Match played on 2024-11-23 ended with Celta Vigo 2-2 Barcelona (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "2-2"
+  },
+  {
+    "id": "h2h_082",
+    "type": "h2h",
+    "as_of_date": "2024-12-07",
+    "query": "What is the head-to-head record between Girona and Real Madrid prior to 2024-12-07?",
+    "teams": [
+      "Girona",
+      "Real Madrid"
+    ],
+    "ground_truth": "Prior to 2024-12-07, Girona and Real Madrid played 6 matches. Girona won 2, Real Madrid won 3, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 6,
+      "home_wins": 2,
+      "away_wins": 3,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_083",
+    "type": "recent_form",
+    "as_of_date": "2024-12-07",
+    "query": "What was Girona's 5-match form leading into their match on 2024-12-07?",
+    "teams": [
+      "Girona"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-12-07, Girona had a record of L-W-W-W-D, scoring 11 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 11,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_084",
+    "type": "prediction",
+    "as_of_date": "2024-12-07",
+    "query": "Predict the tactical outcome and key performance factors for Girona vs Real Madrid on 2024-12-07.",
+    "teams": [
+      "Girona",
+      "Real Madrid"
+    ],
+    "ground_truth": "Match played on 2024-12-07 ended with Girona 0-3 Real Madrid (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-3"
+  },
+  {
+    "id": "h2h_085",
+    "type": "h2h",
+    "as_of_date": "2024-12-07",
+    "query": "What is the head-to-head record between Bochum and Werder Bremen prior to 2024-12-07?",
+    "teams": [
+      "Bochum",
+      "Werder Bremen"
+    ],
+    "ground_truth": "Prior to 2024-12-07, Bochum and Werder Bremen played 4 matches. Bochum won 0, Werder Bremen won 3, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 4,
+      "home_wins": 0,
+      "away_wins": 3,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_086",
+    "type": "recent_form",
+    "as_of_date": "2024-12-07",
+    "query": "What was Bochum's 5-match form leading into their match on 2024-12-07?",
+    "teams": [
+      "Bochum"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-12-07, Bochum had a record of L-L-D-L-L, scoring 3 goals and conceding 16.",
+    "expected_numbers": {
+      "goals_for": 3,
+      "goals_against": 16
+    }
+  },
+  {
+    "id": "pred_087",
+    "type": "prediction",
+    "as_of_date": "2024-12-07",
+    "query": "Predict the tactical outcome and key performance factors for Bochum vs Werder Bremen on 2024-12-07.",
+    "teams": [
+      "Bochum",
+      "Werder Bremen"
+    ],
+    "ground_truth": "Match played on 2024-12-07 ended with Bochum 0-1 Werder Bremen (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-1"
+  },
+  {
+    "id": "h2h_088",
+    "type": "h2h",
+    "as_of_date": "2024-12-08",
+    "query": "What is the head-to-head record between Fulham and Arsenal prior to 2024-12-08?",
+    "teams": [
+      "Fulham",
+      "Arsenal"
+    ],
+    "ground_truth": "Prior to 2024-12-08, Fulham and Arsenal played 8 matches. Fulham won 1, Arsenal won 5, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 8,
+      "home_wins": 1,
+      "away_wins": 5,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_089",
+    "type": "recent_form",
+    "as_of_date": "2024-12-08",
+    "query": "What was Fulham's 5-match form leading into their match on 2024-12-08?",
+    "teams": [
+      "Fulham"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-12-08, Fulham had a record of W-W-L-D-W, scoring 9 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 9,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_090",
+    "type": "prediction",
+    "as_of_date": "2024-12-08",
+    "query": "Predict the tactical outcome and key performance factors for Fulham vs Arsenal on 2024-12-08.",
+    "teams": [
+      "Fulham",
+      "Arsenal"
+    ],
+    "ground_truth": "Match played on 2024-12-08 ended with Fulham 1-1 Arsenal (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "1-1"
+  },
+  {
+    "id": "h2h_091",
+    "type": "h2h",
+    "as_of_date": "2024-12-14",
+    "query": "What is the head-to-head record between Sevilla and Celta Vigo prior to 2024-12-14?",
+    "teams": [
+      "Sevilla",
+      "Celta Vigo"
+    ],
+    "ground_truth": "Prior to 2024-12-14, Sevilla and Celta Vigo played 12 matches. Sevilla won 4, Celta Vigo won 3, and 5 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 4,
+      "away_wins": 3,
+      "draws": 5
+    }
+  },
+  {
+    "id": "form_092",
+    "type": "recent_form",
+    "as_of_date": "2024-12-14",
+    "query": "What was Sevilla's 5-match form leading into their match on 2024-12-14?",
+    "teams": [
+      "Sevilla"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-12-14, Sevilla had a record of L-L-W-D-L, scoring 5 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_093",
+    "type": "prediction",
+    "as_of_date": "2024-12-14",
+    "query": "Predict the tactical outcome and key performance factors for Sevilla vs Celta Vigo on 2024-12-14.",
+    "teams": [
+      "Sevilla",
+      "Celta Vigo"
+    ],
+    "ground_truth": "Match played on 2024-12-14 ended with Sevilla 1-0 Celta Vigo (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "1-0"
+  },
+  {
+    "id": "h2h_094",
+    "type": "h2h",
+    "as_of_date": "2024-12-14",
+    "query": "What is the head-to-head record between Juventus and Venezia prior to 2024-12-14?",
+    "teams": [
+      "Juventus",
+      "Venezia"
+    ],
+    "ground_truth": "Prior to 2024-12-14, Juventus and Venezia played 2 matches. Juventus won 1, Venezia won 0, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 2,
+      "home_wins": 1,
+      "away_wins": 0,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_095",
+    "type": "recent_form",
+    "as_of_date": "2024-12-14",
+    "query": "What was Juventus's 5-match form leading into their match on 2024-12-14?",
+    "teams": [
+      "Juventus"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-12-14, Juventus had a record of W-W-D-D-D, scoring 7 goals and conceding 3.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 3
+    }
+  },
+  {
+    "id": "pred_096",
+    "type": "prediction",
+    "as_of_date": "2024-12-14",
+    "query": "Predict the tactical outcome and key performance factors for Juventus vs Venezia on 2024-12-14.",
+    "teams": [
+      "Juventus",
+      "Venezia"
+    ],
+    "ground_truth": "Match played on 2024-12-14 ended with Juventus 2-2 Venezia (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "2-2"
+  },
+  {
+    "id": "h2h_097",
+    "type": "h2h",
+    "as_of_date": "2024-12-22",
+    "query": "What is the head-to-head record between Leicester and Wolverhampton Wanderers prior to 2024-12-22?",
+    "teams": [
+      "Leicester",
+      "Wolverhampton Wanderers"
+    ],
+    "ground_truth": "Prior to 2024-12-22, Leicester and Wolverhampton Wanderers played 10 matches. Leicester won 5, Wolverhampton Wanderers won 2, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 10,
+      "home_wins": 5,
+      "away_wins": 2,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_098",
+    "type": "recent_form",
+    "as_of_date": "2024-12-22",
+    "query": "What was Leicester's 5-match form leading into their match on 2024-12-22?",
+    "teams": [
+      "Leicester"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-12-22, Leicester had a record of L-L-W-D-L, scoring 7 goals and conceding 13.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 13
+    }
+  },
+  {
+    "id": "pred_099",
+    "type": "prediction",
+    "as_of_date": "2024-12-22",
+    "query": "Predict the tactical outcome and key performance factors for Leicester vs Wolverhampton Wanderers on 2024-12-22.",
+    "teams": [
+      "Leicester",
+      "Wolverhampton Wanderers"
+    ],
+    "ground_truth": "Match played on 2024-12-22 ended with Leicester 0-3 Wolverhampton Wanderers (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-3"
+  },
+  {
+    "id": "h2h_100",
+    "type": "h2h",
+    "as_of_date": "2024-12-28",
+    "query": "What is the head-to-head record between Lazio and Atalanta prior to 2024-12-28?",
+    "teams": [
+      "Lazio",
+      "Atalanta"
+    ],
+    "ground_truth": "Prior to 2024-12-28, Lazio and Atalanta played 12 matches. Lazio won 3, Atalanta won 6, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 3,
+      "away_wins": 6,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_101",
+    "type": "recent_form",
+    "as_of_date": "2024-12-28",
+    "query": "What was Lazio's 5-match form leading into their match on 2024-12-28?",
+    "teams": [
+      "Lazio"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-12-28, Lazio had a record of W-L-W-L-W, scoring 7 goals and conceding 10.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 10
+    }
+  },
+  {
+    "id": "pred_102",
+    "type": "prediction",
+    "as_of_date": "2024-12-28",
+    "query": "Predict the tactical outcome and key performance factors for Lazio vs Atalanta on 2024-12-28.",
+    "teams": [
+      "Lazio",
+      "Atalanta"
+    ],
+    "ground_truth": "Match played on 2024-12-28 ended with Lazio 1-1 Atalanta (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "1-1"
+  },
+  {
+    "id": "h2h_103",
+    "type": "h2h",
+    "as_of_date": "2024-12-28",
+    "query": "What is the head-to-head record between Parma Calcio 1913 and Monza prior to 2024-12-28?",
+    "teams": [
+      "Parma Calcio 1913",
+      "Monza"
+    ],
+    "ground_truth": "Prior to 2024-12-28, Parma Calcio 1913 and Monza played 0 matches. Parma Calcio 1913 won 0, Monza won 0, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 0,
+      "home_wins": 0,
+      "away_wins": 0,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_104",
+    "type": "recent_form",
+    "as_of_date": "2024-12-28",
+    "query": "What was Parma Calcio 1913's 5-match form leading into their match on 2024-12-28?",
+    "teams": [
+      "Parma Calcio 1913"
+    ],
+    "ground_truth": "In the 5 matches prior to 2024-12-28, Parma Calcio 1913 had a record of L-W-L-L-L, scoring 7 goals and conceding 15.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 15
+    }
+  },
+  {
+    "id": "pred_105",
+    "type": "prediction",
+    "as_of_date": "2024-12-28",
+    "query": "Predict the tactical outcome and key performance factors for Parma Calcio 1913 vs Monza on 2024-12-28.",
+    "teams": [
+      "Parma Calcio 1913",
+      "Monza"
+    ],
+    "ground_truth": "Match played on 2024-12-28 ended with Parma Calcio 1913 2-1 Monza (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_106",
+    "type": "h2h",
+    "as_of_date": "2025-01-11",
+    "query": "What is the head-to-head record between St. Pauli and Eintracht Frankfurt prior to 2025-01-11?",
+    "teams": [
+      "St. Pauli",
+      "Eintracht Frankfurt"
+    ],
+    "ground_truth": "Prior to 2025-01-11, St. Pauli and Eintracht Frankfurt played 0 matches. St. Pauli won 0, Eintracht Frankfurt won 0, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 0,
+      "home_wins": 0,
+      "away_wins": 0,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_107",
+    "type": "recent_form",
+    "as_of_date": "2025-01-11",
+    "query": "What was St. Pauli's 5-match form leading into their match on 2025-01-11?",
+    "teams": [
+      "St. Pauli"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-01-11, St. Pauli had a record of L-W-L-L-W, scoring 5 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_108",
+    "type": "prediction",
+    "as_of_date": "2025-01-11",
+    "query": "Predict the tactical outcome and key performance factors for St. Pauli vs Eintracht Frankfurt on 2025-01-11.",
+    "teams": [
+      "St. Pauli",
+      "Eintracht Frankfurt"
+    ],
+    "ground_truth": "Match played on 2025-01-11 ended with St. Pauli 0-1 Eintracht Frankfurt (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-1"
+  },
+  {
+    "id": "h2h_109",
+    "type": "h2h",
+    "as_of_date": "2025-01-12",
+    "query": "What is the head-to-head record between Montpellier and Angers prior to 2025-01-12?",
+    "teams": [
+      "Montpellier",
+      "Angers"
+    ],
+    "ground_truth": "Prior to 2025-01-12, Montpellier and Angers played 10 matches. Montpellier won 3, Angers won 4, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 10,
+      "home_wins": 3,
+      "away_wins": 4,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_110",
+    "type": "recent_form",
+    "as_of_date": "2025-01-12",
+    "query": "What was Montpellier's 5-match form leading into their match on 2025-01-12?",
+    "teams": [
+      "Montpellier"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-01-12, Montpellier had a record of L-D-L-D-L, scoring 4 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 4,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_111",
+    "type": "prediction",
+    "as_of_date": "2025-01-12",
+    "query": "Predict the tactical outcome and key performance factors for Montpellier vs Angers on 2025-01-12.",
+    "teams": [
+      "Montpellier",
+      "Angers"
+    ],
+    "ground_truth": "Match played on 2025-01-12 ended with Montpellier 1-3 Angers (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "1-3"
+  },
+  {
+    "id": "h2h_112",
+    "type": "h2h",
+    "as_of_date": "2025-01-16",
+    "query": "What is the head-to-head record between Manchester United and Southampton prior to 2025-01-16?",
+    "teams": [
+      "Manchester United",
+      "Southampton"
+    ],
+    "ground_truth": "Prior to 2025-01-16, Manchester United and Southampton played 15 matches. Manchester United won 7, Southampton won 1, and 7 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 15,
+      "home_wins": 7,
+      "away_wins": 1,
+      "draws": 7
+    }
+  },
+  {
+    "id": "form_113",
+    "type": "recent_form",
+    "as_of_date": "2025-01-16",
+    "query": "What was Manchester United's 5-match form leading into their match on 2025-01-16?",
+    "teams": [
+      "Manchester United"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-01-16, Manchester United had a record of W-L-L-L-D, scoring 4 goals and conceding 10.",
+    "expected_numbers": {
+      "goals_for": 4,
+      "goals_against": 10
+    }
+  },
+  {
+    "id": "pred_114",
+    "type": "prediction",
+    "as_of_date": "2025-01-16",
+    "query": "Predict the tactical outcome and key performance factors for Manchester United vs Southampton on 2025-01-16.",
+    "teams": [
+      "Manchester United",
+      "Southampton"
+    ],
+    "ground_truth": "Match played on 2025-01-16 ended with Manchester United 3-1 Southampton (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "3-1"
+  },
+  {
+    "id": "h2h_115",
+    "type": "h2h",
+    "as_of_date": "2025-01-18",
+    "query": "What is the head-to-head record between Brentford and Liverpool prior to 2025-01-18?",
+    "teams": [
+      "Brentford",
+      "Liverpool"
+    ],
+    "ground_truth": "Prior to 2025-01-18, Brentford and Liverpool played 7 matches. Brentford won 1, Liverpool won 5, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 7,
+      "home_wins": 1,
+      "away_wins": 5,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_116",
+    "type": "recent_form",
+    "as_of_date": "2025-01-18",
+    "query": "What was Brentford's 5-match form leading into their match on 2025-01-18?",
+    "teams": [
+      "Brentford"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-01-18, Brentford had a record of L-D-L-W-D, scoring 8 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_117",
+    "type": "prediction",
+    "as_of_date": "2025-01-18",
+    "query": "Predict the tactical outcome and key performance factors for Brentford vs Liverpool on 2025-01-18.",
+    "teams": [
+      "Brentford",
+      "Liverpool"
+    ],
+    "ground_truth": "Match played on 2025-01-18 ended with Brentford 0-2 Liverpool (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-2"
+  },
+  {
+    "id": "h2h_118",
+    "type": "h2h",
+    "as_of_date": "2025-01-18",
+    "query": "What is the head-to-head record between Holstein Kiel and Hoffenheim prior to 2025-01-18?",
+    "teams": [
+      "Holstein Kiel",
+      "Hoffenheim"
+    ],
+    "ground_truth": "Prior to 2025-01-18, Holstein Kiel and Hoffenheim played 1 matches. Holstein Kiel won 0, Hoffenheim won 1, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 1,
+      "home_wins": 0,
+      "away_wins": 1,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_119",
+    "type": "recent_form",
+    "as_of_date": "2025-01-18",
+    "query": "What was Holstein Kiel's 5-match form leading into their match on 2025-01-18?",
+    "teams": [
+      "Holstein Kiel"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-01-18, Holstein Kiel had a record of L-L-W-L-W, scoring 12 goals and conceding 12.",
+    "expected_numbers": {
+      "goals_for": 12,
+      "goals_against": 12
+    }
+  },
+  {
+    "id": "pred_120",
+    "type": "prediction",
+    "as_of_date": "2025-01-18",
+    "query": "Predict the tactical outcome and key performance factors for Holstein Kiel vs Hoffenheim on 2025-01-18.",
+    "teams": [
+      "Holstein Kiel",
+      "Hoffenheim"
+    ],
+    "ground_truth": "Match played on 2025-01-18 ended with Holstein Kiel 1-3 Hoffenheim (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "1-3"
+  },
+  {
+    "id": "h2h_121",
+    "type": "h2h",
+    "as_of_date": "2025-01-25",
+    "query": "What is the head-to-head record between Real Valladolid and Real Madrid prior to 2025-01-25?",
+    "teams": [
+      "Real Valladolid",
+      "Real Madrid"
+    ],
+    "ground_truth": "Prior to 2025-01-25, Real Valladolid and Real Madrid played 9 matches. Real Valladolid won 0, Real Madrid won 8, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 9,
+      "home_wins": 0,
+      "away_wins": 8,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_122",
+    "type": "recent_form",
+    "as_of_date": "2025-01-25",
+    "query": "What was Real Valladolid's 5-match form leading into their match on 2025-01-25?",
+    "teams": [
+      "Real Valladolid"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-01-25, Real Valladolid had a record of L-W-L-W-L, scoring 4 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 4,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_123",
+    "type": "prediction",
+    "as_of_date": "2025-01-25",
+    "query": "Predict the tactical outcome and key performance factors for Real Valladolid vs Real Madrid on 2025-01-25.",
+    "teams": [
+      "Real Valladolid",
+      "Real Madrid"
+    ],
+    "ground_truth": "Match played on 2025-01-25 ended with Real Valladolid 0-3 Real Madrid (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-3"
+  },
+  {
+    "id": "h2h_124",
+    "type": "h2h",
+    "as_of_date": "2025-01-25",
+    "query": "What is the head-to-head record between Mainz 05 and VfB Stuttgart prior to 2025-01-25?",
+    "teams": [
+      "Mainz 05",
+      "VfB Stuttgart"
+    ],
+    "ground_truth": "Prior to 2025-01-25, Mainz 05 and VfB Stuttgart played 11 matches. Mainz 05 won 2, VfB Stuttgart won 6, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 11,
+      "home_wins": 2,
+      "away_wins": 6,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_125",
+    "type": "recent_form",
+    "as_of_date": "2025-01-25",
+    "query": "What was Mainz 05's 5-match form leading into their match on 2025-01-25?",
+    "teams": [
+      "Mainz 05"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-01-25, Mainz 05 had a record of W-W-W-L-L, scoring 8 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_126",
+    "type": "prediction",
+    "as_of_date": "2025-01-25",
+    "query": "Predict the tactical outcome and key performance factors for Mainz 05 vs VfB Stuttgart on 2025-01-25.",
+    "teams": [
+      "Mainz 05",
+      "VfB Stuttgart"
+    ],
+    "ground_truth": "Match played on 2025-01-25 ended with Mainz 05 2-0 VfB Stuttgart (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-0"
+  },
+  {
+    "id": "h2h_127",
+    "type": "h2h",
+    "as_of_date": "2025-02-08",
+    "query": "What is the head-to-head record between Mainz 05 and Augsburg prior to 2025-02-08?",
+    "teams": [
+      "Mainz 05",
+      "Augsburg"
+    ],
+    "ground_truth": "Prior to 2025-02-08, Mainz 05 and Augsburg played 13 matches. Mainz 05 won 6, Augsburg won 7, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 13,
+      "home_wins": 6,
+      "away_wins": 7,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_128",
+    "type": "recent_form",
+    "as_of_date": "2025-02-08",
+    "query": "What was Mainz 05's 5-match form leading into their match on 2025-02-08?",
+    "teams": [
+      "Mainz 05"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-02-08, Mainz 05 had a record of W-L-L-W-L, scoring 5 goals and conceding 4.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 4
+    }
+  },
+  {
+    "id": "pred_129",
+    "type": "prediction",
+    "as_of_date": "2025-02-08",
+    "query": "Predict the tactical outcome and key performance factors for Mainz 05 vs Augsburg on 2025-02-08.",
+    "teams": [
+      "Mainz 05",
+      "Augsburg"
+    ],
+    "ground_truth": "Match played on 2025-02-08 ended with Mainz 05 0-0 Augsburg (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "0-0"
+  },
+  {
+    "id": "h2h_130",
+    "type": "h2h",
+    "as_of_date": "2025-02-09",
+    "query": "What is the head-to-head record between Real Sociedad and Espanyol prior to 2025-02-09?",
+    "teams": [
+      "Real Sociedad",
+      "Espanyol"
+    ],
+    "ground_truth": "Prior to 2025-02-09, Real Sociedad and Espanyol played 9 matches. Real Sociedad won 7, Espanyol won 2, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 9,
+      "home_wins": 7,
+      "away_wins": 2,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_131",
+    "type": "recent_form",
+    "as_of_date": "2025-02-09",
+    "query": "What was Real Sociedad's 5-match form leading into their match on 2025-02-09?",
+    "teams": [
+      "Real Sociedad"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-02-09, Real Sociedad had a record of L-W-L-L-L, scoring 2 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 2,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_132",
+    "type": "prediction",
+    "as_of_date": "2025-02-09",
+    "query": "Predict the tactical outcome and key performance factors for Real Sociedad vs Espanyol on 2025-02-09.",
+    "teams": [
+      "Real Sociedad",
+      "Espanyol"
+    ],
+    "ground_truth": "Match played on 2025-02-09 ended with Real Sociedad 2-1 Espanyol (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_133",
+    "type": "h2h",
+    "as_of_date": "2025-02-14",
+    "query": "What is the head-to-head record between Brighton and Chelsea prior to 2025-02-14?",
+    "teams": [
+      "Brighton",
+      "Chelsea"
+    ],
+    "ground_truth": "Prior to 2025-02-14, Brighton and Chelsea played 15 matches. Brighton won 2, Chelsea won 9, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 15,
+      "home_wins": 2,
+      "away_wins": 9,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_134",
+    "type": "recent_form",
+    "as_of_date": "2025-02-14",
+    "query": "What was Brighton's 5-match form leading into their match on 2025-02-14?",
+    "teams": [
+      "Brighton"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-02-14, Brighton had a record of D-W-W-L-L, scoring 6 goals and conceding 10.",
+    "expected_numbers": {
+      "goals_for": 6,
+      "goals_against": 10
+    }
+  },
+  {
+    "id": "pred_135",
+    "type": "prediction",
+    "as_of_date": "2025-02-14",
+    "query": "Predict the tactical outcome and key performance factors for Brighton vs Chelsea on 2025-02-14.",
+    "teams": [
+      "Brighton",
+      "Chelsea"
+    ],
+    "ground_truth": "Match played on 2025-02-14 ended with Brighton 3-0 Chelsea (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "3-0"
+  },
+  {
+    "id": "h2h_136",
+    "type": "h2h",
+    "as_of_date": "2025-02-16",
+    "query": "What is the head-to-head record between Juventus and Inter prior to 2025-02-16?",
+    "teams": [
+      "Juventus",
+      "Inter"
+    ],
+    "ground_truth": "Prior to 2025-02-16, Juventus and Inter played 13 matches. Juventus won 6, Inter won 3, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 13,
+      "home_wins": 6,
+      "away_wins": 3,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_137",
+    "type": "recent_form",
+    "as_of_date": "2025-02-16",
+    "query": "What was Juventus's 5-match form leading into their match on 2025-02-16?",
+    "teams": [
+      "Juventus"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-02-16, Juventus had a record of D-W-L-W-W, scoring 10 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 10,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_138",
+    "type": "prediction",
+    "as_of_date": "2025-02-16",
+    "query": "Predict the tactical outcome and key performance factors for Juventus vs Inter on 2025-02-16.",
+    "teams": [
+      "Juventus",
+      "Inter"
+    ],
+    "ground_truth": "Match played on 2025-02-16 ended with Juventus 1-0 Inter (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "1-0"
+  },
+  {
+    "id": "h2h_139",
+    "type": "h2h",
+    "as_of_date": "2025-02-17",
+    "query": "What is the head-to-head record between Barcelona and Rayo Vallecano prior to 2025-02-17?",
+    "teams": [
+      "Barcelona",
+      "Rayo Vallecano"
+    ],
+    "ground_truth": "Prior to 2025-02-17, Barcelona and Rayo Vallecano played 9 matches. Barcelona won 4, Rayo Vallecano won 3, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 9,
+      "home_wins": 4,
+      "away_wins": 3,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_140",
+    "type": "recent_form",
+    "as_of_date": "2025-02-17",
+    "query": "What was Barcelona's 5-match form leading into their match on 2025-02-17?",
+    "teams": [
+      "Barcelona"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-02-17, Barcelona had a record of L-D-W-W-W, scoring 14 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 14,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_141",
+    "type": "prediction",
+    "as_of_date": "2025-02-17",
+    "query": "Predict the tactical outcome and key performance factors for Barcelona vs Rayo Vallecano on 2025-02-17.",
+    "teams": [
+      "Barcelona",
+      "Rayo Vallecano"
+    ],
+    "ground_truth": "Match played on 2025-02-17 ended with Barcelona 1-0 Rayo Vallecano (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "1-0"
+  },
+  {
+    "id": "h2h_142",
+    "type": "h2h",
+    "as_of_date": "2025-02-22",
+    "query": "What is the head-to-head record between Torino and AC Milan prior to 2025-02-22?",
+    "teams": [
+      "Torino",
+      "AC Milan"
+    ],
+    "ground_truth": "Prior to 2025-02-22, Torino and AC Milan played 13 matches. Torino won 4, AC Milan won 6, and 3 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 13,
+      "home_wins": 4,
+      "away_wins": 6,
+      "draws": 3
+    }
+  },
+  {
+    "id": "form_143",
+    "type": "recent_form",
+    "as_of_date": "2025-02-22",
+    "query": "What was Torino's 5-match form leading into their match on 2025-02-22?",
+    "teams": [
+      "Torino"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-02-22, Torino had a record of D-W-D-D-L, scoring 7 goals and conceding 6.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 6
+    }
+  },
+  {
+    "id": "pred_144",
+    "type": "prediction",
+    "as_of_date": "2025-02-22",
+    "query": "Predict the tactical outcome and key performance factors for Torino vs AC Milan on 2025-02-22.",
+    "teams": [
+      "Torino",
+      "AC Milan"
+    ],
+    "ground_truth": "Match played on 2025-02-22 ended with Torino 2-1 AC Milan (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_145",
+    "type": "h2h",
+    "as_of_date": "2025-02-23",
+    "query": "What is the head-to-head record between Real Madrid and Girona prior to 2025-02-23?",
+    "teams": [
+      "Real Madrid",
+      "Girona"
+    ],
+    "ground_truth": "Prior to 2025-02-23, Real Madrid and Girona played 7 matches. Real Madrid won 4, Girona won 2, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 7,
+      "home_wins": 4,
+      "away_wins": 2,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_146",
+    "type": "recent_form",
+    "as_of_date": "2025-02-23",
+    "query": "What was Real Madrid's 5-match form leading into their match on 2025-02-23?",
+    "teams": [
+      "Real Madrid"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-02-23, Real Madrid had a record of W-W-L-D-D, scoring 9 goals and conceding 4.",
+    "expected_numbers": {
+      "goals_for": 9,
+      "goals_against": 4
+    }
+  },
+  {
+    "id": "pred_147",
+    "type": "prediction",
+    "as_of_date": "2025-02-23",
+    "query": "Predict the tactical outcome and key performance factors for Real Madrid vs Girona on 2025-02-23.",
+    "teams": [
+      "Real Madrid",
+      "Girona"
+    ],
+    "ground_truth": "Match played on 2025-02-23 ended with Real Madrid 2-0 Girona (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-0"
+  },
+  {
+    "id": "h2h_148",
+    "type": "h2h",
+    "as_of_date": "2025-03-08",
+    "query": "What is the head-to-head record between Wolfsburg and St. Pauli prior to 2025-03-08?",
+    "teams": [
+      "Wolfsburg",
+      "St. Pauli"
+    ],
+    "ground_truth": "Prior to 2025-03-08, Wolfsburg and St. Pauli played 1 matches. Wolfsburg won 0, St. Pauli won 0, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 1,
+      "home_wins": 0,
+      "away_wins": 0,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_149",
+    "type": "recent_form",
+    "as_of_date": "2025-03-08",
+    "query": "What was Wolfsburg's 5-match form leading into their match on 2025-03-08?",
+    "teams": [
+      "Wolfsburg"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-03-08, Wolfsburg had a record of D-D-W-D-W, scoring 6 goals and conceding 4.",
+    "expected_numbers": {
+      "goals_for": 6,
+      "goals_against": 4
+    }
+  },
+  {
+    "id": "pred_150",
+    "type": "prediction",
+    "as_of_date": "2025-03-08",
+    "query": "Predict the tactical outcome and key performance factors for Wolfsburg vs St. Pauli on 2025-03-08.",
+    "teams": [
+      "Wolfsburg",
+      "St. Pauli"
+    ],
+    "ground_truth": "Match played on 2025-03-08 ended with Wolfsburg 1-1 St. Pauli (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "1-1"
+  },
+  {
+    "id": "h2h_151",
+    "type": "h2h",
+    "as_of_date": "2025-03-08",
+    "query": "What is the head-to-head record between Valencia and Real Valladolid prior to 2025-03-08?",
+    "teams": [
+      "Valencia",
+      "Real Valladolid"
+    ],
+    "ground_truth": "Prior to 2025-03-08, Valencia and Real Valladolid played 9 matches. Valencia won 5, Real Valladolid won 2, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 9,
+      "home_wins": 5,
+      "away_wins": 2,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_152",
+    "type": "recent_form",
+    "as_of_date": "2025-03-08",
+    "query": "What was Valencia's 5-match form leading into their match on 2025-03-08?",
+    "teams": [
+      "Valencia"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-03-08, Valencia had a record of W-W-D-L-D, scoring 8 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_153",
+    "type": "prediction",
+    "as_of_date": "2025-03-08",
+    "query": "Predict the tactical outcome and key performance factors for Valencia vs Real Valladolid on 2025-03-08.",
+    "teams": [
+      "Valencia",
+      "Real Valladolid"
+    ],
+    "ground_truth": "Match played on 2025-03-08 ended with Valencia 2-1 Real Valladolid (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_154",
+    "type": "h2h",
+    "as_of_date": "2025-03-08",
+    "query": "What is the head-to-head record between Lille and Montpellier prior to 2025-03-08?",
+    "teams": [
+      "Lille",
+      "Montpellier"
+    ],
+    "ground_truth": "Prior to 2025-03-08, Lille and Montpellier played 12 matches. Lille won 8, Montpellier won 0, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 12,
+      "home_wins": 8,
+      "away_wins": 0,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_155",
+    "type": "recent_form",
+    "as_of_date": "2025-03-08",
+    "query": "What was Lille's 5-match form leading into their match on 2025-03-08?",
+    "teams": [
+      "Lille"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-03-08, Lille had a record of W-L-W-W-L, scoring 10 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 10,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_156",
+    "type": "prediction",
+    "as_of_date": "2025-03-08",
+    "query": "Predict the tactical outcome and key performance factors for Lille vs Montpellier on 2025-03-08.",
+    "teams": [
+      "Lille",
+      "Montpellier"
+    ],
+    "ground_truth": "Match played on 2025-03-08 ended with Lille 1-0 Montpellier (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "1-0"
+  },
+  {
+    "id": "h2h_157",
+    "type": "h2h",
+    "as_of_date": "2025-03-15",
+    "query": "What is the head-to-head record between Ipswich and Nottingham Forest prior to 2025-03-15?",
+    "teams": [
+      "Ipswich",
+      "Nottingham Forest"
+    ],
+    "ground_truth": "Prior to 2025-03-15, Ipswich and Nottingham Forest played 1 matches. Ipswich won 0, Nottingham Forest won 1, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 1,
+      "home_wins": 0,
+      "away_wins": 1,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_158",
+    "type": "recent_form",
+    "as_of_date": "2025-03-15",
+    "query": "What was Ipswich's 5-match form leading into their match on 2025-03-15?",
+    "teams": [
+      "Ipswich"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-03-15, Ipswich had a record of L-D-L-L-L, scoring 5 goals and conceding 11.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 11
+    }
+  },
+  {
+    "id": "pred_159",
+    "type": "prediction",
+    "as_of_date": "2025-03-15",
+    "query": "Predict the tactical outcome and key performance factors for Ipswich vs Nottingham Forest on 2025-03-15.",
+    "teams": [
+      "Ipswich",
+      "Nottingham Forest"
+    ],
+    "ground_truth": "Match played on 2025-03-15 ended with Ipswich 2-4 Nottingham Forest (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "2-4"
+  },
+  {
+    "id": "h2h_160",
+    "type": "h2h",
+    "as_of_date": "2025-03-16",
+    "query": "What is the head-to-head record between Venezia and Napoli prior to 2025-03-16?",
+    "teams": [
+      "Venezia",
+      "Napoli"
+    ],
+    "ground_truth": "Prior to 2025-03-16, Venezia and Napoli played 3 matches. Venezia won 0, Napoli won 3, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 3,
+      "home_wins": 0,
+      "away_wins": 3,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_161",
+    "type": "recent_form",
+    "as_of_date": "2025-03-16",
+    "query": "What was Venezia's 5-match form leading into their match on 2025-03-16?",
+    "teams": [
+      "Venezia"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-03-16, Venezia had a record of L-L-D-D-D, scoring 1 goals and conceding 4.",
+    "expected_numbers": {
+      "goals_for": 1,
+      "goals_against": 4
+    }
+  },
+  {
+    "id": "pred_162",
+    "type": "prediction",
+    "as_of_date": "2025-03-16",
+    "query": "Predict the tactical outcome and key performance factors for Venezia vs Napoli on 2025-03-16.",
+    "teams": [
+      "Venezia",
+      "Napoli"
+    ],
+    "ground_truth": "Match played on 2025-03-16 ended with Venezia 0-0 Napoli (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "0-0"
+  },
+  {
+    "id": "h2h_163",
+    "type": "h2h",
+    "as_of_date": "2025-03-16",
+    "query": "What is the head-to-head record between Fulham and Tottenham prior to 2025-03-16?",
+    "teams": [
+      "Fulham",
+      "Tottenham"
+    ],
+    "ground_truth": "Prior to 2025-03-16, Fulham and Tottenham played 9 matches. Fulham won 1, Tottenham won 6, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 9,
+      "home_wins": 1,
+      "away_wins": 6,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_164",
+    "type": "recent_form",
+    "as_of_date": "2025-03-16",
+    "query": "What was Fulham's 5-match form leading into their match on 2025-03-16?",
+    "teams": [
+      "Fulham"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-03-16, Fulham had a record of W-W-L-W-L, scoring 7 goals and conceding 7.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 7
+    }
+  },
+  {
+    "id": "pred_165",
+    "type": "prediction",
+    "as_of_date": "2025-03-16",
+    "query": "Predict the tactical outcome and key performance factors for Fulham vs Tottenham on 2025-03-16.",
+    "teams": [
+      "Fulham",
+      "Tottenham"
+    ],
+    "ground_truth": "Match played on 2025-03-16 ended with Fulham 2-0 Tottenham (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-0"
+  },
+  {
+    "id": "h2h_166",
+    "type": "h2h",
+    "as_of_date": "2025-03-16",
+    "query": "What is the head-to-head record between FC Heidenheim and Holstein Kiel prior to 2025-03-16?",
+    "teams": [
+      "FC Heidenheim",
+      "Holstein Kiel"
+    ],
+    "ground_truth": "Prior to 2025-03-16, FC Heidenheim and Holstein Kiel played 1 matches. FC Heidenheim won 0, Holstein Kiel won 1, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 1,
+      "home_wins": 0,
+      "away_wins": 1,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_167",
+    "type": "recent_form",
+    "as_of_date": "2025-03-16",
+    "query": "What was FC Heidenheim's 5-match form leading into their match on 2025-03-16?",
+    "teams": [
+      "FC Heidenheim"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-03-16, FC Heidenheim had a record of L-L-D-L-D, scoring 3 goals and conceding 9.",
+    "expected_numbers": {
+      "goals_for": 3,
+      "goals_against": 9
+    }
+  },
+  {
+    "id": "pred_168",
+    "type": "prediction",
+    "as_of_date": "2025-03-16",
+    "query": "Predict the tactical outcome and key performance factors for FC Heidenheim vs Holstein Kiel on 2025-03-16.",
+    "teams": [
+      "FC Heidenheim",
+      "Holstein Kiel"
+    ],
+    "ground_truth": "Match played on 2025-03-16 ended with FC Heidenheim 3-1 Holstein Kiel (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "3-1"
+  },
+  {
+    "id": "h2h_169",
+    "type": "h2h",
+    "as_of_date": "2025-04-05",
+    "query": "What is the head-to-head record between AC Milan and Fiorentina prior to 2025-04-05?",
+    "teams": [
+      "AC Milan",
+      "Fiorentina"
+    ],
+    "ground_truth": "Prior to 2025-04-05, AC Milan and Fiorentina played 13 matches. AC Milan won 7, Fiorentina won 5, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 13,
+      "home_wins": 7,
+      "away_wins": 5,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_170",
+    "type": "recent_form",
+    "as_of_date": "2025-04-05",
+    "query": "What was AC Milan's 5-match form leading into their match on 2025-04-05?",
+    "teams": [
+      "AC Milan"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-04-05, AC Milan had a record of L-L-W-W-L, scoring 8 goals and conceding 9.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 9
+    }
+  },
+  {
+    "id": "pred_171",
+    "type": "prediction",
+    "as_of_date": "2025-04-05",
+    "query": "Predict the tactical outcome and key performance factors for AC Milan vs Fiorentina on 2025-04-05.",
+    "teams": [
+      "AC Milan",
+      "Fiorentina"
+    ],
+    "ground_truth": "Match played on 2025-04-05 ended with AC Milan 2-2 Fiorentina (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "2-2"
+  },
+  {
+    "id": "h2h_172",
+    "type": "h2h",
+    "as_of_date": "2025-04-05",
+    "query": "What is the head-to-head record between Girona and Alaves prior to 2025-04-05?",
+    "teams": [
+      "Girona",
+      "Alaves"
+    ],
+    "ground_truth": "Prior to 2025-04-05, Girona and Alaves played 5 matches. Girona won 2, Alaves won 1, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 5,
+      "home_wins": 2,
+      "away_wins": 1,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_173",
+    "type": "recent_form",
+    "as_of_date": "2025-04-05",
+    "query": "What was Girona's 5-match form leading into their match on 2025-04-05?",
+    "teams": [
+      "Girona"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-04-05, Girona had a record of L-D-D-D-L, scoring 5 goals and conceding 10.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 10
+    }
+  },
+  {
+    "id": "pred_174",
+    "type": "prediction",
+    "as_of_date": "2025-04-05",
+    "query": "Predict the tactical outcome and key performance factors for Girona vs Alaves on 2025-04-05.",
+    "teams": [
+      "Girona",
+      "Alaves"
+    ],
+    "ground_truth": "Match played on 2025-04-05 ended with Girona 0-1 Alaves (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-1"
+  },
+  {
+    "id": "h2h_175",
+    "type": "h2h",
+    "as_of_date": "2025-04-11",
+    "query": "What is the head-to-head record between Lens and Reims prior to 2025-04-11?",
+    "teams": [
+      "Lens",
+      "Reims"
+    ],
+    "ground_truth": "Prior to 2025-04-11, Lens and Reims played 9 matches. Lens won 5, Reims won 0, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 9,
+      "home_wins": 5,
+      "away_wins": 0,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_176",
+    "type": "recent_form",
+    "as_of_date": "2025-04-11",
+    "query": "What was Lens's 5-match form leading into their match on 2025-04-11?",
+    "teams": [
+      "Lens"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-04-11, Lens had a record of L-W-W-L-W, scoring 6 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 6,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_177",
+    "type": "prediction",
+    "as_of_date": "2025-04-11",
+    "query": "Predict the tactical outcome and key performance factors for Lens vs Reims on 2025-04-11.",
+    "teams": [
+      "Lens",
+      "Reims"
+    ],
+    "ground_truth": "Match played on 2025-04-11 ended with Lens 0-2 Reims (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-2"
+  },
+  {
+    "id": "h2h_178",
+    "type": "h2h",
+    "as_of_date": "2025-04-12",
+    "query": "What is the head-to-head record between Bayern Munich and Borussia Dortmund prior to 2025-04-12?",
+    "teams": [
+      "Bayern Munich",
+      "Borussia Dortmund"
+    ],
+    "ground_truth": "Prior to 2025-04-12, Bayern Munich and Borussia Dortmund played 13 matches. Bayern Munich won 9, Borussia Dortmund won 2, and 2 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 13,
+      "home_wins": 9,
+      "away_wins": 2,
+      "draws": 2
+    }
+  },
+  {
+    "id": "form_179",
+    "type": "recent_form",
+    "as_of_date": "2025-04-12",
+    "query": "What was Bayern Munich's 5-match form leading into their match on 2025-04-12?",
+    "teams": [
+      "Bayern Munich"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-04-12, Bayern Munich had a record of W-L-D-W-W, scoring 12 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 12,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_180",
+    "type": "prediction",
+    "as_of_date": "2025-04-12",
+    "query": "Predict the tactical outcome and key performance factors for Bayern Munich vs Borussia Dortmund on 2025-04-12.",
+    "teams": [
+      "Bayern Munich",
+      "Borussia Dortmund"
+    ],
+    "ground_truth": "Match played on 2025-04-12 ended with Bayern Munich 2-2 Borussia Dortmund (Outcome: D).",
+    "actual_result": "D",
+    "actual_score": "2-2"
+  },
+  {
+    "id": "h2h_181",
+    "type": "h2h",
+    "as_of_date": "2025-04-19",
+    "query": "What is the head-to-head record between Everton and Manchester City prior to 2025-04-19?",
+    "teams": [
+      "Everton",
+      "Manchester City"
+    ],
+    "ground_truth": "Prior to 2025-04-19, Everton and Manchester City played 17 matches. Everton won 0, Manchester City won 13, and 4 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 17,
+      "home_wins": 0,
+      "away_wins": 13,
+      "draws": 4
+    }
+  },
+  {
+    "id": "form_182",
+    "type": "recent_form",
+    "as_of_date": "2025-04-19",
+    "query": "What was Everton's 5-match form leading into their match on 2025-04-19?",
+    "teams": [
+      "Everton"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-04-19, Everton had a record of D-D-L-D-W, scoring 4 goals and conceding 4.",
+    "expected_numbers": {
+      "goals_for": 4,
+      "goals_against": 4
+    }
+  },
+  {
+    "id": "pred_183",
+    "type": "prediction",
+    "as_of_date": "2025-04-19",
+    "query": "Predict the tactical outcome and key performance factors for Everton vs Manchester City on 2025-04-19.",
+    "teams": [
+      "Everton",
+      "Manchester City"
+    ],
+    "ground_truth": "Match played on 2025-04-19 ended with Everton 0-2 Manchester City (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-2"
+  },
+  {
+    "id": "h2h_184",
+    "type": "h2h",
+    "as_of_date": "2025-04-20",
+    "query": "What is the head-to-head record between Ipswich and Arsenal prior to 2025-04-20?",
+    "teams": [
+      "Ipswich",
+      "Arsenal"
+    ],
+    "ground_truth": "Prior to 2025-04-20, Ipswich and Arsenal played 1 matches. Ipswich won 0, Arsenal won 1, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 1,
+      "home_wins": 0,
+      "away_wins": 1,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_185",
+    "type": "recent_form",
+    "as_of_date": "2025-04-20",
+    "query": "What was Ipswich's 5-match form leading into their match on 2025-04-20?",
+    "teams": [
+      "Ipswich"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-04-20, Ipswich had a record of L-L-W-L-D, scoring 7 goals and conceding 10.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 10
+    }
+  },
+  {
+    "id": "pred_186",
+    "type": "prediction",
+    "as_of_date": "2025-04-20",
+    "query": "Predict the tactical outcome and key performance factors for Ipswich vs Arsenal on 2025-04-20.",
+    "teams": [
+      "Ipswich",
+      "Arsenal"
+    ],
+    "ground_truth": "Match played on 2025-04-20 ended with Ipswich 0-4 Arsenal (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-4"
+  },
+  {
+    "id": "h2h_187",
+    "type": "h2h",
+    "as_of_date": "2025-04-26",
+    "query": "What is the head-to-head record between Eintracht Frankfurt and RasenBallsport Leipzig prior to 2025-04-26?",
+    "teams": [
+      "Eintracht Frankfurt",
+      "RasenBallsport Leipzig"
+    ],
+    "ground_truth": "Prior to 2025-04-26, Eintracht Frankfurt and RasenBallsport Leipzig played 13 matches. Eintracht Frankfurt won 3, RasenBallsport Leipzig won 3, and 7 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 13,
+      "home_wins": 3,
+      "away_wins": 3,
+      "draws": 7
+    }
+  },
+  {
+    "id": "form_188",
+    "type": "recent_form",
+    "as_of_date": "2025-04-26",
+    "query": "What was Eintracht Frankfurt's 5-match form leading into their match on 2025-04-26?",
+    "teams": [
+      "Eintracht Frankfurt"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-04-26, Eintracht Frankfurt had a record of W-W-L-W-D, scoring 7 goals and conceding 3.",
+    "expected_numbers": {
+      "goals_for": 7,
+      "goals_against": 3
+    }
+  },
+  {
+    "id": "pred_189",
+    "type": "prediction",
+    "as_of_date": "2025-04-26",
+    "query": "Predict the tactical outcome and key performance factors for Eintracht Frankfurt vs RasenBallsport Leipzig on 2025-04-26.",
+    "teams": [
+      "Eintracht Frankfurt",
+      "RasenBallsport Leipzig"
+    ],
+    "ground_truth": "Match played on 2025-04-26 ended with Eintracht Frankfurt 4-0 RasenBallsport Leipzig (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "4-0"
+  },
+  {
+    "id": "h2h_190",
+    "type": "h2h",
+    "as_of_date": "2025-05-12",
+    "query": "What is the head-to-head record between Venezia and Fiorentina prior to 2025-05-12?",
+    "teams": [
+      "Venezia",
+      "Fiorentina"
+    ],
+    "ground_truth": "Prior to 2025-05-12, Venezia and Fiorentina played 3 matches. Venezia won 1, Fiorentina won 1, and 1 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 3,
+      "home_wins": 1,
+      "away_wins": 1,
+      "draws": 1
+    }
+  },
+  {
+    "id": "form_191",
+    "type": "recent_form",
+    "as_of_date": "2025-05-12",
+    "query": "What was Venezia's 5-match form leading into their match on 2025-05-12?",
+    "teams": [
+      "Venezia"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-05-12, Venezia had a record of D-W-D-L-D, scoring 5 goals and conceding 6.",
+    "expected_numbers": {
+      "goals_for": 5,
+      "goals_against": 6
+    }
+  },
+  {
+    "id": "pred_192",
+    "type": "prediction",
+    "as_of_date": "2025-05-12",
+    "query": "Predict the tactical outcome and key performance factors for Venezia vs Fiorentina on 2025-05-12.",
+    "teams": [
+      "Venezia",
+      "Fiorentina"
+    ],
+    "ground_truth": "Match played on 2025-05-12 ended with Venezia 2-1 Fiorentina (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-1"
+  },
+  {
+    "id": "h2h_193",
+    "type": "h2h",
+    "as_of_date": "2025-05-17",
+    "query": "What is the head-to-head record between Lyon and Angers prior to 2025-05-17?",
+    "teams": [
+      "Lyon",
+      "Angers"
+    ],
+    "ground_truth": "Prior to 2025-05-17, Lyon and Angers played 10 matches. Lyon won 9, Angers won 1, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 10,
+      "home_wins": 9,
+      "away_wins": 1,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_194",
+    "type": "recent_form",
+    "as_of_date": "2025-05-17",
+    "query": "What was Lyon's 5-match form leading into their match on 2025-05-17?",
+    "teams": [
+      "Lyon"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-05-17, Lyon had a record of W-L-W-L-L, scoring 9 goals and conceding 8.",
+    "expected_numbers": {
+      "goals_for": 9,
+      "goals_against": 8
+    }
+  },
+  {
+    "id": "pred_195",
+    "type": "prediction",
+    "as_of_date": "2025-05-17",
+    "query": "Predict the tactical outcome and key performance factors for Lyon vs Angers on 2025-05-17.",
+    "teams": [
+      "Lyon",
+      "Angers"
+    ],
+    "ground_truth": "Match played on 2025-05-17 ended with Lyon 2-0 Angers (Outcome: H).",
+    "actual_result": "H",
+    "actual_score": "2-0"
+  },
+  {
+    "id": "h2h_196",
+    "type": "h2h",
+    "as_of_date": "2025-05-18",
+    "query": "What is the head-to-head record between Valencia and Athletic Club prior to 2025-05-18?",
+    "teams": [
+      "Valencia",
+      "Athletic Club"
+    ],
+    "ground_truth": "Prior to 2025-05-18, Valencia and Athletic Club played 13 matches. Valencia won 3, Athletic Club won 4, and 6 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 13,
+      "home_wins": 3,
+      "away_wins": 4,
+      "draws": 6
+    }
+  },
+  {
+    "id": "form_197",
+    "type": "recent_form",
+    "as_of_date": "2025-05-18",
+    "query": "What was Valencia's 5-match form leading into their match on 2025-05-18?",
+    "teams": [
+      "Valencia"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-05-18, Valencia had a record of D-D-W-W-L, scoring 8 goals and conceding 5.",
+    "expected_numbers": {
+      "goals_for": 8,
+      "goals_against": 5
+    }
+  },
+  {
+    "id": "pred_198",
+    "type": "prediction",
+    "as_of_date": "2025-05-18",
+    "query": "Predict the tactical outcome and key performance factors for Valencia vs Athletic Club on 2025-05-18.",
+    "teams": [
+      "Valencia",
+      "Athletic Club"
+    ],
+    "ground_truth": "Match played on 2025-05-18 ended with Valencia 0-1 Athletic Club (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "0-1"
+  },
+  {
+    "id": "h2h_199",
+    "type": "h2h",
+    "as_of_date": "2025-05-25",
+    "query": "What is the head-to-head record between Ipswich and West Ham prior to 2025-05-25?",
+    "teams": [
+      "Ipswich",
+      "West Ham"
+    ],
+    "ground_truth": "Prior to 2025-05-25, Ipswich and West Ham played 1 matches. Ipswich won 0, West Ham won 1, and 0 ended in a draw.",
+    "expected_numbers": {
+      "total_matches": 1,
+      "home_wins": 0,
+      "away_wins": 1,
+      "draws": 0
+    }
+  },
+  {
+    "id": "form_200",
+    "type": "recent_form",
+    "as_of_date": "2025-05-25",
+    "query": "What was Ipswich's 5-match form leading into their match on 2025-05-25?",
+    "teams": [
+      "Ipswich"
+    ],
+    "ground_truth": "In the 5 matches prior to 2025-05-25, Ipswich had a record of L-L-D-L-L, scoring 2 goals and conceding 12.",
+    "expected_numbers": {
+      "goals_for": 2,
+      "goals_against": 12
+    }
+  },
+  {
+    "id": "pred_201",
+    "type": "prediction",
+    "as_of_date": "2025-05-25",
+    "query": "Predict the tactical outcome and key performance factors for Ipswich vs West Ham on 2025-05-25.",
+    "teams": [
+      "Ipswich",
+      "West Ham"
+    ],
+    "ground_truth": "Match played on 2025-05-25 ended with Ipswich 1-3 West Ham (Outcome: A).",
+    "actual_result": "A",
+    "actual_score": "1-3"
+  },
+  {
+    "id": "tactic_001",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Bournemouth's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Bournemouth"
+    ],
+    "ground_truth": "Grounded in Bournemouth's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_002",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Real Madrid's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Real Madrid"
+    ],
+    "ground_truth": "Grounded in Real Madrid's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_003",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Leganes's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Leganes"
+    ],
+    "ground_truth": "Grounded in Leganes's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_004",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Como's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Como"
+    ],
+    "ground_truth": "Grounded in Como's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_005",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Rennes's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Rennes"
+    ],
+    "ground_truth": "Grounded in Rennes's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_006",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Wolverhampton Wanderers's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Wolverhampton Wanderers"
+    ],
+    "ground_truth": "Grounded in Wolverhampton Wanderers's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_007",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Lens's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Lens"
+    ],
+    "ground_truth": "Grounded in Lens's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_008",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Mainz 05's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Mainz 05"
+    ],
+    "ground_truth": "Grounded in Mainz 05's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_009",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Athletic Club's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Athletic Club"
+    ],
+    "ground_truth": "Grounded in Athletic Club's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_010",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Monaco's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Monaco"
+    ],
+    "ground_truth": "Grounded in Monaco's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_011",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Marseille's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Marseille"
+    ],
+    "ground_truth": "Grounded in Marseille's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_012",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Brentford's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Brentford"
+    ],
+    "ground_truth": "Grounded in Brentford's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_013",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Arsenal's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Arsenal"
+    ],
+    "ground_truth": "Grounded in Arsenal's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_014",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Las Palmas's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Las Palmas"
+    ],
+    "ground_truth": "Grounded in Las Palmas's tactical profile, set piece stats, and season aggregates."
+  },
+  {
+    "id": "tactic_015",
+    "type": "tactical_profile",
+    "as_of_date": "2024-08-01",
+    "query": "Describe Toulouse's primary attacking pattern, pressing intensity, and defensive vulnerabilities.",
+    "teams": [
+      "Toulouse"
+    ],
+    "ground_truth": "Grounded in Toulouse's tactical profile, set piece stats, and season aggregates."
+  }
+]

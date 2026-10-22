@@ -86,6 +86,16 @@ class SupervisorService:
                     tactical_analysis=feedback.suggested_analysis,
                     created_by_id=reviewer_id
                 )
+                try:
+                    from api.services.drift_service import drift_evaluator
+                    drift_evaluator.record_supervisor_override(
+                        match_id=f"{feedback.home_team} vs {feedback.away_team} ({feedback.match_date})",
+                        original_prediction="model_pipeline",
+                        override_prediction=feedback.suggested_result or "OVERRIDE",
+                        reason=feedback.suggested_analysis or admin_notes,
+                    )
+                except Exception:
+                    pass
             elif feedback.type == "tactic_modification":
                 success = await self.feedback_repo.update_team_tactics(
                     team_name=feedback.team_name,

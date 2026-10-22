@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body {
+      background-color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      padding: 30px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .mermaid {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+    }
+  </style>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      c4: {
+        useMaxWidth: false
+      }
+    });
+  </script>
+</head>
+<body>
+  <div class="mermaid">
+
+C4Context
+    title System Context Diagram (C4 Level 1) - Football Match Prediction & Tactical Analysis SaaS
+
+    Person(coach, "Tactical Analyst / Coach", "Queries match predictions, scouts tactical matchups, analyzes in-match live momentum.")
+    Person(bettor, "Match Bettor / Fan", "Views pre-match GNN probabilities, team form comparisons, and head-to-head metrics.")
+    Person(supervisor, "Domain Supervisor / Admin", "Reviews user-submitted scouting edits, reviews automated evaluations, and overrides predictions.")
+
+    System(football_system, "Football Analysis SaaS Platform", "Hybrid AI system integrating GNN probability modeling, live Poisson in-match engine, Knowledge Graph RAG, and fine-tuned SLM narrative generation.")
+
+    System_Ext(data_sources, "External Football Data Sources", "football-data.co.uk (Match stats), Understat (xG, shot maps), Open-Meteo (Weather enrichment).")
+    System_Ext(hf_hub, "HuggingFace Model Hub", "Hosts the fine-tuned football SLM weights (aliosama8399/football-analysisN).")
+    System_Ext(mlflow_ext, "MLflow Tracking Server", "Centralized registry logging model artifacts, training parameters, and GNN performance runs.")
+
+    Rel(coach, football_system, "Queries tactics, compares squads, tracks live match state", "HTTPS / WebSocket")
+    Rel(bettor, football_system, "Views probabilities & form statistics", "HTTPS")
+    Rel(supervisor, football_system, "Submits manual overrides, inspects model drift", "HTTPS / JWT")
+
+    Rel(football_system, data_sources, "Scrapes historical fixtures, player stats & weather", "HTTPS / REST")
+    Rel(football_system, hf_hub, "Downloads fine-tuned model checkpoints", "HTTPS")
+    Rel(football_system, mlflow_ext, "Logs experiment runs, metrics, and models", "REST / SQLite")
+
+  </div>
+</body>
+</html>

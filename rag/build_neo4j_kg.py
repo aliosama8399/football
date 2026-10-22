@@ -28,6 +28,8 @@ import yaml
 from pathlib import Path
 from neo4j import GraphDatabase
 
+from data.team_stats import build_team_aggregates
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -80,38 +82,7 @@ def create_constraints(session):
     logger.info("Constraints ensured.")
 
 
-def build_team_aggregates(df: pd.DataFrame) -> dict:
-    """Compute per-team aggregate stats from the matches dataframe."""
-    aggregates = {}
-
-    for team in set(df["HomeTeam"].unique()) | set(df["AwayTeam"].unique()):
-        home_rows = df[df["HomeTeam"] == team]
-        away_rows = df[df["AwayTeam"] == team]
-
-        total  = len(home_rows) + len(away_rows)
-        league = (home_rows["League"].mode()[0] if len(home_rows) > 0 else
-                  away_rows["League"].mode()[0] if len(away_rows) > 0 else "Unknown")
-
-        avg_gh  = home_rows["FTHG"].mean() if len(home_rows) > 0 else 0.0
-        avg_ga  = away_rows["FTAG"].mean() if len(away_rows) > 0 else 0.0
-        avg_xg  = pd.concat([home_rows["Home_xG"], away_rows["Away_xG"]]).mean()
-        avg_xga = pd.concat([home_rows["Away_xG"], away_rows["Home_xG"]]).mean()
-
-        seasons = sorted(set(df[
-            (df["HomeTeam"] == team) | (df["AwayTeam"] == team)
-        ]["Season"].astype(str).unique()))
-
-        aggregates[team] = {
-            "league":         league,
-            "total_matches":  total,
-            "avg_goals_home": float(avg_gh)  if not np.isnan(avg_gh)  else 0.0,
-            "avg_goals_away": float(avg_ga)  if not np.isnan(avg_ga)  else 0.0,
-            "avg_xg":         float(avg_xg)  if not np.isnan(avg_xg)  else 0.0,
-            "avg_xga":        float(avg_xga) if not np.isnan(avg_xga) else 0.0,
-            "seasons":        seasons,
-        }
-
-    return aggregates
+TACTIC_FIELDS = ("attack_tactic", "defense_tactic", "attack_headline", "defense_headline")
 
 
 def create_nodes(session, df: pd.DataFrame, tactics: dict):
@@ -145,29 +116,13 @@ def create_nodes(session, df: pd.DataFrame, tactics: dict):
     team_aggs = build_team_aggregates(df)
     for team, agg in team_aggs.items():
         tactic = tactics.get(team, {})
+        props = {k: _safe(v) for k, v in agg.items()}
+        props.update({k: tactic.get(k, "") for k in TACTIC_FIELDS})
+        props["strengths"] = list(tactic.get("strengths", []))
+        props["weaknesses"] = list(tactic.get("weaknesses", []))
         session.run(
-            """
-            MERGE (t:Team {name: $name})
-            SET   t.league         = $league,
-                  t.total_matches  = $total_matches,
-                  t.avg_goals_home = $avg_goals_home,
-                  t.avg_goals_away = $avg_goals_away,
-                  t.avg_xg         = $avg_xg,
-                  t.avg_xga        = $avg_xga,
-                  t.seasons        = $seasons,
-                  t.attack_tactic  = $attack_tactic,
-                  t.defense_tactic = $defense_tactic
-            """,
-            name=team,
-            league=agg["league"],
-            total_matches=agg["total_matches"],
-            avg_goals_home=agg["avg_goals_home"],
-            avg_goals_away=agg["avg_goals_away"],
-            avg_xg=agg["avg_xg"],
-            avg_xga=agg["avg_xga"],
-            seasons=agg["seasons"],
-            attack_tactic=tactic.get("attack_tactic", ""),
-            defense_tactic=tactic.get("defense_tactic", ""),
+            "MERGE (t:Team {name: $name}) SET t += $props",
+            name=team, props=props,
         )
         # PLAYED_IN relationship
         session.run(
@@ -244,6 +199,16 @@ def create_match_edges(session, df: pd.DataFrame, batch_size: int = 500):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
+
+def count_matches(uri: str, user: str, password: str) -> int:
+    """Number of MATCH edges currently stored (used by startup seeding)."""
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    try:
+        with driver.session() as session:
+            return session.run("MATCH ()-[m:MATCH]->() RETURN count(m) AS c").single()["c"]
+    finally:
+        driver.close()
+
 
 def main(clear: bool = False):
     cfg = _load_cfg().get("rag", {})

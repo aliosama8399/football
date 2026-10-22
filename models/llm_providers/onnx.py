@@ -184,6 +184,22 @@ class OnnxLLMProvider:
         self._loaded = True
         logger.info("Fallback HF LLM ready on %s", next(self._model.parameters()).device)
 
+    def generate_with_context(self, prompt: str, kg_context: str = "", vector_context: str = "") -> str:
+        kg_budget = int(os.getenv("FOOTBALL_ONNX_KG_CTX", 0)) or 8000
+        vec_budget = int(os.getenv("FOOTBALL_ONNX_VEC_CTX", 0)) or 2500
+        if kg_budget and len(kg_context) > kg_budget:
+            kg_context = kg_context[:kg_budget].rsplit(" ", 1)[0] + " ..."
+        if vec_budget and len(vector_context) > vec_budget:
+            vector_context = vector_context[:vec_budget].rsplit(" ", 1)[0] + " ..."
+
+        rag_prompt = ""
+        if kg_context:
+            rag_prompt += f"## Retrieved Knowledge Graph Context\n{kg_context}\n\n"
+        if vector_context:
+            rag_prompt += f"## Retrieved Historical Analyses\n{vector_context}\n\n"
+        rag_prompt += f"## User Question\n{prompt}"
+        return self.generate(rag_prompt)
+
     # ── Core generation ───────────────────────────────────────────────────────
     def generate(self, prompt: str) -> str:
         self._load()
@@ -193,9 +209,9 @@ class OnnxLLMProvider:
                 "role": "system",
                 "content": (
                     "You are an expert football tactical analyst. "
-                    "Analyze the match, predict the most likely outcome, and deliver "
-                    "a detailed tactical report covering both teams' strengths, "
-                    "weaknesses, and key strategic factors."
+                    "Base your analysis strictly on the provided factual match data, head-to-head records, and tactical profiles. "
+                    "When tactical data is complete, ground your reasoning in the numbers; if specific historical data points are absent, "
+                    "use balanced analytical football reasoning without fabricating false scores, player names, or statistics."
                 ),
             },
             {"role": "user", "content": prompt},

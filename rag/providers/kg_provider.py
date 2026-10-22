@@ -64,26 +64,17 @@ class Neo4jProvider(BaseKGProvider):
     # ── Queries ────────────────────────────────────────────────────────────
     def get_team_profile(self, team_name: str) -> dict:
         rows = self._run(
-            """
-            MATCH (t:Team {name: $name})
-            RETURN t.name          AS name,
-                   t.league        AS league,
-                   t.total_matches AS total_matches,
-                   t.avg_xg        AS avg_xg,
-                   t.avg_xga       AS avg_xga,
-                   t.avg_goals_home AS avg_goals_home,
-                   t.avg_goals_away AS avg_goals_away,
-                   t.attack_tactic  AS attack_tactic,
-                   t.defense_tactic AS defense_tactic
-            """,
+            "MATCH (t:Team {name: $name}) RETURN properties(t) AS p",
             name=team_name,
         )
-        return rows[0] if rows else {}
+        return rows[0]["p"] if rows else {}
 
-    def get_head_to_head(self, team_a: str, team_b: str, limit: int = 10) -> list[dict]:
+    def get_head_to_head(self, team_a: str, team_b: str, limit: int = 10,
+                         as_of: str = None) -> list[dict]:
         return self._run(
             """
             MATCH (h:Team {name: $a})-[m:MATCH]->(aw:Team {name: $b})
+            WHERE $as_of IS NULL OR m.date < $as_of
             RETURN m.date        AS date,
                    h.name        AS home_team,
                    aw.name       AS away_team,
@@ -97,36 +88,45 @@ class Neo4jProvider(BaseKGProvider):
             ORDER BY m.date DESC
             LIMIT $limit
             """,
-            a=team_a, b=team_b, limit=limit,
+            a=team_a, b=team_b, limit=limit, as_of=as_of,
         )
 
-    def get_recent_form(self, team_name: str, n: int = 5) -> list[dict]:
+    def get_recent_form(self, team_name: str, n: int = 5, as_of: str = None) -> list[dict]:
         return self._run(
             """
-            MATCH (t:Team {name: $name})-[m:MATCH]->(:Team)
+            MATCH (h:Team)-[m:MATCH]->(a:Team)
+            WHERE (h.name = $name OR a.name = $name)
+              AND ($as_of IS NULL OR m.date < $as_of)
             RETURN m.date       AS date,
-                   t.name       AS home_team,
-                   m.away_team  AS away_team,
+                   h.name       AS home_team,
+                   a.name       AS away_team,
                    m.home_goals AS home_goals,
                    m.away_goals AS away_goals,
                    m.result     AS result,
                    m.league     AS league
             ORDER BY m.date DESC
             LIMIT $n
-            UNION
-            MATCH (:Team)-[m:MATCH]->(t:Team {name: $name})
-            RETURN m.home_team   AS home_team,
-                   t.name        AS away_team,
-                   m.home_goals  AS home_goals,
-                   m.away_goals  AS away_goals,
-                   m.result      AS result,
-                   m.date        AS date,
-                   m.league      AS league
+            """,
+            name=team_name, n=n, as_of=as_of,
+        )
+
+    def get_team_detailed_form(self, team_name: str, n: int = 5) -> list[dict]:
+        return self._run(
+            """
+            MATCH (h:Team)-[m:MATCH]->(a:Team)
+            WHERE h.name = $name OR a.name = $name
+            RETURN m.date AS date, h.name AS home_team, a.name AS away_team,
+                   m.home_goals AS home_goals, m.away_goals AS away_goals,
+                   m.result AS result, m.home_xg AS home_xg, m.away_xg AS away_xg,
+                   m.home_shots AS home_shots, m.away_shots AS away_shots,
+                   m.home_sot AS home_sot, m.away_sot AS away_sot,
+                   m.home_corners AS home_corners, m.away_corners AS away_corners,
+                   m.league AS league, m.season AS season
             ORDER BY m.date DESC
             LIMIT $n
             """,
             name=team_name, n=n,
-        )[:n]
+        )
 
     def get_league_teams(self, league: str, season: str = None) -> list[str]:
         if season:
@@ -216,7 +216,8 @@ class PostgreSQLProvider(BaseKGProvider):
         )
         return rows[0] if rows else {}
 
-    def get_head_to_head(self, team_a: str, team_b: str, limit: int = 10) -> list[dict]:
+    def get_head_to_head(self, team_a: str, team_b: str, limit: int = 10,
+                         as_of: str = None) -> list[dict]:
         return self._query(
             """
             SELECT date, home_team, away_team,
@@ -224,22 +225,24 @@ class PostgreSQLProvider(BaseKGProvider):
                    home_xg, away_xg, league, season
             FROM matches
             WHERE home_team = %s AND away_team = %s
+              AND (%s::text IS NULL OR date < %s::date)
             ORDER BY date DESC
             LIMIT %s
             """,
-            (team_a, team_b, limit),
+            (team_a, team_b, as_of, as_of, limit),
         )
 
-    def get_recent_form(self, team_name: str, n: int = 5) -> list[dict]:
+    def get_recent_form(self, team_name: str, n: int = 5, as_of: str = None) -> list[dict]:
         return self._query(
             """
             SELECT date, home_team, away_team, home_goals, away_goals, result, league
             FROM matches
-            WHERE home_team = %s OR away_team = %s
+            WHERE (home_team = %s OR away_team = %s)
+              AND (%s::text IS NULL OR date < %s::date)
             ORDER BY date DESC
             LIMIT %s
             """,
-            (team_name, team_name, n),
+            (team_name, team_name, as_of, as_of, n),
         )
 
     def get_league_teams(self, league: str, season: str = None) -> list[str]:

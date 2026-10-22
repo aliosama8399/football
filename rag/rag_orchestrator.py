@@ -39,6 +39,7 @@ try:
 except ImportError:
     from rag.providers.gnn_provider import GNNPredictionProvider  # fallback to torch if ONNX missing
 from models.llm_providers              import get_llm_provider
+from eval.langfuse_client             import trace_step
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -62,17 +63,20 @@ _TEAM_CACHE: list[str] = []
 
 def _extract_team_names(query: str, known_teams: list[str]) -> list[str]:
     """
-    Scan the query for team names from the known_teams list.
-    Returns up to 2 matched team names.
+    Scan query for team mentions using the alias registry and fuzzy matching.
     """
-    found = []
-    q_lower = query.lower()
-    for team in known_teams:
-        if team.lower() in q_lower:
-            found.append(team)
-        if len(found) >= 2:
-            break
-    return found
+    try:
+        from rag.retrieval.team_linker import link_teams
+        return link_teams(query, known_teams=known_teams, max_teams=2)
+    except Exception:
+        found = []
+        q_lower = query.lower()
+        for team in known_teams:
+            if team.lower() in q_lower:
+                found.append(team)
+            if len(found) >= 2:
+                break
+        return found
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -94,6 +98,7 @@ class FootballRAGSystem:
         vector: str = None,
         llm: str = None,
         predictor: Optional[BasePredictionProvider] = None,
+        **kwargs,
     ):
         cfg = _load_rag_cfg()
         kg_name     = kg     or cfg.get("kg_provider",     "neo4j")
@@ -108,6 +113,8 @@ class FootballRAGSystem:
         self.vector  = get_vector_provider(vector_name)
         self.llm     = get_llm_provider(llm_name)  # returns None when llm_name in ("", None, "none")
         self.cfg     = cfg
+        self.hybrid  = kwargs.get("hybrid", bool(cfg.get("hybrid_retrieval", False)))
+        self.rerank  = kwargs.get("rerank", bool(cfg.get("rerank_results", False)))
         # Expert 1: pluggable prediction model (defaults to TEA-GNN).
         self.predictor = predictor if predictor is not None else GNNPredictionProvider()
 
@@ -124,100 +131,180 @@ class FootballRAGSystem:
 
     # ── Context Assembly ──────────────────────────────────────────────────────
 
-    def _get_kg_context(self, teams: list[str], query: str) -> str:
-        """Build a KG context block for the given teams."""
-        parts = []
+    def _get_kg_context(self, teams: list[str], query: str, as_of: str = None) -> str:
+        """Build a KG context block for the given teams with optional as-of cutoff."""
+        with trace_step("kg_retrieval", input={"teams": teams, "as_of": as_of}, metadata={"teams": teams, "as_of": as_of}) as span:
+            parts = []
 
-        for team in teams[:2]:  # Max 2 teams per query
-            try:
-                parts.append(self.kg.format_team_context(team))
-            except Exception as e:
-                logger.warning("KG retrieval failed for '%s': %s", team, e)
+            for team in teams[:2]:  # Max 2 teams per query
+                try:
+                    parts.append(self.kg.format_team_context(team))
+                except Exception as e:
+                    logger.warning("KG retrieval failed for '%s': %s", team, e)
 
-        if len(teams) == 2:
-            try:
-                h2h = self.kg.get_head_to_head(teams[0], teams[1], limit=5)
-                if h2h:
-                    lines = [f"\n=== Head-to-Head: {teams[0]} vs {teams[1]} (last 5) ==="]
-                    for m in h2h:
-                        lines.append(
-                            f"  {m.get('date','?')} | "
-                            f"{m.get('home_team','?')} {m.get('home_goals','?')}-"
-                            f"{m.get('away_goals','?')} {m.get('away_team','?')} "
-                            f"[{m.get('result','?')}] | {m.get('league','?')}"
-                        )
-                    parts.append("\n".join(lines))
-            except Exception as e:
-                logger.warning("H2H retrieval failed: %s", e)
+            if len(teams) == 2:
+                try:
+                    h2h = self.kg.get_head_to_head(teams[0], teams[1], limit=5, as_of=as_of)
+                    if h2h:
+                        lines = [f"\n=== Head-to-Head: {teams[0]} vs {teams[1]} (last 5) ==="]
+                        for m in h2h:
+                            lines.append(
+                                f"  {m.get('date','?')} | "
+                                f"{m.get('home_team','?')} {m.get('home_goals','?')}-"
+                                f"{m.get('away_goals','?')} {m.get('away_team','?')} "
+                                f"[{m.get('result','?')}] | {m.get('league','?')}"
+                            )
+                        parts.append("\n".join(lines))
+                except Exception as e:
+                    logger.warning("H2H retrieval failed: %s", e)
 
-        return "\n\n".join(parts)
+            kg_text = "\n\n".join(parts)
+            span.update(output=kg_text)
+            return kg_text
 
-    def _get_vector_context(self, query: str, teams: list[str]) -> str:
-        """Semantic search for similar analyses and match stats."""
-        # Build enriched query (add team names for better recall)
-        enriched = query
-        if teams:
-            enriched = f"{' '.join(teams)} {query}"
+    def _get_vector_context(self, query: str, teams: list[str], as_of: str = None) -> str:
+        """Semantic search for similar analyses and match stats with optional as-of cutoff."""
+        enriched = f"{' '.join(teams)} {query}" if teams else query
+        with trace_step("vector_retrieval", input={"query": enriched, "as_of": as_of}, metadata={"query": query, "as_of": as_of, "hybrid": self.hybrid, "rerank": self.rerank}) as span:
+            k = self.cfg.get("vector_top_k", 5)
+            results = []
 
-        k = self.cfg.get("vector_top_k", 5)
-        return self.vector.format_vector_context(enriched, k=k)
+            if self.hybrid:
+                try:
+                    from rag.retrieval.hybrid import HybridRetriever
+                    retriever = HybridRetriever(self.vector)
+                    results = retriever.search(enriched, k=k, as_of=as_of)
+                except Exception as e:
+                    logger.debug("Hybrid retrieval error: %s", e)
+            elif hasattr(self.vector, "search"):
+                try:
+                    results = self.vector.search(enriched, k=k, as_of=as_of)
+                except Exception as e:
+                    logger.debug("vector.search error: %s", e)
+
+            if results and self.rerank:
+                try:
+                    from rag.retrieval.reranker import rerank_documents
+                    results = rerank_documents(query, results, top_k=k)
+                except Exception as e:
+                    logger.debug("Reranking error: %s", e)
+
+            if results:
+                formatted = [f"[{i}] {r.get('text', '')}" for i, r in enumerate(results, 1)]
+                vec_text = "\n\n".join(formatted)
+                span.update(output=vec_text)
+                return vec_text
+
+            vec_text = self.vector.format_vector_context(enriched, k=k)
+            span.update(output=vec_text)
+            return vec_text
 
     # ── Public API ───────────────────────────────────────────────────────────
 
-    def query(self, question: str) -> str:
+    def query_with_context(self, question: str, as_of: str = None) -> dict:
         """
-        General-purpose RAG query.
-        Automatically extracts teams, retrieves context, and generates an answer.
-
-        Args:
-            question: Free-form natural language question.
+        Execute RAG retrieval and generation, returning structured contexts along with answer.
+        Essential for RAGAS evaluation (faithfulness, answer relevancy, context precision/recall).
 
         Returns:
-            LLM-generated answer with grounding in retrieved facts.
+            dict containing:
+                - response: str (the answer)
+                - retrieved_contexts: list[str] (list of distinct context chunks retrieved)
+                - kg_context: str
+                - vector_context: str
+                - teams: list[str]
         """
-        teams = _extract_team_names(question, _TEAM_CACHE)
-        logger.info("Teams detected: %s", teams)
+        with trace_step("entity_extraction", input={"question": question}, metadata={"question": question}) as span:
+            teams = _extract_team_names(question, _TEAM_CACHE)
+            span.update(output=teams)
+            logger.info("Teams detected: %s", teams)
 
-        kg_context  = self._get_kg_context(teams, question)
-        vec_context = self._get_vector_context(question, teams)
+        kg_context  = self._get_kg_context(teams, question, as_of=as_of)
+        vec_context = self._get_vector_context(question, teams, as_of=as_of)
 
-        # None-safe LLM: when no LLM is configured, return the assembled KG + vector
-        # context as a structured JSON response instead of calling a generator.
+        contexts: list[str] = []
+        if kg_context and kg_context.strip():
+            contexts.append(kg_context.strip())
+        if vec_context and vec_context.strip():
+            contexts.append(vec_context.strip())
+
+        # None-safe LLM: when no LLM is configured, return assembled KG + vector context as fallback
         if self.llm is None:
-            return json.dumps({
+            fallback_text = json.dumps({
                 "question": question,
                 "teams_detected": teams,
                 "kg_context": kg_context,
                 "vector_context": vec_context,
                 "note": "LLM not configured (set rag.llm_provider in llm_config.yaml).",
             }, ensure_ascii=False)
-
-        # Generate with context (works for both BaseLLMProvider and HuggingFaceProvider)
-        try:
-            if hasattr(self.llm, "generate_with_context"):
-                return self.llm.generate_with_context(
-                    prompt=question,
-                    kg_context=kg_context,
-                    vector_context=vec_context,
-                )
-            # Generic fallback: HF exposes generate(); other providers expose _call_api().
-            full_prompt = self._build_prompt(question, kg_context, vec_context)
-            if hasattr(self.llm, "generate"):
-                return self.llm.generate(full_prompt)
-            if hasattr(self.llm, "_call_api"):
-                return self.llm._call_api(full_prompt)
-            raise AttributeError(
-                f"LLM {type(self.llm).__name__} exposes neither generate() nor _call_api()."
-            )
-        except Exception as e:
-            logger.error("LLM inference failed in query(): %s. Returning structured context fallback.", e)
-            return json.dumps({
-                "question": question,
-                "teams_detected": teams,
+            return {
+                "response": fallback_text,
+                "retrieved_contexts": contexts,
                 "kg_context": kg_context,
                 "vector_context": vec_context,
-                "note": "LLM runtime failure; degraded to quantitative/context fallback.",
-            }, ensure_ascii=False)
+                "teams": teams,
+            }
+
+        model_name = getattr(self.llm, "_backend", None) or getattr(self.llm, "model_name", None) or type(self.llm).__name__
+        full_prompt = self._build_prompt(question, kg_context, vec_context)
+
+        # Generate with context (logged as Langfuse generation observation)
+        with trace_step("llm_generation", as_type="generation", model=str(model_name), input=full_prompt, metadata={"llm_type": type(self.llm).__name__}) as span:
+            try:
+                if hasattr(self.llm, "generate_with_context"):
+                    res = self.llm.generate_with_context(
+                        prompt=question,
+                        kg_context=kg_context,
+                        vector_context=vec_context,
+                    )
+                elif hasattr(self.llm, "generate"):
+                    res = self.llm.generate(full_prompt)
+                elif hasattr(self.llm, "_call_api"):
+                    res = self.llm._call_api(full_prompt)
+                else:
+                    raise AttributeError(
+                        f"LLM {type(self.llm).__name__} exposes neither generate() nor _call_api()."
+                    )
+                span.update(output=res)
+                return {
+                    "response": res,
+                    "retrieved_contexts": contexts,
+                    "kg_context": kg_context,
+                    "vector_context": vec_context,
+                    "teams": teams,
+                }
+            except Exception as e:
+                logger.error("LLM inference failed in query_with_context(): %s. Returning structured context fallback.", e)
+                fallback_res = json.dumps({
+                    "question": question,
+                    "teams_detected": teams,
+                    "kg_context": kg_context,
+                    "vector_context": vec_context,
+                    "note": "LLM runtime failure; degraded to quantitative/context fallback.",
+                }, ensure_ascii=False)
+                span.update(output=fallback_res)
+                return {
+                    "response": fallback_res,
+                    "retrieved_contexts": contexts,
+                    "kg_context": kg_context,
+                    "vector_context": vec_context,
+                    "teams": teams,
+                }
+
+    def query(self, question: str, as_of: str = None) -> str:
+        """
+        General-purpose RAG query.
+        Automatically extracts teams, retrieves context, and generates an answer.
+
+        Args:
+            question: Free-form natural language question.
+            as_of: Optional cutoff date (YYYY-MM-DD) to prevent look-ahead leakage.
+
+        Returns:
+            LLM-generated answer with grounding in retrieved facts.
+        """
+        result = self.query_with_context(question, as_of=as_of)
+        return result["response"]
 
     def _get_gnn_prediction(self, home_team: str, away_team: str) -> str:
         """Return a human-readable GNN prediction block (for LLM prompts). Empty on failure."""
@@ -242,7 +329,7 @@ class FootballRAGSystem:
         """
         return self.predictor.predict(home_team, away_team)
 
-    def predict_match(self, home_team: str, away_team: str) -> str:
+    def predict_match(self, home_team: str, away_team: str, as_of: str = None) -> str:
         """
         Structured match prediction with full RAG context and GNN ensemble.
 
@@ -268,7 +355,7 @@ class FootballRAGSystem:
             f"Provide your final match prediction with reasoning, integrating your analysis with Expert 1's prediction."
         )
         try:
-            return self.query(question)
+            return self.query(question, as_of=as_of)
         except Exception as e:
             logger.error("Expert 2 (LLM) failed in predict_match: %s. Returning Expert 1 GNN only.", e)
             return json.dumps({
@@ -394,6 +481,8 @@ class FootballRAGSystem:
         """Build the final RAG prompt for providers without generate_with_context."""
         parts = [
             "You are an expert football tactical analyst with access to a comprehensive database.",
+            "Base your analysis strictly on the provided factual match data, head-to-head records, and tactical profiles.",
+            "When tactical data is complete, ground your reasoning in the numbers; if specific historical data points are absent, use balanced analytical football reasoning without fabricating false scores, player names, or statistics.",
             "",
         ]
         if kg_context:

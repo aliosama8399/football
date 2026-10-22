@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
     logger.info("STARTUP SUMMARY")
     logger.info(f"  DB (Postgres/Alembic) : OK")
     logger.info(f"  KG provider           : {settings.kg_provider}")
-    logger.info(f"  Vector store          : faiss (embedded, ./rag/vector_store)")
+    logger.info(f"  Vector store          : {settings.vector_provider}")
     logger.info(f"  LLM (Expert 2)        : backend={llm_status}")
     logger.info(f"  GNN (Expert 1)        : {gnn_status}")
     logger.info(f"  RAG orchestrator      : {rag_status}")
@@ -164,6 +164,8 @@ graphql_app = GraphQLRouter(schema)
 app.include_router(graphql_app, prefix="/graphql")
 
 @app.get("/", tags=["Health Check"])
+@app.get("/health", tags=["Health Check"])
+@app.get("/api/v1/health", tags=["Health Check"])
 async def root():
     """Simple API health probe."""
     return {
@@ -203,3 +205,68 @@ async def get_ui_js(nocache: str = ""):
         return Response(content=f.read(), media_type="application/javascript")
 
 
+@app.get("/metrics", tags=["Monitoring"])
+async def metrics_endpoint():
+    """Prometheus metrics scrape endpoint for Grafana and monitoring."""
+    try:
+        from monitoring.metrics_registry import (
+            get_prometheus_metrics_bytes,
+            load_cached_metrics,
+            CONTENT_TYPE_LATEST,
+        )
+        load_cached_metrics()
+        return Response(content=get_prometheus_metrics_bytes(), media_type=CONTENT_TYPE_LATEST)
+    except Exception as e:
+        logger.error("Prometheus metrics export error: %s", e)
+        return Response(content=f"# Error exporting metrics: {e}\n", media_type="text/plain", status_code=500)
+@app.post("/api/v1/monitoring/live-metrics", tags=["Monitoring"])
+async def receive_live_metrics(payload: dict):
+    """
+    Ingest real-time evaluation metrics over HTTP from live test suites
+    (run_rag_eval.py, run_prediction_eval.py) and update Prometheus Gauges directly in memory.
+    """
+    try:
+        from monitoring.metrics_registry import (
+            record_rag_evaluation_metrics,
+            record_prediction_evaluation_metrics,
+        )
+        metric_type = payload.get("type")
+        if metric_type == "rag":
+            record_rag_evaluation_metrics(
+                avg_latency=float(payload.get("avg_latency", 0.0)),
+                avg_numeric=float(payload.get("avg_numeric", 0.0)),
+                avg_grounding=float(payload.get("avg_grounding", 0.0)),
+                ragas_scores=payload.get("ragas_scores"),
+            )
+        elif metric_type == "prediction":
+            record_prediction_evaluation_metrics(
+                gnn_acc=float(payload.get("gnn_accuracy", 0.0)),
+                slm_acc=float(payload.get("slm_accuracy", 0.0)),
+                ens_acc=float(payload.get("ensemble_accuracy", 0.0)),
+                brier=float(payload.get("brier_score", 0.0)),
+                log_loss=float(payload.get("log_loss", 0.0)),
+                consensus=float(payload.get("consensus_rate", 0.0)),
+                tactical=float(payload.get("tactical_grounding", 0.0)),
+                latency=float(payload.get("latency", 0.0)),
+            )
+        elif metric_type in ("drift", "online"):
+            from monitoring.metrics_registry import (
+                record_online_rag_drift_metrics,
+                record_online_prediction_drift_metrics,
+            )
+            if "evidence_score" in payload:
+                record_online_rag_drift_metrics(
+                    evidence_score=float(payload.get("evidence_score", 0.0)),
+                    faithfulness_score=float(payload.get("faithfulness_score", 0.0)),
+                    query_drift_score=float(payload.get("query_drift_score", 0.0)),
+                    drift_type=payload.get("drift_type"),
+                )
+            if "entropy" in payload:
+                record_online_prediction_drift_metrics(
+                    entropy=float(payload.get("entropy", 0.0)),
+                    drift_type=payload.get("drift_type"),
+                )
+        return {"status": "ok", "updated": metric_type}
+    except Exception as e:
+        logger.error("Failed processing live metric payload: %s", e)
+        return {"status": "error", "message": str(e)}

@@ -34,10 +34,16 @@ class Settings(BaseSettings):
         alias="postgres_dsn"
     )
     
-    # KG Provider (defaults from yaml config if available)
+    # KG Provider (defaults to neo4j)
     kg_provider: str = Field(
-        default_factory=lambda: os.getenv("KG_PROVIDER") or rag_cfg.get("kg_provider", "postgres"),
+        default_factory=lambda: os.getenv("KG_PROVIDER") or rag_cfg.get("kg_provider", "neo4j"),
         alias="kg_provider"
+    )
+
+    # Vector Provider (defaults to pgvector)
+    vector_provider: str = Field(
+        default_factory=lambda: os.getenv("VECTOR_PROVIDER") or rag_cfg.get("vector_provider", "pgvector"),
+        alias="vector_provider"
     )
     
     # JWT Settings

@@ -39,10 +39,9 @@ providers:
 
   gemini:
     api_key: ""           # SECRET — keep in .env (GEMINI_API_KEY), never commit here
-    default_model: "gemini-2.0-flash"
+    default_model: "gemini-2.5-flash"
     timeout: 60
-    # Other models you can drop in:
-    #   gemini-2.0-pro | gemini-1.5-pro | gemini-1.5-flash
+   
 
   anthropic:
     api_key: ""           # Leave empty → reads ANTHROPIC_API_KEY env var
@@ -90,14 +89,15 @@ providers:
 
 # ── LLM generation parameters ─────────────────────────────
 generation:
-  temperature: 0.7
+  temperature: 0.4
   max_tokens: 2048
 
   # ── RAG System Configuration ──────────────────────────────
 rag:
   # Which providers to use — switch by changing these values
-  kg_provider:     postgres       # neo4j | postgres
-  vector_provider: faiss       # faiss
+  kg_provider:     neo4j          # neo4j | postgres (neo4j is default)
+  vector_provider: pgvector       # pgvector | faiss
+  pgvector_table:  kb_vectors     # table name for pgvector
   # LLM used by the RAG module (chat + /kb/ask narration).
   #   openai | gemini | ollama | onnx | none (disabled)
   # onnx is the ONNX export of the finetuned SLM (replaces huggingface for inference)

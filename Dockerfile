@@ -46,11 +46,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ── Layer 3: GPU inference wheels (onnxruntime-gpu + genai-cuda) ─────────────
 # Ordering matters: genai-cuda may re-declare a CPU `onnxruntime` dependency.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    (uv pip uninstall --python /app/.venv/bin/python onnxruntime onnxruntime-genai || true) && \
     uv pip install --python /app/.venv/bin/python "onnxruntime-gpu==1.26.0" && \
-    uv pip install --python /app/.venv/bin/python "onnxruntime-genai-cuda==0.14.1" && \
-    (uv pip uninstall --python /app/.venv/bin/python onnxruntime || true) && \
-    uv pip install --reinstall --python /app/.venv/bin/python "onnxruntime-gpu==1.26.0"
+    uv pip install --python /app/.venv/bin/python "onnxruntime-genai-cuda==0.14.1" 
+
 
 # ── Layer 4: hard verification (no silent CPU fallbacks) ─────────────────────
 RUN /app/.venv/bin/python -c "import onnxruntime as o; p=o.get_available_providers(); \

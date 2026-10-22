@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'football-api'
+    metrics_path: '/metrics'
+    static_configs:
+      # fastapi:8001 is the internal Docker service DNS on football-network
+      - targets: ['fastapi:8001']
+        labels:
+          app: 'football-rag-saas'
+          env: 'production'
