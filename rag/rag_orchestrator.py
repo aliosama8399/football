@@ -162,6 +162,19 @@ class FootballRAGSystem:
             span.update(output=kg_text)
             return kg_text
 
+    @staticmethod
+    def _clean_match_chunk(raw_text: str) -> str:
+        """Strip noisy environmental telemetry to preserve token budget for core tactical data."""
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        kept = []
+        for line in lines:
+            if line.startswith("Referee strictness:") or line.startswith("Temp:") or line.startswith("Rain:") or line.startswith("Wind:"):
+                continue
+            if "Over 2.5:" in line and "Clean sheets:" in line:
+                continue
+            kept.append(line)
+        return "\n".join(kept)
+
     def _get_vector_context(self, query: str, teams: list[str], as_of: str = None) -> str:
         """Semantic search for similar analyses and match stats with optional as-of cutoff."""
         enriched = f"{' '.join(teams)} {query}" if teams else query
@@ -190,10 +203,40 @@ class FootballRAGSystem:
                     logger.debug("Reranking error: %s", e)
 
             if results:
-                formatted = [f"[{i}] {r.get('text', '')}" for i, r in enumerate(results, 1)]
-                vec_text = "\n\n".join(formatted)
-                span.update(output=vec_text)
-                return vec_text
+                # Deduplicate matches and prioritize direct historical encounters
+                seen_matches = set()
+                direct_matches = []
+                single_matches = []
+                for r in results:
+                    meta = r.get("metadata", {})
+                    h = meta.get("home_team")
+                    a = meta.get("away_team")
+                    dt = meta.get("date")
+                    key = (h, a, dt) if h and a else r.get("text", "")[:80]
+                    if key in seen_matches:
+                        continue
+                    seen_matches.add(key)
+
+                    cleaned = self._clean_match_chunk(r.get("text", ""))
+                    if not cleaned:
+                        continue
+
+                    # If query is comparing two specific teams, classify match
+                    if len(teams) >= 2 and h and a:
+                        if h in teams and a in teams:
+                            direct_matches.append(cleaned)
+                        elif h in teams or a in teams:
+                            single_matches.append(cleaned)
+                        # discard matches where neither team is involved
+                    else:
+                        single_matches.append(cleaned)
+
+                # Direct H2H matches come first, filled with single-team matches
+                selected = direct_matches + single_matches
+                if selected:
+                    vec_text = "\n\n".join(f"[{i}] {txt}" for i, txt in enumerate(selected[:k], 1))
+                    span.update(output=vec_text)
+                    return vec_text
 
             vec_text = self.vector.format_vector_context(enriched, k=k)
             span.update(output=vec_text)
@@ -201,7 +244,7 @@ class FootballRAGSystem:
 
     # ── Public API ───────────────────────────────────────────────────────────
 
-    def query_with_context(self, question: str, as_of: str = None) -> dict:
+    def query_with_context(self, question: str, as_of: str = None, teams: list[str] = None) -> dict:
         """
         Execute RAG retrieval and generation, returning structured contexts along with answer.
         Essential for RAGAS evaluation (faithfulness, answer relevancy, context precision/recall).
@@ -214,10 +257,13 @@ class FootballRAGSystem:
                 - vector_context: str
                 - teams: list[str]
         """
-        with trace_step("entity_extraction", input={"question": question}, metadata={"question": question}) as span:
-            teams = _extract_team_names(question, _TEAM_CACHE)
-            span.update(output=teams)
-            logger.info("Teams detected: %s", teams)
+        if teams is None:
+            with trace_step("entity_extraction", input={"question": question}, metadata={"question": question}) as span:
+                teams = _extract_team_names(question, _TEAM_CACHE)
+                span.update(output=teams)
+                logger.info("Teams detected: %s", teams)
+        else:
+            logger.info("Using explicit teams: %s", teams)
 
         kg_context  = self._get_kg_context(teams, question, as_of=as_of)
         vec_context = self._get_vector_context(question, teams, as_of=as_of)
@@ -291,19 +337,20 @@ class FootballRAGSystem:
                     "teams": teams,
                 }
 
-    def query(self, question: str, as_of: str = None) -> str:
+    def query(self, question: str, as_of: str = None, teams: list[str] = None) -> str:
         """
         General-purpose RAG query.
-        Automatically extracts teams, retrieves context, and generates an answer.
+        Automatically extracts teams (if not provided), retrieves context, and generates an answer.
 
         Args:
             question: Free-form natural language question.
             as_of: Optional cutoff date (YYYY-MM-DD) to prevent look-ahead leakage.
+            teams: Optional explicit list of teams to analyze (e.g. [home_team, away_team]).
 
         Returns:
             LLM-generated answer with grounding in retrieved facts.
         """
-        result = self.query_with_context(question, as_of=as_of)
+        result = self.query_with_context(question, as_of=as_of, teams=teams)
         return result["response"]
 
     def _get_gnn_prediction(self, home_team: str, away_team: str) -> str:
@@ -355,7 +402,7 @@ class FootballRAGSystem:
             f"Provide your final match prediction with reasoning, integrating your analysis with Expert 1's prediction."
         )
         try:
-            return self.query(question, as_of=as_of)
+            return self.query(question, as_of=as_of, teams=[home_team, away_team])
         except Exception as e:
             logger.error("Expert 2 (LLM) failed in predict_match: %s. Returning Expert 1 GNN only.", e)
             return json.dumps({
@@ -440,7 +487,7 @@ class FootballRAGSystem:
             f"actions. Keep each sentence short (max 15 words)."
         )
         try:
-            return self.query(question)
+            return self.query(question, teams=[home_team, away_team])
         except Exception as e:
             logger.error("Expert 2 (LLM) failed in predict_live_match: %s. Returning structured fallback.", e)
             return json.dumps({

@@ -90,7 +90,7 @@ providers:
 # ── LLM generation parameters ─────────────────────────────
 generation:
   temperature: 0.4
-  max_tokens: 2048
+  max_tokens: 400
 
   # ── RAG System Configuration ──────────────────────────────
 rag:
