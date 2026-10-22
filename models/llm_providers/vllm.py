@@ -41,8 +41,8 @@ class VllmProvider(BaseLLMProvider):
             or cfg.get("api_url", "")
         ).strip().rstrip("/") or "http://localhost:8356/v1"
         self.timeout     = cfg.get("timeout", 300)
-        self.temperature = _gen_cfg().get("temperature", 0.7)
-        self.max_tokens  = _gen_cfg().get("max_tokens", 2048)
+        self.temperature = _gen_cfg().get("temperature", 0.4)
+        self.max_tokens  = min(int(_gen_cfg().get("max_tokens", 400)), 450)
         if not self.api_url.endswith("/v1"):
             self.api_url += "/v1"
         try:
@@ -55,8 +55,10 @@ class VllmProvider(BaseLLMProvider):
         return self._call_api(prompt)
 
     def generate_with_context(self, prompt: str, kg_context: str = "", vector_context: str = "") -> str:
-        kg_budget = int(os.getenv("FOOTBALL_ONNX_KG_CTX", 0)) or 8000
-        vec_budget = int(os.getenv("FOOTBALL_ONNX_VEC_CTX", 0)) or 2500
+        # Model context limit is 2048 tokens. Budget contexts conservatively to leave
+        # 400 tokens for generation and avoid vLLM 400 Bad Request errors.
+        kg_budget = int(os.getenv("FOOTBALL_ONNX_KG_CTX", 0)) or 2400
+        vec_budget = int(os.getenv("FOOTBALL_ONNX_VEC_CTX", 0)) or 750
         if kg_budget and len(kg_context) > kg_budget:
             kg_context = kg_context[:kg_budget].rsplit(" ", 1)[0] + " ..."
         if vec_budget and len(vector_context) > vec_budget:
@@ -78,6 +80,12 @@ class VllmProvider(BaseLLMProvider):
             "When tactical data is complete, ground your reasoning in the numbers; if specific historical data points are absent, "
             "use balanced analytical football reasoning without fabricating false scores, player names, or statistics."
         )
+
+        # Dynamic token budget clamp: ensure input_tokens + max_tokens <= 2040
+        approx_chars = len(system_content) + len(prompt)
+        est_input_tokens = int(approx_chars / 3.0) + 20
+        safe_output_tokens = max(120, min(self.max_tokens, 2040 - est_input_tokens))
+
         response = self._client.chat.completions.create(
             model=self.model_name,
             messages=[
@@ -85,7 +93,7 @@ class VllmProvider(BaseLLMProvider):
                 {"role": "user",   "content": prompt}
             ],
             temperature=self.temperature,
-            max_tokens=self.max_tokens,
+            max_tokens=safe_output_tokens,
             timeout=self.timeout,
         )
         out = response.choices[0].message.content

@@ -278,6 +278,20 @@ def build_grounded_strengths(agg: dict) -> list[str]:
     elif win_rate >= 0.42:
         strengths.append(f"Competitive match management: secures points consistently with a {win_rate*100:.1f}% win rate.")
 
+    # 5. Baseline resilience (ensures struggling/lower-tier teams always have at least 2 grounded strengths)
+    avg_corners = agg.get("avg_corners", 0.0)
+    avg_fouls   = agg.get("avg_fouls", 0.0)
+    if len(strengths) < 2 and avg_corners >= 3.8:
+        strengths.append(f"Set-piece opportunity generation: earns an average of {avg_corners:.1f} corners per match.")
+    if len(strengths) < 2 and avg_sot >= 2.5:
+        strengths.append(f"Direct counter-attacking threat: creates {avg_sot:.1f} shots on target per match.")
+    if len(strengths) < 2 and avg_gh >= 0.75:
+        strengths.append(f"Home ground resilience: raises attacking volume at home ({avg_gh:.2f} goals/match).")
+    if len(strengths) < 2 and avg_fouls >= 9.5:
+        strengths.append(f"Physical intensity: contests territory aggressively with {avg_fouls:.1f} challenges per match.")
+    if len(strengths) < 2:
+        strengths.append(f"Compact low-block organization during sustained opposition phases.")
+
     return strengths[:4]
 
 

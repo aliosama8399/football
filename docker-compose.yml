@@ -42,11 +42,8 @@ services:
       KG_PROVIDER: neo4j
       VECTOR_PROVIDER: pgvector
     volumes:
-      # ONNX artifacts are gitignored & dockerignored → mount from host.
-      - ./models/export:/app/models/export:ro
-      # FAISS vector index + metadata (your vector database files)
-      - ./rag/vector_store:/app/rag/vector_store:ro
-      # Live sync of API logic, evaluation monitoring, and BentoML serving
+      - ./models:/app/models
+      - ./rag:/app/rag
       - ./api:/app/api
       - ./monitoring:/app/monitoring
       - ./serving:/app/serving
@@ -75,8 +72,8 @@ services:
       VECTOR_PROVIDER: pgvector
       PYTHONUNBUFFERED: "1"
     volumes:
-      - ./models/export:/app/models/export:ro
-      - ./rag/vector_store:/app/rag/vector_store:ro
+      - ./models:/app/models
+      - ./rag:/app/rag
       - ./api:/app/api
       - ./monitoring:/app/monitoring
       - ./serving:/app/serving

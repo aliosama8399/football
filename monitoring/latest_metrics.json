@@ -4,7 +4,7 @@
   "grounding_relevancy": 1.0,
   "last_rag_eval_timestamp": 1792476087.36835,
   "last_eval_timestamp": 1792476447.2820556,
-  "last_updated_at": "2026-10-22 19:59:41",
+  "last_updated_at": "2026-10-22 21:07:33",
   "ragas_faithfulness": 0.6,
   "ragas_answer_relevancy": 1.0000000000000004,
   "ragas_context_precision": 0.0,
@@ -23,5 +23,5 @@
   "online_query_drift_score": 0.168,
   "last_online_rag_timestamp": 1792273948.6543508,
   "online_prediction_entropy": 1.0,
-  "last_online_prediction_timestamp": 1792699181.0435286
+  "last_online_prediction_timestamp": 1792703253.0010545
 }

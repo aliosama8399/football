@@ -72,23 +72,59 @@ class PredictionService:
                     time.perf_counter() - t_llm, len(analysis_text or ""))
 
         # Structured breakdown: prefer real JSON from the narrative; for
-        # free-text narratives, HEURISTICALLY extract per-team strengths /
-        # weaknesses from the summary so the UI scouting cards stay dynamic.
+        # free-text narratives, combine heuristic extraction with verified KG profile fallback
         breakdown = extract_json_object(analysis_text) or {}
         heur = extract_team_analysis(analysis_text, home_team, away_team)
-        merged = False
+
+        if "home_team_analysis" not in breakdown or not isinstance(breakdown["home_team_analysis"], dict):
+            breakdown["home_team_analysis"] = {"strengths": [], "weaknesses": []}
+        if "away_team_analysis" not in breakdown or not isinstance(breakdown["away_team_analysis"], dict):
+            breakdown["away_team_analysis"] = {"strengths": [], "weaknesses": []}
+
+        # Step 1: Incorporate heuristic extraction from narrative
         for key in ("home_team_analysis", "away_team_analysis"):
-            if not (isinstance(breakdown.get(key), dict) and
-                    (breakdown[key].get("strengths") or breakdown[key].get("weaknesses"))):
-                if heur[key]["strengths"] or heur[key]["weaknesses"]:
-                    breakdown[key] = heur[key]
-                    merged = True
-        if not breakdown.get("prediction_verdict") and not any(
-                k in breakdown for k in ("home_team_analysis", "away_team_analysis")):
-            breakdown = {}  # nothing useful extracted
+            for bucket in ("strengths", "weaknesses"):
+                if not breakdown[key].get(bucket) and heur.get(key, {}).get(bucket):
+                    breakdown[key][bucket] = heur[key][bucket]
+
+        # Step 2: Ground any missing strengths/weaknesses from Knowledge Graph profiles
+        home_prof = await self.rag_wrapper.get_team_profile(home_team) or {}
+        away_prof = await self.rag_wrapper.get_team_profile(away_team) or {}
+
+        if not breakdown["home_team_analysis"].get("strengths"):
+            breakdown["home_team_analysis"]["strengths"] = list(home_prof.get("strengths") or [])
+        if not breakdown["home_team_analysis"].get("weaknesses"):
+            breakdown["home_team_analysis"]["weaknesses"] = list(home_prof.get("weaknesses") or [])
+
+        if not breakdown["away_team_analysis"].get("strengths"):
+            breakdown["away_team_analysis"]["strengths"] = list(away_prof.get("strengths") or [])
+        if not breakdown["away_team_analysis"].get("weaknesses"):
+            breakdown["away_team_analysis"]["weaknesses"] = list(away_prof.get("weaknesses") or [])
+
+        # Step 3: Fall back to team_tactics.json if profile properties were unpopulated
+        if not breakdown["home_team_analysis"].get("strengths") or not breakdown["away_team_analysis"].get("strengths"):
+            try:
+                import os, json
+                tactics_path = os.path.join("rag", "knowledge_base", "team_tactics.json")
+                if os.path.exists(tactics_path):
+                    with open(tactics_path, "r", encoding="utf-8") as f:
+                        tdata = json.load(f)
+                        if not breakdown["home_team_analysis"].get("strengths"):
+                            breakdown["home_team_analysis"]["strengths"] = list(tdata.get(home_team, {}).get("strengths", []))
+                        if not breakdown["home_team_analysis"].get("weaknesses"):
+                            breakdown["home_team_analysis"]["weaknesses"] = list(tdata.get(home_team, {}).get("weaknesses", []))
+                        if not breakdown["away_team_analysis"].get("strengths"):
+                            breakdown["away_team_analysis"]["strengths"] = list(tdata.get(away_team, {}).get("strengths", []))
+                        if not breakdown["away_team_analysis"].get("weaknesses"):
+                            breakdown["away_team_analysis"]["weaknesses"] = list(tdata.get(away_team, {}).get("weaknesses", []))
+            except Exception:
+                pass
+
         logger.info("[service] predict done in %.1fs (source=live_model, "
-                    "breakdown=%s heuristic_extract=%s)",
-                    time.perf_counter() - t0, bool(breakdown), merged)
+                    "home_strengths=%d, away_strengths=%d)",
+                    time.perf_counter() - t0,
+                    len(breakdown["home_team_analysis"].get("strengths", [])),
+                    len(breakdown["away_team_analysis"].get("strengths", [])))
 
         return MatchPredictionResponse(
             home_team=home_team,
