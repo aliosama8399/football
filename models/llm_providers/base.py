@@ -27,7 +27,7 @@ except Exception:
 
 # ── Config loader ─────────────────────────────────────────────────────────────
 
-_CONFIG_PATH = Path(__file__).resolve().parent.parent / "llm_config.yaml"
+_CONFIG_PATH = Path(os.getenv("LLM_CONFIG_PATH", Path(__file__).resolve().parent.parent / "llm_config.yaml"))
 
 
 def _load_config() -> dict:
@@ -76,17 +76,20 @@ def _resolve_api_key(provider_name: str, env_var: str, override: str | None) -> 
 
 def _resolve_model(provider_name: str, override: str | None) -> str:
     """
-    Resolve model name with priority: override arg -> config file -> hard-coded fallback.
+    Resolve model name with priority: override arg -> env var -> config file -> hard-coded fallback.
     """
     if override:
         return override
+    env_model = os.getenv(f"{provider_name.upper()}_MODEL", "").strip()
+    if env_model:
+        return env_model
     cfg_model = _provider_cfg(provider_name).get("default_model", "").strip()
     if cfg_model:
         return cfg_model
     fallbacks = {
         "ollama":    "llama3.2",
         "openai":    "gpt-4o-mini",
-        "gemini":    "gemini-2.0-flash",
+        "gemini":    "gemini-3.8-flash",
         "anthropic": "claude-haiku-4-5-20251001",
     }
     return fallbacks.get(provider_name, "unknown-model")

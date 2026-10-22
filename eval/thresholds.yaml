@@ -1,0 +1,23 @@
+# Quality Gate Thresholds (Phase 1)
+# Used by eval/run_rag_eval.py and eval/run_slm_eval.py to enforce deployment standards.
+
+rag:
+  faithfulness_min: 0.75             # RAGAS faithfulness: claims grounded in retrieved context
+  answer_relevancy_min: 0.80         # RAGAS answer relevancy: addresses user's query
+  numeric_fact_grounding_min: 0.85   # % of extracted numbers matching factual ground truth
+  retrieval_hit_rate_min: 0.85       # % of relevant teams/matches retrieved
+  max_latency_p95_seconds: 3.5       # Latency upper bound
+
+slm:
+  valid_json_rate_min: 1.00          # 100% strictly formatted JSON output
+  schema_compliance_min: 0.95        # Required keys present (match_state, analysis, coach_recommendations)
+  coach_actions_count: 3             # Exactly 3 prioritized recommendations
+  score_consistency_min: 0.95        # Grounded in live match minute & score
+
+prediction:
+  accuracy_min: 0.50                 # 3-way match outcome accuracy (random is 0.33)
+  brier_score_max: 0.60              # Multi-class Brier score (lower is better, random=0.667)
+  log_loss_max: 1.05                 # Multi-class cross-entropy loss (random=1.098)
+  consensus_rate_min: 0.60           # Agreement rate between GNN and SLM
+  tactical_grounding_min: 0.80       # Grounding of stats cited in prediction reasoning
+

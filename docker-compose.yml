@@ -20,16 +20,15 @@
 
 services:
 
-  # ── 1. FASTAPI APP (GPU) ──────────────────────────────────────────────────
+  # ── 1. FASTAPI APP (GPU) — Standalone (Optional Profile) ──────────────────
   fastapi:
     build:
       context: .
       args:
         GPU: "1"
+    profiles: ["fastapi-standalone"]
     container_name: football-api
     gpus: all # requires nvidia-container-toolkit
-    ports:
-      - "8001:8001"
     environment:
       POSTGRES_DSN: postgresql://postgres:123@postgres:5432/football_rag
       NEO4J_URI: bolt://neo4j:7687
@@ -40,11 +39,17 @@ services:
       HF_HUB_OFFLINE: "0"
       # Inside the compose network, vllm is reached by SERVICE NAME (not localhost)
       VLLM_API_URL: http://vllm:8000/v1
+      KG_PROVIDER: neo4j
+      VECTOR_PROVIDER: pgvector
     volumes:
       # ONNX artifacts are gitignored & dockerignored → mount from host.
       - ./models/export:/app/models/export:ro
       # FAISS vector index + metadata (your vector database files)
       - ./rag/vector_store:/app/rag/vector_store:ro
+      # Live sync of API logic, evaluation monitoring, and BentoML serving
+      - ./api:/app/api
+      - ./monitoring:/app/monitoring
+      - ./serving:/app/serving
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,9 +57,74 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # ── 2. POSTGRESQL (relational + default KG provider) ─────────────────────
+  # ── 1b. UNIFIED BENTOML APP & GNN ADAPTIVE BATCHING (Primary Service) ────
+  bento:
+    image: football-fastapi:latest
+    container_name: football-bento
+    ports:
+      - "8001:8001"
+    environment:
+      POSTGRES_DSN: postgresql://postgres:123@postgres:5432/football_rag
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password
+      FOOTBALL_ONNX_MODEL_PATH: /app/models/export/slm_gpu
+      HF_HUB_OFFLINE: "0"
+      VLLM_API_URL: http://vllm:8000/v1
+      KG_PROVIDER: neo4j
+      VECTOR_PROVIDER: pgvector
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./models/export:/app/models/export:ro
+      - ./rag/vector_store:/app/rag/vector_store:ro
+      - ./api:/app/api
+      - ./monitoring:/app/monitoring
+      - ./serving:/app/serving
+      - ./data:/app/data
+      - ./eval:/app/eval
+    command: ["bentoml", "serve", "serving.bentoml.service:FootballBentoService", "--host", "0.0.0.0", "--port", "8001"]
+    networks:
+      default:
+        aliases:
+          - fastapi
+          - bento
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── 1c. AUTOMATED SCRAPER & CONTINUOUS EVALUATION RUNNER ──────────────────
+  auto-eval:
+    image: football-fastapi:latest
+    container_name: football-auto-eval
+    environment:
+      POSTGRES_DSN: postgresql://postgres:123@postgres:5432/football_rag
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password
+      API_URL: http://fastapi:8001
+      USE_TF: "0"
+      USE_TORCH: "1"
+      TF_ENABLE_ONEDNN_OPTS: "0"
+    volumes:
+      - ./data:/app/data
+      - ./eval:/app/eval
+      - ./monitoring:/app/monitoring
+      - ./models:/app/models
+      - ./rag:/app/rag
+    command: ["python", "data/auto_scrape_and_eval.py", "--interval-hours", "24", "--judge", "heuristic"]
+    depends_on:
+      bento:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── 2. POSTGRESQL + PGVECTOR (relational + vector provider) ──────────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: football-postgres
     environment:
       POSTGRES_USER: postgres
@@ -115,7 +185,6 @@ services:
       HF_HOME: /hf
       HF_TOKEN: ${HF_TOKEN:-}
       VLLM_LOGGING_LEVEL: INFO
-      VLLM_ATTENTION_BACKEND: XFORMERS
       VLLM_WSL2_ENABLE_PIN_MEMORY: "1"
     command:
       - --model
@@ -126,9 +195,9 @@ services:
       - --port
       - "8000"
       - --max-model-len
-      - "4096"
+      - "2048"
       - --gpu-memory-utilization
-      - "0.80"
+      - "0.60"
       - --dtype
       - half
 
@@ -137,8 +206,117 @@ services:
       - hf_cache:/hf
     restart: unless-stopped
 
+  # ── 5. PROMETHEUS (Metrics Scraper & Time-Series DB) ──────────────────────
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: football-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    restart: unless-stopped
+
+  # ── 6. GRAFANA (Real-Time RAGAS & MLOps Dashboard) ────────────────────────
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: football-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ── 7. APACHE AIRFLOW (Orchestrator - Optional Profile) ───────────────────
+  # To start Airflow: docker compose --profile airflow up -d
+  airflow-webserver:
+    image: apache/airflow:2.10.2
+    profiles: ["airflow"]
+    container_name: football-airflow-webserver
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:123@postgres:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__WEBSERVER__SECRET_KEY: 'football_secret_key_airflow_2026'
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password
+      KG_PROVIDER: neo4j
+      POSTGRES_DSN: postgresql://postgres:123@postgres:5432/football_rag
+      VECTOR_PROVIDER: pgvector
+      API_URL: http://fastapi:8001
+      PYTHONPATH: /opt/airflow
+    volumes:
+      - ./data/dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+      - ./eval:/opt/airflow/eval
+      - ./rag:/opt/airflow/rag
+      - ./models:/opt/airflow/models
+      - ./monitoring:/opt/airflow/monitoring
+    ports:
+      - "8080:8080"
+    command: webserver
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.2
+    profiles: ["airflow"]
+    container_name: football-airflow-scheduler
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:123@postgres:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password
+      KG_PROVIDER: neo4j
+      POSTGRES_DSN: postgresql://postgres:123@postgres:5432/football_rag
+      VECTOR_PROVIDER: pgvector
+      API_URL: http://fastapi:8001
+      PYTHONPATH: /opt/airflow
+    volumes:
+      - ./data/dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+      - ./eval:/opt/airflow/eval
+      - ./rag:/opt/airflow/rag
+      - ./models:/opt/airflow/models
+      - ./monitoring:/opt/airflow/monitoring
+    command: scheduler
+
 volumes:
   pgdata:
   neo4jdata:
   mlflow_store:
   hf_cache:
+  prom_data:
+  grafana_data:
+

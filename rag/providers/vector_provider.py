@@ -86,7 +86,8 @@ class FAISSProvider(BaseVectorProvider):
         )
 
     # ── Search ─────────────────────────────────────────────────────────────
-    def search(self, query: str, k: int = 5, filter_meta: dict = None) -> list[dict]:
+    def search(self, query: str, k: int = 5, filter_meta: dict = None,
+               as_of: str = None) -> list[dict]:
         """
         Semantic search against the FAISS index.
 
@@ -107,8 +108,9 @@ class FAISSProvider(BaseVectorProvider):
 
         # Retrieve more candidates if filtering is requested (post-hoc filter
         # pool needs to be large enough to survive selective filters).
-        fetch_k = k * 50 if filter_meta else k
-        fetch_k = max(fetch_k, 300) if filter_meta else fetch_k
+        filtered = bool(filter_meta or as_of)
+        fetch_k = k * 50 if filtered else k
+        fetch_k = max(fetch_k, 300) if filtered else fetch_k
         fetch_k = min(fetch_k, self._index.ntotal)
 
         distances, indices = self._index.search(q_vec, fetch_k)
@@ -124,6 +126,8 @@ class FAISSProvider(BaseVectorProvider):
             if filter_meta:
                 if not all(meta.get(k) == v for k, v in filter_meta.items()):
                     continue
+            if as_of and meta.get("date") and str(meta["date"]) >= as_of:
+                continue
 
             results.append({
                 "text":     meta.get("text", ""),
@@ -144,11 +148,95 @@ class FAISSProvider(BaseVectorProvider):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# pgvector Provider (vectors live inside PostgreSQL)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PgVectorProvider(BaseVectorProvider):
+    """
+    Vector search using the pgvector extension (cosine distance, HNSW index).
+    Requires that build_pgvector_index.py has been run (or startup seeding).
+    """
+
+    def __init__(self, dsn: str = None, table: str = None):
+        import os
+        cfg = _load_rag_cfg().get("rag", {})
+        self.dsn = dsn or os.getenv("POSTGRES_DSN") or cfg.get(
+            "postgres_dsn", "postgresql://postgres:123@localhost:5432/football_rag")
+        self.table = table or cfg.get("pgvector_table", "kb_vectors")
+        self.embed_model = cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2")
+        self._conn = None
+        self._embedder = None
+        self._faiss_fallback = None
+
+    def load(self) -> None:
+        import psycopg2
+        from sentence_transformers import SentenceTransformer
+
+        self._conn = psycopg2.connect(self.dsn)
+        self._conn.autocommit = True
+        self._embedder = SentenceTransformer(self.embed_model)
+        size = self.get_index_size()
+        logger.info("pgvector connected: table=%s | vectors=%d | embed_model=%s",
+                    self.table, size, self.embed_model)
+        if size == 0:
+            logger.warning(
+                "pgvector table '%s' has 0 vectors! Run `python rag/build_pgvector_index.py` "
+                "to populate it, or start the server to auto-seed. Using FAISS fallback.",
+                self.table
+            )
+
+    def search(self, query: str, k: int = 5, filter_meta: dict = None,
+               as_of: str = None) -> list[dict]:
+        if self._conn is None:
+            self.load()
+
+        if self.get_index_size() == 0:
+            if self._faiss_fallback is None:
+                try:
+                    self._faiss_fallback = FAISSProvider()
+                    self._faiss_fallback.load()
+                except Exception:
+                    self._faiss_fallback = False
+            if self._faiss_fallback:
+                return self._faiss_fallback.search(query, k=k, filter_meta=filter_meta, as_of=as_of)
+
+        q_vec = self._embedder.encode([query], normalize_embeddings=True)[0]
+        literal = "[" + ",".join(f"{x:.6f}" for x in q_vec) + "]"
+
+        where, params = [], []
+        if filter_meta:
+            where.append("metadata @> %s::jsonb")
+            params.append(json.dumps(filter_meta))
+        if as_of:
+            where.append("(metadata->>'date') IS NULL OR (metadata->>'date') < %s")
+            params.append(as_of)
+        clause = ("WHERE " + " AND ".join(f"({w})" for w in where)) if where else ""
+
+        sql = (f"SELECT text, metadata, embedding <=> %s::vector AS dist "
+               f"FROM {self.table} {clause} ORDER BY dist LIMIT %s")
+        with self._conn.cursor() as cur:
+            cur.execute(sql, [literal, *params, k])
+            rows = cur.fetchall()
+        return [{"text": t, "score": float(d), "metadata": m} for t, m, d in rows]
+
+    def get_index_size(self) -> int:
+        if self._conn is None:
+            self.load()
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT to_regclass(%s)", (self.table,))
+            if cur.fetchone()[0] is None:
+                return 0
+            cur.execute(f"SELECT COUNT(*) FROM {self.table}")
+            return cur.fetchone()[0]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Factory
 # ─────────────────────────────────────────────────────────────────────────────
 
 _VECTOR_REGISTRY = {
     "faiss": FAISSProvider,
+    "pgvector": PgVectorProvider,
 }
 
 
@@ -157,7 +245,7 @@ def get_vector_provider(name: str = None) -> BaseVectorProvider:
     Return a loaded vector provider.
 
     Args:
-        name: "faiss". Defaults to llm_config.yaml rag.vector_provider.
+        name: "faiss" | "pgvector". Defaults to llm_config.yaml rag.vector_provider.
     """
     if name is None:
         cfg  = _load_rag_cfg()

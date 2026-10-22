@@ -227,29 +227,103 @@ class TacticalAnalysis(Base):
 
 async def ensure_kg_database_seeded():
     """
-    Checks if 'matches' and 'teams' exist and have data.
-    If not, calls rag.build_postgres_db to create and seed them from CSV.
-    Runs automatically on every container startup.
+    Checks and seeds ALL database providers at server startup:
+      1. PostgreSQL relational tables (matches, teams)
+      2. Neo4j graph database (Team, League, Season nodes + MATCH edges)
+      3. PostgreSQL pgvector table (kb_vectors)
+      4. FAISS index files (rag/vector_store)
+    Replicates knowledge base data across all providers idempotently.
     """
     import asyncio
+    import os
+    import time
+    from pathlib import Path
     from sqlalchemy import text
+    import yaml
+
+    # 1. PostgreSQL Relational Seeding
     try:
         async with engine.connect() as conn:
             result = await conn.execute(text("SELECT to_regclass('public.matches');"))
             has_matches = result.scalar() is not None
+            row_count = 0
             if has_matches:
                 count_res = await conn.execute(text("SELECT COUNT(*) FROM matches;"))
                 row_count = count_res.scalar() or 0
-                if row_count > 0:
-                    logger.info("KG database is already populated (%d matches present).", row_count)
-                    return
 
-        logger.info("KG tables missing or empty — seeding from CSV dataset...")
-        from rag.build_postgres_db import main as build_kg_db
-        await asyncio.to_thread(build_kg_db, drop=False)
-        logger.info("KG database seed completed successfully.")
+        if row_count == 0:
+            logger.info("PostgreSQL KG tables missing or empty — seeding from CSV dataset...")
+            from rag.build_postgres_db import main as build_kg_db
+            await asyncio.to_thread(build_kg_db, drop=False)
+            logger.info("PostgreSQL KG database seed completed successfully.")
+        else:
+            logger.info("PostgreSQL KG database already populated (%d matches present).", row_count)
     except Exception as e:
-        logger.error("Error during KG database seeding check: %s", e)
+        logger.error("Error during PostgreSQL KG seeding check: %s", e)
+
+    # 2. Neo4j Graph DB Seeding (with connection retry)
+    async def _seed_neo4j():
+        cfg_path = Path(__file__).parent.parent / "models" / "llm_config.yaml"
+        rag_cfg = {}
+        if cfg_path.exists():
+            with open(cfg_path) as f:
+                rag_cfg = (yaml.safe_load(f) or {}).get("rag", {})
+        uri = os.getenv("NEO4J_URI") or rag_cfg.get("neo4j_uri", "bolt://localhost:7687")
+        user = os.getenv("NEO4J_USER") or rag_cfg.get("neo4j_user", "neo4j")
+        password = os.getenv("NEO4J_PASSWORD") or rag_cfg.get("neo4j_password", "password")
+
+        from rag.build_neo4j_kg import count_matches, main as build_neo4j_kg
+
+        connected = False
+        for attempt in range(1, 11):
+            try:
+                cnt = await asyncio.to_thread(count_matches, uri, user, password)
+                connected = True
+                if cnt == 0:
+                    logger.info("Neo4j graph is empty — seeding from CSV dataset...")
+                    await asyncio.to_thread(build_neo4j_kg, clear=False)
+                    logger.info("Neo4j graph database seed completed successfully.")
+                else:
+                    logger.info("Neo4j graph already populated (%d MATCH edges present).", cnt)
+                break
+            except Exception as e:
+                logger.info("Waiting for Neo4j connection (%d/10): %s", attempt, e)
+                await asyncio.sleep(2.5)
+
+        if not connected:
+            logger.warning("Could not connect to Neo4j after retries — skipping Neo4j seeding.")
+
+    try:
+        await _seed_neo4j()
+    except Exception as e:
+        logger.error("Error during Neo4j seeding check: %s", e)
+
+    # 3. pgvector Vector Store Seeding
+    try:
+        from rag.build_pgvector_index import _settings, vector_count, main as build_pgvector
+        dsn, table, _ = _settings()
+        cnt = await asyncio.to_thread(vector_count, dsn, table)
+        if cnt == 0:
+            logger.info("pgvector table '%s' is empty — building index...", table)
+            await asyncio.to_thread(build_pgvector, rebuild=False, force_analyses=False)
+            logger.info("pgvector index build completed successfully.")
+        else:
+            logger.info("pgvector index already populated (%d vectors in '%s').", cnt, table)
+    except Exception as e:
+        logger.warning("pgvector seeding skipped or failed: %s", e)
+
+    # 4. FAISS Vector Store Seeding
+    try:
+        faiss_idx = Path(__file__).parent.parent / "rag" / "vector_store" / "faiss.index"
+        if not faiss_idx.exists():
+            logger.info("FAISS index not found at %s — building index...", faiss_idx)
+            from rag.build_faiss_index import main as build_faiss
+            await asyncio.to_thread(build_faiss)
+            logger.info("FAISS index build completed successfully.")
+        else:
+            logger.info("FAISS index file present at %s.", faiss_idx)
+    except Exception as e:
+        logger.warning("FAISS seeding skipped or failed: %s", e)
 
 
 async def init_db():

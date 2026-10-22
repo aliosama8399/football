@@ -1,0 +1,41 @@
+service: "serving.bentoml.service:FootballBentoService"
+labels:
+  owner: football-rag-team
+  project: football-rag-saas
+  framework: pytorch-fastapi-bentoml
+
+include:
+  - "serving/**/*.py"
+  - "api/**/*.py"
+  - "api/static/**/*"
+  - "rag/**/*.py"
+  - "rag/knowledge_base/**/*"
+  - "rag/vector_store/**/*"
+  - "models/**/*.py"
+  - "models/llm_config.yaml"
+  - "models/export/gnn/**/*"
+  - "models/export/slm/**/*"
+  - "models/export/slm_gpu/**/*"
+  - "monitoring/**/*.py"
+  - "data/**/*.py"
+  - "data/config.yaml"
+  - "data/processed/*.csv"
+  - "eval/**/*.py"
+
+exclude:
+  - "**/.pytest_cache/**"
+  - "**/__pycache__/**"
+  - "**/genai_cache/**"
+  - "**/logs/**"
+  - "**/*.tmp"
+
+python:
+  requirements_txt: "./requirements.txt"
+
+docker:
+  system_packages:
+    - libgomp1
+  env:
+    PYTHONUNBUFFERED: "1"
+    KG_PROVIDER: "neo4j"
+    VECTOR_PROVIDER: "pgvector"

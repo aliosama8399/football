@@ -126,9 +126,9 @@ class KnowledgeBase:
                 return self._vector
             self._vector_tried = True
             try:
-                from rag.providers.vector_provider import FAISSProvider
-                self._vector = FAISSProvider()
-                logger.info("KB: FAISS vector index attached (lazy)")
+                from rag.providers.vector_provider import get_vector_provider
+                self._vector = get_vector_provider()
+                logger.info("KB: %s vector store attached (lazy)", type(self._vector).__name__)
             except Exception as e:
                 logger.warning("KB: vector index unavailable (%s) — semantic enrichment disabled", e)
                 self._vector = None

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+import json
+from fastapi import APIRouter, Depends, BackgroundTasks
 from typing import List
 
 from api.schemas import ConversationCreate, ConversationResponse, MessageCreate, MessageResponse
@@ -42,6 +43,7 @@ async def get_messages(
 async def post_message(
     conversation_id: int,
     payload: MessageCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     chat_service = Depends(get_chat_service)
 ):
@@ -50,4 +52,32 @@ async def post_message(
     Processes the request in either prediction/tactics mode (Model GNN+LLM prediction)
     or general conversational RAG mode, persisting both queries and replies.
     """
-    return await chat_service.post_message(conversation_id, user_id=current_user.id, content=payload.content)
+    resp = await chat_service.post_message(conversation_id, user_id=current_user.id, content=payload.content)
+    try:
+        from monitoring.metrics_registry import api_rag_queries_total
+        api_rag_queries_total.labels(status="success").inc()
+    except Exception:
+        pass
+
+    # Online 5-dimensional drift and evidence evaluation in background task (non-blocking)
+    try:
+        from api.services.drift_service import drift_evaluator
+        sources_val = getattr(resp, "sources", None)
+        if isinstance(sources_val, str):
+            try:
+                sources_val = json.loads(sources_val)
+            except Exception:
+                sources_val = []
+        elif not isinstance(sources_val, list):
+            sources_val = []
+
+        background_tasks.add_task(
+            drift_evaluator.evaluate_rag_turn,
+            query=payload.content,
+            answer=resp.content,
+            sources=sources_val,
+        )
+    except Exception:
+        pass
+
+    return resp
