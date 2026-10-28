@@ -1,3 +1,4 @@
+import asyncio
 import strawberry
 from typing import List, Optional
 from fastapi import HTTPException
@@ -8,6 +9,7 @@ from api.graphql.types import (TeamNode, MatchRelation, Best11Entry,
                                ScoutTransfer)
 from api.graph_db import get_graph_db
 from api.repositories.graph_repo import TeamGraphRepository
+from data._config import resolve_default_player_season
 
 def _get_repo() -> TeamGraphRepository:
     """Helper to resolve TeamGraphRepository inside execution context."""
@@ -43,13 +45,16 @@ def _match_relation(m: dict) -> MatchRelation:
 @strawberry.type
 class Query:
     @strawberry.field
-    def team_profile(self, name: str) -> Optional[TeamNode]:
+    async def team_profile(self, name: str) -> Optional[TeamNode]:
         """Query tactical profile and performance averages for a team name."""
-        repo = _get_repo()
-        profile = repo.get_team_profile(name)
+        def _fetch():
+            repo = _get_repo()
+            return repo.get_team_profile(name)
+
+        profile = await asyncio.to_thread(_fetch)
         if not profile:
             return None
-            
+
         return TeamNode(
             name=profile.get("name") or name,
             league=profile.get("league", "Unknown"),
@@ -78,34 +83,44 @@ class Query:
         )
 
     @strawberry.field
-    def head_to_head(self, team_a: str, team_b: str, limit: int = 10) -> List[MatchRelation]:
+    async def head_to_head(self, team_a: str, team_b: str, limit: int = 10) -> List[MatchRelation]:
         """Query head-to-head match history between two specific teams."""
-        repo = _get_repo()
-        matches = repo.get_head_to_head(team_a, team_b, limit=limit)
+        def _fetch():
+            repo = _get_repo()
+            return repo.get_head_to_head(team_a, team_b, limit=limit)
+
+        matches = await asyncio.to_thread(_fetch)
         return [_match_relation(m) for m in matches]
 
     @strawberry.field
-    def recent_form(self, team_name: str, limit: int = 5) -> List[MatchRelation]:
+    async def recent_form(self, team_name: str, limit: int = 5) -> List[MatchRelation]:
         """Query recent form matches for a team."""
-        repo = _get_repo()
-        matches = repo.get_recent_form(team_name, n=limit)
+        def _fetch():
+            repo = _get_repo()
+            return repo.get_recent_form(team_name, n=limit)
+
+        matches = await asyncio.to_thread(_fetch)
         return [_match_relation(m) for m in matches]
 
     @strawberry.field
-    def matches_between(self, team_a: str, team_b: str,
-                        league: Optional[str] = None,
-                        season: Optional[str] = None,
-                        limit: int = 10) -> List[MatchRelation]:
+    async def matches_between(self, team_a: str, team_b: str,
+                              league: Optional[str] = None,
+                              season: Optional[str] = None,
+                              limit: int = 10) -> List[MatchRelation]:
         """Matches between two teams, optionally scoped to one league-season
         (e.g. league='Premier_League', season='2425') — backed by the
         processed match dataset."""
-        store = _get_kb_repo()
-        matches = store.head_to_head(team_a, team_b, limit=limit,
-                                     league=league, season=season)
+        def _fetch():
+            store = _get_kb_repo()
+            return store.head_to_head(team_a, team_b, limit=limit,
+                                      league=league, season=season)
+
+        matches = await asyncio.to_thread(_fetch)
         return [_match_relation(m) for m in matches]
 
     @strawberry.field
-    async def best11(self, team: str, league: str, season: str = "2425",
+    async def best11(self, team: str, league: str,
+                     season: Optional[str] = None,
                      formation: str = "auto",
                      date: Optional[str] = None,
                      opponent: Optional[str] = None) -> Optional[Best11Result]:
@@ -124,14 +139,15 @@ class Query:
         FBRef/understat, so this runs off the event loop.
         """
         from api.dependencies import get_best11_api_service
+        resolved_season = season or resolve_default_player_season()
         try:
             result = await get_best11_api_service().recommend(
-                team, league, season, formation, date, opponent)
+                team, league, resolved_season, formation, date, opponent)
         except HTTPException as e:
-            return Best11Result(team=team, league_code="", season=season,
+            return Best11Result(team=team, league_code="", season=resolved_season,
                                 formation=formation, error=e.detail)
         except Exception as e:
-            return Best11Result(team=team, league_code="", season=season,
+            return Best11Result(team=team, league_code="", season=resolved_season,
                                 formation=formation, error=str(e))
         return Best11Result(
             team=result.team,
@@ -162,7 +178,7 @@ class Query:
 
     @strawberry.field
     async def scout(self, position: str, league: str = "all",
-                    season: str = "2425", youth: bool = False,
+                    season: Optional[str] = None, youth: bool = False,
                     top: int = 5,
                     team_needing: Optional[str] = None,
                     refresh: bool = False) -> ScoutResult:
@@ -175,14 +191,15 @@ class Query:
         the identity pool from football-data.org squads.
         """
         from api.dependencies import get_scout_api_service
+        resolved_season = season or resolve_default_player_season()
         try:
             result = await get_scout_api_service().scout(
-                league, season, position, youth, top, team_needing, refresh)
+                league, resolved_season, position, youth, top, team_needing, refresh)
         except HTTPException as e:
-            return ScoutResult(season=season, position=position,
+            return ScoutResult(season=resolved_season, position=position,
                                youth=youth, error=e.detail)
         except Exception as e:
-            return ScoutResult(season=season, position=position,
+            return ScoutResult(season=resolved_season, position=position,
                                youth=youth, error=str(e))
         return ScoutResult(
             season=result.season,
@@ -205,17 +222,23 @@ class Query:
         )
 
     @strawberry.field
-    def league_teams(self, league: str, season: Optional[str] = None) -> List[str]:
+    async def league_teams(self, league: str, season: Optional[str] = None) -> List[str]:
         """Query names of all teams competing in a league, optionally filtered by season."""
-        repo = _get_repo()
-        return repo.get_league_teams(league, season=season)
+        def _fetch():
+            repo = _get_repo()
+            return repo.get_league_teams(league, season=season)
+
+        return await asyncio.to_thread(_fetch)
 
     # ── Knowledge Base ────────────────────────────────────────────────────────
 
     @strawberry.field
-    def kb_retrieve(self, question: str, prefer_prediction: bool = False) -> KBBundle:
+    async def kb_retrieve(self, question: str, prefer_prediction: bool = False) -> KBBundle:
         """Retrieve the KB context bundle for a question — no LLM involved."""
-        bundle = _get_kb_repo().retrieve(question, prefer_prediction=prefer_prediction)
+        def _fetch():
+            return _get_kb_repo().retrieve(question, prefer_prediction=prefer_prediction)
+
+        bundle = await asyncio.to_thread(_fetch)
         return KBBundle(
             question=bundle.question,
             intent=bundle.intent,
@@ -229,11 +252,14 @@ class Query:
         )
 
     @strawberry.field
-    def kb_ask(self, question: str, llm_provider: Optional[str] = None,
-               prefer_prediction: bool = False) -> KBAnswer:
+    async def kb_ask(self, question: str, llm_provider: Optional[str] = None,
+                     prefer_prediction: bool = False) -> KBAnswer:
         """Ask the KB. llm_provider=None → structured answer without any LLM."""
-        answer = _get_kb_repo().ask(question, llm_name=llm_provider,
-                                    prefer_prediction=prefer_prediction)
+        def _fetch():
+            return _get_kb_repo().ask(question, llm_name=llm_provider,
+                                      prefer_prediction=prefer_prediction)
+
+        answer = await asyncio.to_thread(_fetch)
         return KBAnswer(
             content=answer.content,
             provider=answer.provider,

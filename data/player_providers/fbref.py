@@ -8,9 +8,9 @@ need.
 
 Fetch layer: FBRef sits behind a Cloudflare JS challenge, so plain
 requests / cloudscraper get 403'd. We use botasaurus with a real Chrome
-window (headless=False, same approach as ScraperFC) and batch page
-fetches per league to minimize browser sessions. Respects the
-sports-reference 6s-per-request etiquette between navigations.
+window when available on desktop; inside headless Docker containers where
+botasaurus is not installed, this provider degrades gracefully so
+UnderstatPlayerProvider handles live HTTP JSON fetching.
 
 Season format in: '2425'  →  FBRef slug '2024-2025'.
 """
@@ -23,7 +23,17 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from botasaurus.browser import browser, ElementWithSelectorNotFoundException
+try:
+    from botasaurus.browser import browser, ElementWithSelectorNotFoundException
+    _HAS_BOTASAURUS = True
+except ImportError:
+    _HAS_BOTASAURUS = False
+    ElementWithSelectorNotFoundException = Exception
+
+    def browser(*args, **kwargs):
+        def _decorator(fn):
+            return fn
+        return _decorator
 
 from data.player_providers.base import BasePlayerProvider
 from data.player_providers.schema import PlayerRecord
@@ -46,10 +56,12 @@ _POS_MAP = [
     ("FW", "FW"), ("ATT", "FW"), ("FWD", "FW"),
 ]
 
+
 def _pos_tokens(pos):
     if not pos:
         return []
     return [p.strip().upper() for p in str(pos).split(",") if p.strip()]
+
 
 # canonical team names → FBRef slug (names FBRef spells differently)
 _TEAM_ALIASES = {
@@ -72,12 +84,7 @@ def _norm(s: str) -> str:
 
 
 def _coarse_position(pos):
-    """Primary bucket from the full FBRef position list.
-
-    FBRef lists wingers as 'MF,FW' with MF first — those belong in the FW
-    bucket. Any other multi-position list (e.g. 'MF,DF' Valverde, 'DF,MF'
-    Tchouameni) keeps FBRef's first token as the primary position.
-    """
+    """Primary bucket from the full FBRef position list."""
     tokens = _pos_tokens(pos)
     if not tokens:
         return None
@@ -95,11 +102,7 @@ def _coarse_position(pos):
          wait_for_complete_page_load=False,
          output=None, create_error_logs=False)
 def _browser_fetch(driver, urls):
-    """Visit every URL in one Chrome session (6s etiquette delay between).
-
-    Reloads through the Cloudflare challenge until <body class="fb"> shows.
-    Returns list of page HTML strings, same order as urls (None on failure).
-    """
+    """Visit every URL in one Chrome session (6s etiquette delay between)."""
     pages = []
     for url in urls:
         html = None
@@ -130,7 +133,6 @@ class FbrefPlayerProvider(BasePlayerProvider):
         self._team_ids: Dict[str, Dict[str, str]] = {}  # league_code -> {norm_name: team_id}
 
     def capabilities(self) -> Dict[str, bool]:
-        # xG/xAG moved behind the Stathead paywall (2025) — understat covers it
         return dict(position=True, age=True, minutes=True, goals=True,
                     assists=True, xg=False, xa=False, shots=True,
                     shots_on_target=True, tackles=True, saves=True,
@@ -139,13 +141,16 @@ class FbrefPlayerProvider(BasePlayerProvider):
     # ── HTTP with etiquette ───────────────────────────────────────────────────
 
     def _get(self, url: str) -> str:
-        return self._get_many([url])[0]
+        res = self._get_many([url])
+        return res[0] if res else ""
 
     def _get_many(self, urls: List[str]) -> List[str]:
+        if not _HAS_BOTASAURUS:
+            logger.info("botasaurus not installed in this environment; skipping live FBRef browser scrape.")
+            return []
         elapsed = time.time() - self._last_fetch
         if elapsed < self._delay:
             time.sleep(self._delay - elapsed)
-        # botasaurus maps over the input list — wrap so ALL urls are one task
         pages = _browser_fetch([urls])[0]
         self._last_fetch = time.time()
         return pages or []
@@ -154,6 +159,8 @@ class FbrefPlayerProvider(BasePlayerProvider):
 
     def _load_team_ids(self, league_codes: List[str], season: str) -> Dict[str, Dict[str, str]]:
         """Fetch every league page in ONE browser session; cache id maps."""
+        if not _HAS_BOTASAURUS:
+            return {}
         missing = [lc for lc in league_codes if lc not in self._team_ids]
         if not missing:
             return self._team_ids
@@ -168,7 +175,6 @@ class FbrefPlayerProvider(BasePlayerProvider):
         for lc, html in zip(missing, self._get_many(urls)):
             ids = {}
             if html:
-                # only the standings table — the nav/footer list other leagues' clubs
                 m = re.search(r'<table[^>]*?id="(results[^"]*?_overall)"', html)
                 if m:
                     start = html.find('id="' + m.group(1) + '"')
@@ -187,13 +193,6 @@ class FbrefPlayerProvider(BasePlayerProvider):
 
     @staticmethod
     def _parse_stats_table(html: str, require_cols: List[str]) -> Optional[pd.DataFrame]:
-        """First stats table containing ALL required columns.
-
-        FBRef tables carry a two-level header (category, stat name) that we
-        collapse to the stat-name level. Duplicated labels (e.g. the per-90
-        group repeats Gls/Ast) are dropped keeping the first occurrence,
-        which holds the season totals.
-        """
         try:
             frames = pd.read_html(StringIO(html))
         except (ValueError, OSError):
@@ -213,7 +212,6 @@ class FbrefPlayerProvider(BasePlayerProvider):
         if v is None or (isinstance(v, float) and pd.isna(v)):
             return default
         s = str(v).replace(",", "").replace("+", "").strip()
-        # FBRef age cells look like "24-196" (years-days)
         if "-" in s and s.split("-")[0].strip().isdigit():
             s = s.split("-")[0].strip()
         try:
@@ -222,19 +220,16 @@ class FbrefPlayerProvider(BasePlayerProvider):
             return default
 
     def fetch_team_squad(self, team: str, league_code: str, season: str) -> List[PlayerRecord]:
+        if not _HAS_BOTASAURUS:
+            return []
         return self.fetch_squads([(team, league_code)], season).get(team, [])
 
     def fetch_squads(self, teams, season: str) -> Dict[str, List[PlayerRecord]]:
-        """Fetch squads for many (team, league_code) pairs.
-
-        Batches all league pages into one browser session and all team
-        stats pages into another — much cheaper than one window each.
-        Returns {team_name: [PlayerRecord, ...]}.
-        """
+        if not _HAS_BOTASAURUS:
+            return {}
         league_codes = sorted({lc for _, lc in teams})
         ids = self._load_team_ids(league_codes, season)
 
-        # Build per-team stats URLs (one browser session)
         team_urls, keys = [], []
         for team, league_code in teams:
             slug = _TEAM_ALIASES.get(team, team).replace(" ", "-")

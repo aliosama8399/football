@@ -46,23 +46,30 @@ class Best11Service:
               opponent: Optional[str] = None) -> Dict:
         """Return the best 11 for a team, season and formation.
 
-        formation "auto" (default) picks the formation that fits the
-        squad best (see AutoFormationStrategy).
-
-        opponent switches the XI to match-specific: players with
-        meaningful head-to-head minutes get a 70/30 season↔H2H blended
-        rating, so the lineup can differ per opponent. Each lineup entry
-        carries season and H2H stat blocks for verification.
-
-        as_of (ISO date) switches to through-the-season ratings: per-match
-        player stats and team totals are cumulated up to that date, so a
-        prediction for a specific fixture never uses future data.
-
-        Output dict: formation, lineup (slot, name, position, rating,
-        minutes, shares, season, h2h), captain, subs, bench, notes.
+        If `team` was relegated/promoted and did not compete in `league_code`
+        during `season` (e.g. Sheffield United in E0 2425), automatically
+        falls back to the team's most recent active season in that league
+        (e.g. 2324) and appends an explanatory note.
         """
-        # totals first: an uncollected season fails fast instead of scraping
+        requested_season = season
+        season_fallback_note = None
+
         totals = self.repository.load_totals(league_code, season)
+        if not totals or team not in totals:
+            if hasattr(self.repository, "find_latest_season_for_team"):
+                latest_team_season = self.repository.find_latest_season_for_team(team, league_code)
+                if latest_team_season and latest_team_season != season:
+                    logger.info(
+                        "%s not in %s %s; falling back to latest active season %s",
+                        team, league_code, season, latest_team_season,
+                    )
+                    season = latest_team_season
+                    totals = self.repository.load_totals(league_code, season)
+                    season_fallback_note = (
+                        f"{team} did not compete in {league_code} {requested_season}; "
+                        f"showing latest active season ({season})"
+                    )
+
         if not totals:
             return {"team": team, "league_code": league_code, "season": season,
                     "formation": formation,
@@ -71,7 +78,8 @@ class Best11Service:
 
         squad = self.repository.load_squad(team, league_code, season, provider, refresh)
         if not squad:
-            return {"team": team, "formation": formation, "error": "no squad data"}
+            return {"team": team, "league_code": league_code, "season": season,
+                    "formation": formation, "error": f"no squad data found for {team} ({season})"}
 
         if as_of is None and season == _current_season_code():
             as_of = self._auto_as_of(league_code, season)  # cumulative through latest match
@@ -120,6 +128,8 @@ class Best11Service:
         if auto:
             formation = formation_strategy.last_choice
         lineup, notes = _fill_lineup(eligible, slots)
+        if season_fallback_note:
+            notes.insert(0, season_fallback_note)
         if auto:
             notes.append(f"formation auto-fit: {formation}")
         if opponent and h2h_matches:
@@ -152,11 +162,7 @@ class Best11Service:
         }
 
     def _auto_as_of(self, league_code: str, season: str) -> Optional[str]:
-        """Latest played match in the per-match feed for an in-progress season.
-
-        Lets best-11 default to cumulative-through-date stats (no future
-        leakage) for the current season, without any caller passing a date.
-        """
+        """Latest played match in the per-match feed for an in-progress season."""
         try:
             return self.repository.latest_match_date(league_code, season)
         except Exception as e:

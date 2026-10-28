@@ -6,30 +6,20 @@ Generates a JSONL dataset for fine-tuning an SLM on football tactical analysis.
 Pipeline per match:
   1. Read pre-match stats from processed_matches.csv
   2. Run TEA-GNN prediction → outcome + probabilities
-     (TEA-GNN: novel edge-conditioned temporal attention architecture,
-      requires edge_time + league_id from the graph builder)
   3. Run GNNExplainer → top node features + influential edges
-  4. Call a "teacher" LLM (e.g. Gemini Flash) to write the analysis
+  4. Call a "teacher" LLM to write the analysis
   5. Save (user_prompt, assistant_response) as a JSONL row
-
-Dataset now spans ALL 9 seasons (1516-2324 train + 2425 test) with expanded
-stats payload (rolling + cumulative + season context + weather + stadium).
-
-Usage:
-  # Dry run — print first 3 samples without calling the LLM
-  python data/build_finetune_dataset.py --dry-run --max-samples 3
-
-  # Full run — generate all samples with Gemini teacher
-  python data/build_finetune_dataset.py --provider gemini
-
-  # Resume after a crash (skip already-generated rows)
-  python data/build_finetune_dataset.py --provider gemini --resume
-
-  # Skip GNNExplainer (faster, less rich prompts)
-  python data/build_finetune_dataset.py --provider gemini --skip-explainer
+  6. Perform a strictly chronological, golden-set-excluded train/val split
 """
 
 import sys, os
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
@@ -41,7 +31,6 @@ import torch
 import torch.nn.functional as F
 from pathlib import Path
 from tqdm import tqdm
-from sklearn.model_selection import train_test_split
 
 from data.graph_builder import FootballGraphBuilder
 from models.gnn_models import get_model
@@ -54,8 +43,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Feature name mapping: column suffix → plain English for the prompt.
-# Grouped into three sections: rolling 5, cumulative season-to-date, misc.
 FEATURE_LABELS = {
     # ── Rolling 5-match window ──
     'Form_5':           'Points per match (last 5)',
@@ -118,19 +105,6 @@ def clean_match_id(raw_id):
     return raw_id.replace(" 00:00:00", "").strip()
 
 
-# ═══════════════════════════════════════════════════════════
-# 429 / BROKEN-RECORD HANDLING  (merged from fix_finetune_dataset.py)
-# ═══════════════════════════════════════════════════════════
-
-#
-# If the teacher LLM (especially Ollama) returns a 429 / API-error
-# instead of a real analysis, we still write the record so we don't
-# lose the (expensive) user prompt.  `is_broken()` later flags those
-# records; `--fix-broken-only` re-submits them one-by-one with live
-# saves so progress is never lost.  After fixing, `rebuild_splits()`
-# regenerates train/val JSON files from the clean + substantial
-# records only.
-
 def is_broken(rec):
     """True if the assistant message contains an Ollama 429 / API error."""
     for m in rec.get("messages", []):
@@ -139,7 +113,7 @@ def is_broken(rec):
             if ("429 Client Error" in content
                     or "[OLLAMA] API error" in content
                     or "429 Too Many Requests" in content
-                    or "API error" in content[:120]):  # short prefixes only
+                    or "API error" in content[:120]):
                 return True
     return False
 
@@ -150,7 +124,7 @@ def save_records(records, path):
     with open(tmp, "w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    tmp.replace(path)  # atomic on Windows when on same volume
+    tmp.replace(path)
 
 
 def get_user_prompt(rec):
@@ -169,35 +143,102 @@ def set_assistant_content(rec, new_content):
             return
 
 
+def _load_golden_exclusion_keys() -> set[str]:
+    """Load match_id / team-pair keys from eval/golden/rag_golden_set.json to prevent train/eval overlap."""
+    golden_path = BASE_DIR / "eval" / "golden" / "rag_golden_set.json"
+    excluded = set()
+    if not golden_path.exists():
+        return excluded
+    try:
+        with open(golden_path, "r", encoding="utf-8") as f:
+            items = json.load(f)
+        if isinstance(items, list):
+            for item in items:
+                mid = item.get("match_id")
+                if mid:
+                    excluded.add(clean_match_id(str(mid)))
+                ht = item.get("home_team")
+                at = item.get("away_team")
+                dt = item.get("match_date") or item.get("date")
+                if ht and at and dt:
+                    excluded.add(f"{str(dt)[:10]}_{ht}_vs_{at}")
+    except Exception:
+        pass
+    return excluded
+
+
+def _extract_record_date_sort_key(rec: dict) -> str:
+    """Extract YYYY-MM-DD date prefix from match_id or embedded JSON user prompt for chronological sorting."""
+    mid = clean_match_id(rec.get("match_id", ""))
+    if len(mid) >= 10 and mid[4:5] == "-" and mid[7:8] == "-":
+        return mid
+    user_txt = get_user_prompt(rec)
+    if user_txt:
+        try:
+            obj = json.loads(user_txt)
+            md = obj.get("match", {}).get("match_date", "")
+            if md:
+                return f"{md}_{mid}"
+        except Exception:
+            pass
+    return mid
+
+
 def rebuild_splits(records, output_dir=None):
     """
-    Regenerate train/val JSON files from clean + substantial records only.
-    Reuses the same file names as the old fix script (football_train.json /
-    football_val.json) so downstream training scripts don't need changes.
+    Regenerate train/val JSON files from clean + substantial records using a
+    strictly CHRONOLOGICAL split (oldest 85% -> train, newest 15% -> val)
+    while excluding any records overlapping with eval/golden/rag_golden_set.json.
     """
     output_dir = output_dir or OUTPUT_DIR
+    golden_excluded = _load_golden_exclusion_keys()
     clean = [r for r in records if not is_broken(r)]
-    # Filter: assistant response must be substantial (>100 chars)
+
     valid = []
+    excluded_count = 0
     for r in clean:
+        mid = clean_match_id(r.get("match_id", ""))
+        if mid and mid in golden_excluded:
+            excluded_count += 1
+            continue
         for m in r.get("messages", []):
             if m.get("role") == "assistant" and len(m.get("content", "")) > 100:
                 valid.append(r)
                 break
 
+    if excluded_count > 0:
+        print(f"  🔒 Excluded {excluded_count} golden evaluation set records from fine-tuning splits.")
+
     if len(valid) < 10:
         print(f"  ⚠ Only {len(valid)} valid records, skipping split (need ≥10).")
         return 0, 0
 
-    train, val = train_test_split(valid, test_size=0.15, random_state=42)
+    # Strictly chronological ordering by match date (prevents future temporal leakage into training)
+    valid_sorted = sorted(valid, key=_extract_record_date_sort_key)
+    split_idx = int(len(valid_sorted) * 0.85)
+    train = valid_sorted[:split_idx]
+    val = valid_sorted[split_idx:]
+
     train_path = output_dir / "football_train.json"
-    val_path   = output_dir / "football_val.json"
+    val_path = output_dir / "football_val.json"
     with open(train_path, "w", encoding="utf-8") as f:
         json.dump(train, f, ensure_ascii=False, indent=2)
     with open(val_path, "w", encoding="utf-8") as f:
         json.dump(val, f, ensure_ascii=False, indent=2)
-    print(f"  💾 football_train.json: {len(train)} records")
-    print(f"  💾 football_val.json:   {len(val)} records")
+    print(f"  💾 Chronological football_train.json: {len(train)} records")
+    print(f"  💾 Chronological football_val.json:   {len(val)} records")
+
+    models_dir = BASE_DIR / "models"
+    if models_dir.exists():
+        try:
+            with open(models_dir / "football_train.json", "w", encoding="utf-8") as f:
+                json.dump(train, f, ensure_ascii=False, indent=2)
+            with open(models_dir / "football_val.json", "w", encoding="utf-8") as f:
+                json.dump(val, f, ensure_ascii=False, indent=2)
+            print(f"  💾 Mirrored chronological splits to models/football_train.json & models/football_val.json")
+        except Exception as e:
+            print(f"  [Warn] Failed mirroring splits to models/: {e}")
+
     return len(train), len(val)
 
 
@@ -208,7 +249,6 @@ def _looks_like_api_error(text):
     text = text.strip()
     if len(text) < 50:
         return True
-    # Common Ollama / OpenAI / Gemini error prefixes (case-insensitive)
     lower = text[:200].lower()
     if ("429" in lower
             or "rate limit" in lower
@@ -221,18 +261,8 @@ def _looks_like_api_error(text):
     return False
 
 
-# ═══════════════════════════════════════════════════════════
-# LOADING
-# ═══════════════════════════════════════════════════════════
-
 def load_model_and_graph(use_tea_gnn=True):
-    """
-    Load the best tuned GNN model and the full graph.
-
-    TEA-GNN (ranked #1 in tuned comparison: 60.96% accuracy, 0.577 F1)
-    is the default since it's the strongest model. Pass use_tea_gnn=False
-    to fall back to EdgeConv.
-    """
+    """Load the best tuned GNN model and the full graph."""
     if use_tea_gnn:
         model_path = BASE_DIR / "models" / "saved" / "gnn_tea-gnn_tuned.pt"
         if not model_path.exists():
@@ -263,25 +293,23 @@ def load_model_and_graph(use_tea_gnn=True):
     kwargs = dict(hidden_dim=bp.get('hidden_dim', 64),
                   dropout=bp.get('dropout', 0.3))
     if is_tea_gnn:
+        state_keys = checkpoint.get('model_state', {}).keys()
+        has_cross = any('cross_league.' in k for k in state_keys)
         kwargs['heads'] = bp.get('heads', 4)
         kwargs['num_leagues'] = graph.get('num_leagues', 5)
-        kwargs['use_cross_league'] = bp.get('use_cross_league', True)
+        kwargs['use_cross_league'] = bp.get('use_cross_league', has_cross)
 
     model = get_model(model_name, nf, ef, **kwargs)
-    model.load_state_dict(checkpoint['model_state'])
+    model.load_state_dict(checkpoint['model_state'], strict=False)
     model = model.to(DEVICE).eval()
 
     graph['is_tea_gnn'] = is_tea_gnn
-    print(f"✓ Loaded {model_name} (nf={graph['num_node_features']}, "
+    print(f"[OK] Loaded {model_name} (nf={graph['num_node_features']}, "
           f"ef={graph['num_edge_features']}) from {model_path.name}")
     print(f"  TEA-GNN: {is_tea_gnn} | Use cross-league: {bp.get('use_cross_league', True)}")
 
     return model, graph, builder
 
-
-# ═══════════════════════════════════════════════════════════
-# PER-MATCH PROCESSING
-# ═══════════════════════════════════════════════════════════
 
 def _build_stats_block(row, side='Home'):
     """Build a dict of {label: value} for one team's stats (rolling + cumulative + context)."""
@@ -297,7 +325,6 @@ def _build_stats_block(row, side='Home'):
 def _build_env_block(row):
     """Extract weather + stadium info as a readable dict."""
     env = {}
-    # Weather
     for col, label in [('temperature', 'Temperature (C)'),
                        ('precipitation', 'Precipitation (mm)'),
                        ('rain', 'Rain (mm)'),
@@ -306,7 +333,6 @@ def _build_env_block(row):
         val = row.get(col, None)
         if val is not None and not pd.isna(val):
             env[label] = round(val, 2)
-    # Stadium name only (no coordinates — not useful for tactical analysis)
     stadium = row.get('stadium_name', None)
     if stadium and not pd.isna(stadium) and isinstance(stadium, str):
         env['stadium'] = stadium
@@ -316,7 +342,6 @@ def _build_env_block(row):
 def _build_match_info_block(row):
     """Extract kickoff time + referee data (pre-match, no leakage)."""
     info = {}
-    # Kickoff time (only include if it is a real, non-zero time)
     time_val = row.get('Time', None)
     if time_val is not None and not pd.isna(time_val):
         if isinstance(time_val, (int, float)):
@@ -328,7 +353,6 @@ def _build_match_info_block(row):
             ts = str(time_val).strip()
             if ts and ts not in ('0', '00:00', '00:00:00', '0.0', 'nan', 'None'):
                 info['kickoff_time'] = ts
-    # Referee profile
     ref = {}
     for col, label in [('Ref_AvgYellows', 'avg_yellows_per_match'),
                        ('Ref_AvgReds',    'avg_reds_per_match'),
@@ -341,13 +365,9 @@ def _build_match_info_block(row):
     return info
 
 
-
 def build_user_prompt(row: pd.Series, builder, graph, model, edge_idx: int,
                       pred: str, probs: dict, gnn_explanation: dict) -> str:
-    """
-    Build the human-readable user prompt from raw match data + GNN output.
-    This is what the fine-tuned SLM will receive at inference time.
-    """
+    """Build the human-readable user prompt from raw match data + GNN output."""
     home = row['HomeTeam']
     away = row['AwayTeam']
 
@@ -356,10 +376,8 @@ def build_user_prompt(row: pd.Series, builder, graph, model, edge_idx: int,
     env_info   = _build_env_block(row)
     match_info = _build_match_info_block(row)
 
-    # ── Match date (always available; used in addition to optional kickoff_time) ──
     date_val = row.get('Date', None)
     if date_val is not None and not pd.isna(date_val):
-        # Pandas Timestamp or datetime → ISO date string
         if hasattr(date_val, 'strftime'):
             match_date = date_val.strftime('%Y-%m-%d')
         else:
@@ -367,14 +385,12 @@ def build_user_prompt(row: pd.Series, builder, graph, model, edge_idx: int,
     else:
         match_date = None
 
-    # ── Head-to-head ──
     h2h_parts = {}
     for col, label in [('H2H_Matches', 'Total meetings'), ('H2H_HomeWins', 'Home wins'),
                         ('H2H_AwayWins', 'Away wins'), ('H2H_Draws', 'Draws')]:
         val = row.get(col, None)
         if val is not None and not pd.isna(val):
             h2h_parts[label] = int(val)
-    # H2H goals
     hg = row.get('H2H_HomeGoals', None)
     ag = row.get('H2H_AwayGoals', None)
     if hg is not None and not pd.isna(hg):
@@ -382,7 +398,6 @@ def build_user_prompt(row: pd.Series, builder, graph, model, edge_idx: int,
     if ag is not None and not pd.isna(ag):
         h2h_parts['Total away goals (H2H)'] = round(float(ag), 1)
 
-    # ── Key historical matches from GNN ──
     hist_lines = []
     for m in gnn_explanation.get('top_influencing_matches', [])[:3]:
         hist_lines.append(m['match'])
@@ -433,8 +448,7 @@ def get_edge_idx_for_match(graph, builder, home_team, away_team):
 
 
 def run_gnn_prediction(model, graph, edge_idx):
-    """Get prediction + probabilities for a single edge.
-    Handles both standard models (GCN/SAGE/GAT/GIN/EdgeConv) and TEA-GNN."""
+    """Get prediction + probabilities for a single edge."""
     x  = graph.get('x_test', graph['x']).to(DEVICE)
     ei = graph['edge_index'].to(DEVICE)
     ea = graph['edge_attr'].to(DEVICE)
@@ -469,8 +483,6 @@ def run_gnn_explainer(model, graph, builder, edge_idx):
     ea = graph['edge_attr'].to(DEVICE)
     is_tea_gnn = graph.get('is_tea_gnn', False)
 
-    # TEA-GNN passes extra args — the Explainer wraps the model, so
-    # we need a wrapper that matches the Explainer's expected signature.
     if is_tea_gnn:
         edge_time = graph.get('edge_time')
         league_id = graph.get('league_id')
@@ -502,7 +514,6 @@ def run_gnn_explainer(model, graph, builder, edge_idx):
 
     explanation = explainer(x, ei, edge_attr=ea, index=edge_idx)
 
-    # Node feature importance
     node_mask = explanation.node_mask.cpu()
     home_idx  = ei[0, edge_idx].item()
     away_idx  = ei[1, edge_idx].item()
@@ -518,7 +529,6 @@ def run_gnn_explainer(model, graph, builder, edge_idx):
     top_away = {f"{away_team}_{feat_names[i]}": float(away_imp[i])
                 for i in np.argsort(away_imp)[-3:][::-1]}
 
-    # Edge importance
     edge_mask = explanation.edge_mask.cpu().numpy()
     top_edges = np.argsort(edge_mask)[-6:][::-1]
     top_matches = []
@@ -537,17 +547,8 @@ def run_gnn_explainer(model, graph, builder, edge_idx):
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# FIX-BROKEN MODE  (merged from fix_finetune_dataset.py)
-# ═══════════════════════════════════════════════════════════
-
 def _fix_broken_mode(output_path, provider_name, model_name):
-    """
-    Scan existing JSONL, find broken (429/API-error) records,
-    re-generate their assistant responses one-by-one with live saves.
-    After fixing, rebuild train/val splits from clean + substantial records.
-    Safe to Ctrl+C anytime — progress is never lost.
-    """
+    """Scan existing JSONL, find broken (429/API-error) records, and regenerate them."""
     if not output_path.exists():
         print(f"❌ Cannot find {output_path}")
         return
@@ -558,11 +559,9 @@ def _fix_broken_mode(output_path, provider_name, model_name):
     print(f"  Provider:  {provider_name}")
     print(f"{'=' * 70}")
 
-    # Load LLM
     teacher = get_llm_provider(provider_type=provider_name, model_name=model_name)
     print(f"✓ Teacher LLM ready: {provider_name}")
 
-    # Load all records
     records = []
     with open(output_path, 'r', encoding='utf-8') as f:
         for line in f:
@@ -576,7 +575,6 @@ def _fix_broken_mode(output_path, provider_name, model_name):
         print("⚠ File is empty — nothing to fix.")
         return
 
-    # Find broken ones
     bad_indices = [i for i, r in enumerate(records) if is_broken(r)]
     total = len(records)
     good = total - len(bad_indices)
@@ -615,11 +613,10 @@ def _fix_broken_mode(output_path, provider_name, model_name):
             set_assistant_content(rec, response.strip())
             fixed_count += 1
 
-            # SAVE immediately so progress is never lost
             save_records(records, output_path)
             print(f"✅ saved")
 
-            time.sleep(1.5)  # rate limit
+            time.sleep(1.5)
 
         except KeyboardInterrupt:
             print(f"\n\n🛑 Interrupted! {fixed_count} records fixed so far.")
@@ -630,7 +627,6 @@ def _fix_broken_mode(output_path, provider_name, model_name):
             print(f"❌ {e}")
             time.sleep(5)
 
-    # Final summary
     remaining = sum(1 for r in records if is_broken(r))
     print(f"\n{'=' * 70}")
     print(f"  ✅ Fixed {fixed_count} records this run")
@@ -645,11 +641,6 @@ def _fix_broken_mode(output_path, provider_name, model_name):
         print(f"\n⚠ {remaining} records still broken. Run --fix-broken-only again to retry them.")
 
 
-
-# ═══════════════════════════════════════════════════════════
-# MAIN PIPELINE
-# ═══════════════════════════════════════════════════════════
-
 def main():
     parser = argparse.ArgumentParser(description="Build fine-tuning dataset for football SLM")
     parser.add_argument('--provider',     type=str, default='gemini',
@@ -660,6 +651,10 @@ def main():
                         help="Max samples to generate (0 = all)")
     parser.add_argument('--dry-run',      action='store_true',
                         help="Print prompts without calling teacher LLM")
+    parser.add_argument('--seasons',      nargs='+', type=int, default=None,
+                        help="Specific season(s) to process (e.g. --seasons 2526 2627)")
+    parser.add_argument('--incremental',  action='store_true', default=True,
+                        help="Skip matches already generated in output file (default: True)")
     parser.add_argument('--resume',       action='store_true',
                         help="Skip matches already in the output file")
     parser.add_argument('--output',       type=str, default='football_tactical.jsonl',
@@ -669,45 +664,48 @@ def main():
     parser.add_argument('--use-edgeconv', action='store_true',
                         help="Use EdgeConv instead of TEA-GNN (fallback)")
     parser.add_argument('--test-only',    action='store_true',
-                        help="Process only test season (2425) instead of all 9 seasons")
+                        help="Process only test season instead of all seasons")
     parser.add_argument('--fix-broken-only', action='store_true',
                         help="Scan existing JSONL, fix broken (429/API-error) records one-by-one with live saves")
     args = parser.parse_args()
 
     output_path = OUTPUT_DIR / args.output
 
-    # ── Fix-broken-only mode ──
     if args.fix_broken_only:
         _fix_broken_mode(output_path, args.provider, args.model_name)
-        return  # done
+        return
 
     print("=" * 70)
     print("  FINE-TUNING DATASET BUILDER")
     print(f"  Provider:  {args.provider}")
     print(f"  Output:    {output_path}")
     print(f"  Dry run:   {args.dry_run}")
-    print(f"  Seasons:   {'Test only (2425)' if args.test_only else 'All 9 seasons'}")
     print(f"  Device:    {DEVICE}")
     print("=" * 70)
 
-    # ── Load model & graph ──
     model, graph, builder = load_model_and_graph(use_tea_gnn=not args.use_edgeconv)
     df = builder.df.copy()
 
-    # ── Select matches to process ──
-    if args.test_only:
-        process_seasons = [2425]
-        print("\n✓ TEST-ONLY mode: processing season 2425 only")
+    from data._config import load_config
+    cfg = load_config()
+    cfg_seasons = [int(s) for s in cfg.get('seasons', [])]
+
+    if args.seasons:
+        process_seasons = args.seasons
+        print(f"\n[OK] CUSTOM-SEASONS mode: processing seasons {process_seasons}")
+    elif args.test_only:
+        latest_s = cfg_seasons[-1] if cfg_seasons else 2627
+        process_seasons = [latest_s]
+        print(f"\n[OK] TEST-ONLY mode: processing latest season {latest_s} only")
     else:
-        process_seasons = [1516, 1617, 1718, 1819, 1920, 2021, 2122, 2223, 2324, 2425]
-        print(f"\n✓ ALL-SEASONS mode: processing seasons {process_seasons}")
+        process_seasons = cfg_seasons
+        print(f"\n[OK] ALL-SEASONS mode: processing seasons {process_seasons}")
 
     process_df = df[df['Season'].isin(process_seasons)].copy()
-    print(f"✓ Matches to process: {len(process_df)}")
+    print(f"[OK] Matches in selected seasons: {len(process_df)}")
 
-    # ── Resume support ──
     existing_keys = set()
-    if args.resume and output_path.exists():
+    if (args.resume or args.incremental) and output_path.exists():
         with open(output_path, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
@@ -717,15 +715,13 @@ def main():
                         existing_keys.add(clean_match_id(mid))
                 except json.JSONDecodeError:
                     pass
-        print(f"✓ Resuming: {len(existing_keys)} already generated")
+        print(f"[OK] Incremental: {len(existing_keys)} already annotated matches found in {output_path.name}")
 
-    # ── Teacher LLM ──
     teacher = None
     if not args.dry_run:
         teacher = get_llm_provider(provider_type=args.provider, model_name=args.model_name)
-        print(f"✓ Teacher LLM ready: {args.provider}")
+        print(f"[OK] Teacher LLM ready: {args.provider}")
 
-    # ── Process matches ──
     samples_written = 0
     errors = 0
     broken_count = 0
@@ -745,45 +741,24 @@ def main():
             if clean_match_id(match_id) in existing_keys:
                 continue
 
-
-            # Find edge in graph
             edge_idx = get_edge_idx_for_match(graph, builder, home_team, away_team)
             if edge_idx is None:
                 errors += 1
                 continue
 
-            # GNN prediction
             try:
                 pred, probs = run_gnn_prediction(model, graph, edge_idx)
-            except Exception as e:
+            except Exception:
                 errors += 1
                 continue
 
-            # GNN explanation (optional)
             gnn_exp = {'top_node_features': {}, 'top_influencing_matches': []}
             if not args.skip_explainer:
                 try:
                     gnn_exp = run_gnn_explainer(model, graph, builder, edge_idx)
                 except Exception:
-                    pass  # Proceed without explanation
+                    pass
 
-            # ── Data validity: warn if any key stat is NaN (xG should never be NaN/0) ──
-            # cum_* = 0 is correct for first match of a team-season, not a bug.
-            nan_warnings = []
-            # Check rolling xG (these should NEVER be NaN or 0 once a team has 5 matches)
-            for side in ('Home', 'Away'):
-                for stat in ('xG_5', 'xGA_5'):
-                    val = row.get(f'{side}{stat}')
-                    if val is None or (not isinstance(val, str) and pd.isna(val)):
-                        nan_warnings.append(f'{side}{stat}')
-                    elif isinstance(val, (int, float)) and float(val) == 0.0:
-                        nan_warnings.append(f'{side}{stat}=0')
-            if nan_warnings:
-                # Only warn; do not skip. The teacher LLM can still work with it.
-                if not args.dry_run:
-                    tqdm.write(f"  ⚠ [{match_id}] suspicious stats: {nan_warnings}")
-
-            # Build the user prompt
             user_prompt = build_user_prompt(row, builder, graph, model, edge_idx,
                                             pred, probs, gnn_exp)
 
@@ -796,7 +771,6 @@ def main():
                 samples_written += 1
                 continue
 
-            # Call teacher LLM
             match_context = {
                 'home_team': home_team, 'away_team': away_team,
                 'prediction': pred, 'probabilities': probs,
@@ -808,10 +782,6 @@ def main():
                 errors += 1
                 continue
 
-            # ── Inline 429 / API-error detection ──
-            # If the teacher returned an error instead of real analysis,
-            # still write the record (preserving the user prompt) but mark
-            # it as broken so `--fix-broken-only` can pick it up later.
             if _looks_like_api_error(assistant_response):
                 tqdm.write(f"  ⚠ [{match_id}] teacher returned API error — writing broken record")
                 broken_record = {
@@ -826,14 +796,13 @@ def main():
                 out_f.write(json.dumps(broken_record, ensure_ascii=False) + "\n")
                 out_f.flush()
                 broken_count += 1
-                time.sleep(5)  # back off after an API error
+                time.sleep(5)
                 continue
 
             if not assistant_response or len(assistant_response.strip()) < 50:
                 errors += 1
                 continue
 
-            # Build the JSONL record
             record = {
                 "match_id": match_id,
                 "actual_result": row.get('FTR', ''),
@@ -847,11 +816,8 @@ def main():
             out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
             out_f.flush()
             samples_written += 1
-
-            # Rate limiting (avoid API throttling)
             time.sleep(0.5)
 
-    # ── Summary ──
     print(f"\n{'=' * 70}")
     print(f"  DATASET GENERATION COMPLETE")
     print(f"  Samples written:  {samples_written}")
@@ -864,7 +830,6 @@ def main():
         size_mb = output_path.stat().st_size / (1024 * 1024)
         print(f"  File size: {size_mb:.2f} MB")
 
-    # ── Rebuild train/val splits from clean + substantial records ──
     if not args.dry_run and output_path.exists():
         all_records = []
         with open(output_path, 'r', encoding='utf-8') as f:
@@ -876,7 +841,7 @@ def main():
                         pass
         if all_records:
             clean_count = sum(1 for r in all_records if not is_broken(r))
-            print(f"\n  🔄 Rebuilding train/val splits from {len(all_records)} records ({clean_count} clean)...")
+            print(f"\n  🔄 Rebuilding chronological train/val splits from {len(all_records)} records ({clean_count} clean)...")
             train_n, val_n = rebuild_splits(all_records, OUTPUT_DIR)
             if train_n + val_n > 0:
                 print(f"  ✅ Splits ready for fine-tuning")

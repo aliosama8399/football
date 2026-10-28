@@ -640,12 +640,18 @@ class FootballDataProcessor:
         return df
     
     def calculate_referee_strictness(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate referee strictness level based on historical cards given"""
+        """
+        Calculate referee strictness level based ONLY on historical cards given
+        prior to each match (strictly chronological shifted expanding window — zero future leakage).
+        """
         if 'Referee' not in df.columns:
             print("  ERR No Referee column found")
             return df
         
-        print("Calculating referee strictness...")
+        print("Calculating referee strictness (leakage-safe chronological expanding window)...")
+        
+        # Ensure strict chronological ordering by Date
+        df = df.sort_values('Date', kind='mergesort').copy()
         
         # Clean referee column - add 'Unknown' to categories and fill
         if 'Referee' in df.columns and isinstance(df['Referee'].dtype, pd.CategoricalDtype):
@@ -663,36 +669,40 @@ class FootballDataProcessor:
             return df
         
         # Calculate total cards per match
-        df['_TotalYellows'] = df[['HY', 'AY']].sum(axis=1) if 'HY' in df.columns and 'AY' in df.columns else 0
-        df['_TotalReds'] = df[['HR', 'AR']].sum(axis=1) if 'HR' in df.columns and 'AR' in df.columns else 0
+        df['_TotalYellows'] = df[['HY', 'AY']].sum(axis=1) if 'HY' in df.columns and 'AY' in df.columns else 0.0
+        df['_TotalReds'] = df[['HR', 'AR']].sum(axis=1) if 'HR' in df.columns and 'AR' in df.columns else 0.0
         
-        # Calculate referee averages using historical data (shifted to avoid leakage)
-        ref_stats = df.groupby('Referee').agg({
-            '_TotalYellows': 'mean',
-            '_TotalReds': 'mean'
-        }).rename(columns={'_TotalYellows': 'Ref_AvgYellows', '_TotalReds': 'Ref_AvgReds'})
+        # Chronological global expanding prior (shifted by 1 so current match is excluded)
+        global_prior_yellows = df['_TotalYellows'].shift(1).expanding(min_periods=1).mean().fillna(3.5)
+        global_prior_reds = df['_TotalReds'].shift(1).expanding(min_periods=1).mean().fillna(0.15)
         
-        # Strictness score: Yellows + 3*Reds (scaled to 0-1)
-        ref_stats['Ref_Strictness_Raw'] = ref_stats['Ref_AvgYellows'] + 3 * ref_stats['Ref_AvgReds']
-        max_strictness = ref_stats['Ref_Strictness_Raw'].max()
-        ref_stats['Ref_Strictness'] = ref_stats['Ref_Strictness_Raw'] / max_strictness if max_strictness > 0 else 0.5
+        # Chronological per-referee shifted expanding mean (excludes current and future matches)
+        ref_group = df.groupby('Referee', observed=False, sort=False)
+        df['Ref_AvgYellows'] = ref_group['_TotalYellows'].transform(
+            lambda s: s.shift(1).expanding(min_periods=1).mean()
+        )
+        df['Ref_AvgReds'] = ref_group['_TotalReds'].transform(
+            lambda s: s.shift(1).expanding(min_periods=1).mean()
+        )
         
-        # Merge back to dataframe
-        df = df.merge(ref_stats[['Ref_AvgYellows', 'Ref_AvgReds', 'Ref_Strictness']], 
-                      left_on='Referee', right_index=True, how='left')
+        # For a referee's very first historical appearance (or 'Unknown'), fall back to chronological global prior
+        unknown_mask = (df['Referee'] == 'Unknown')
+        df.loc[unknown_mask, 'Ref_AvgYellows'] = np.nan
+        df.loc[unknown_mask, 'Ref_AvgReds'] = np.nan
+        df['Ref_AvgYellows'] = df['Ref_AvgYellows'].fillna(global_prior_yellows)
+        df['Ref_AvgReds'] = df['Ref_AvgReds'].fillna(global_prior_reds)
         
-        # Fill any missing with average
-        df['Ref_Strictness'] = df['Ref_Strictness'].fillna(df['Ref_Strictness'].mean())
-        df['Ref_AvgYellows'] = df['Ref_AvgYellows'].fillna(df['Ref_AvgYellows'].mean())
-        df['Ref_AvgReds'] = df['Ref_AvgReds'].fillna(df['Ref_AvgReds'].mean())
+        # Strictness score: Yellows + 3*Reds, normalized by chronological expanding max (no future max leakage)
+        raw_strictness = df['Ref_AvgYellows'] + 3.0 * df['Ref_AvgReds']
+        expanding_max = raw_strictness.expanding(min_periods=1).max().clip(lower=1.0)
+        df['Ref_Strictness'] = (raw_strictness / expanding_max).clip(0.0, 1.0).fillna(0.5)
         
-        # Drop temporary columns
-        df = df.drop(columns=['_TotalYellows', '_TotalReds'], errors='ignore')
+        num_refs = df['Referee'].nunique()
         
-        # Drop referee name column (user wants strictness only, not the name)
-        df = df.drop(columns=['Referee'], errors='ignore')
+        # Drop temporary columns and raw Referee name column
+        df = df.drop(columns=['_TotalYellows', '_TotalReds', 'Referee'], errors='ignore')
         
-        print(f"  OK Calculated referee strictness for {len(ref_stats)} referees")
+        print(f"  OK Calculated chronological referee strictness for {num_refs} referees")
         print(f"    Strictness range: {df['Ref_Strictness'].min():.2f} - {df['Ref_Strictness'].max():.2f}")
         
         return df
@@ -765,7 +775,7 @@ class FootballDataProcessor:
             print(f"  OK Removed {len(dup_cols)} duplicate/malformed columns")
         gc.collect()
 
-        # ── Phase 6: Referee strictness (existing logic) ──────────────────
+        # ── Phase 6: Referee strictness (chronological leakage-safe) ──────
         fduk_df = self.calculate_referee_strictness(fduk_df)
         gc.collect()
 

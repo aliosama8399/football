@@ -3,26 +3,14 @@ Football RAG Orchestrator
 ==========================
 The single entry point for all RAG queries. Wires together:
   - KG Provider  (Neo4j or PostgreSQL)
-  - Vector Provider (FAISS)
+  - Vector Provider (FAISS or pgvector)
   - LLM Provider (HuggingFace / Gemini / Ollama / etc.)
-
-All provider choices are read from llm_config.yaml (rag section) by default,
-but can be overridden at runtime:
-
-    # Default — reads from config
-    rag = FootballRAGSystem()
-
-    # Switch providers on the fly
-    rag = FootballRAGSystem(kg="postgres", vector="faiss", llm="gemini")
-
-    # Run a query
-    answer = rag.query("How does Arsenal attack compared to Chelsea?")
-    answer = rag.predict_match("Liverpool", "Manchester City")
 """
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import re
@@ -58,7 +46,6 @@ def _load_rag_cfg() -> dict:
 # Team Name Extractor
 # ─────────────────────────────────────────────────────────────────────────────
 
-# A lightweight list of known teams (loaded once from Neo4j / PostgreSQL at startup)
 _TEAM_CACHE: list[str] = []
 
 def _extract_team_names(query: str, known_teams: list[str]) -> list[str]:
@@ -85,11 +72,11 @@ def _extract_team_names(query: str, known_teams: list[str]) -> list[str]:
 
 class FootballRAGSystem:
     """
-    Full hybrid RAG pipeline:
+    Full hybrid Dual-RAG pipeline:
       1. Extract team entities from the query
-      2. Pull structured facts from Neo4j / PostgreSQL (team profiles, H2H, form, tactics)
-      3. Semantic search over FAISS (similar past analyses + match stats)
-      4. Assemble context → LLM generation
+      2. Concurrently pull structured facts from KG (Neo4j / PostgreSQL) and
+         semantic match chunks from Vector Store (FAISS / pgvector)
+      3. Assemble context → LLM generation
     """
 
     def __init__(
@@ -103,7 +90,6 @@ class FootballRAGSystem:
         cfg = _load_rag_cfg()
         kg_name     = kg     or cfg.get("kg_provider",     "neo4j")
         vector_name = vector or cfg.get("vector_provider", "faiss")
-        # None-safe LLM: "" / None / "none" disables the LLM (graceful degradation).
         llm_name    = llm if llm else cfg.get("llm_provider", "huggingface")
 
         logger.info("Initializing RAG — KG=%s | Vector=%s | LLM=%s",
@@ -111,23 +97,24 @@ class FootballRAGSystem:
 
         self.kg      = get_kg_provider(kg_name)
         self.vector  = get_vector_provider(vector_name)
-        self.llm     = get_llm_provider(llm_name)  # returns None when llm_name in ("", None, "none")
+        self.llm     = get_llm_provider(llm_name)
         self.cfg     = cfg
         self.hybrid  = kwargs.get("hybrid", bool(cfg.get("hybrid_retrieval", False)))
         self.rerank  = kwargs.get("rerank", bool(cfg.get("rerank_results", False)))
-        # Expert 1: pluggable prediction model (defaults to TEA-GNN).
         self.predictor = predictor if predictor is not None else GNNPredictionProvider()
+        self._retrieval_pool = ThreadPoolExecutor(max_workers=2)
 
-        # Cache team names for entity extraction
+        # Refresh team cache on initialization / hot-reload
         global _TEAM_CACHE
-        if not _TEAM_CACHE:
-            try:
-                for league in ["Premier_League", "La_Liga", "Serie_A", "Bundesliga", "Ligue_1"]:
-                    _TEAM_CACHE.extend(self.kg.get_league_teams(league))
-                _TEAM_CACHE = list(set(_TEAM_CACHE))
+        try:
+            fresh_teams = []
+            for league in ["Premier_League", "La_Liga", "Serie_A", "Bundesliga", "Ligue_1"]:
+                fresh_teams.extend(self.kg.get_league_teams(league))
+            if fresh_teams:
+                _TEAM_CACHE = list(set(fresh_teams))
                 logger.info("Team cache loaded: %d teams", len(_TEAM_CACHE))
-            except Exception as e:
-                logger.warning("Could not load team cache: %s", e)
+        except Exception as e:
+            logger.warning("Could not load team cache: %s", e)
 
     # ── Context Assembly ──────────────────────────────────────────────────────
 
@@ -203,7 +190,6 @@ class FootballRAGSystem:
                     logger.debug("Reranking error: %s", e)
 
             if results:
-                # Deduplicate matches and prioritize direct historical encounters
                 seen_matches = set()
                 direct_matches = []
                 single_matches = []
@@ -221,17 +207,14 @@ class FootballRAGSystem:
                     if not cleaned:
                         continue
 
-                    # If query is comparing two specific teams, classify match
                     if len(teams) >= 2 and h and a:
                         if h in teams and a in teams:
                             direct_matches.append(cleaned)
                         elif h in teams or a in teams:
                             single_matches.append(cleaned)
-                        # discard matches where neither team is involved
                     else:
                         single_matches.append(cleaned)
 
-                # Direct H2H matches come first, filled with single-team matches
                 selected = direct_matches + single_matches
                 if selected:
                     vec_text = "\n\n".join(f"[{i}] {txt}" for i, txt in enumerate(selected[:k], 1))
@@ -246,16 +229,7 @@ class FootballRAGSystem:
 
     def query_with_context(self, question: str, as_of: str = None, teams: list[str] = None) -> dict:
         """
-        Execute RAG retrieval and generation, returning structured contexts along with answer.
-        Essential for RAGAS evaluation (faithfulness, answer relevancy, context precision/recall).
-
-        Returns:
-            dict containing:
-                - response: str (the answer)
-                - retrieved_contexts: list[str] (list of distinct context chunks retrieved)
-                - kg_context: str
-                - vector_context: str
-                - teams: list[str]
+        Execute Dual-RAG retrieval (KG + Vector concurrently) and LLM generation.
         """
         if teams is None:
             with trace_step("entity_extraction", input={"question": question}, metadata={"question": question}) as span:
@@ -265,8 +239,11 @@ class FootballRAGSystem:
         else:
             logger.info("Using explicit teams: %s", teams)
 
-        kg_context  = self._get_kg_context(teams, question, as_of=as_of)
-        vec_context = self._get_vector_context(question, teams, as_of=as_of)
+        # Parallel Dual-RAG retrieval (KG + Vector simultaneously)
+        kg_future = self._retrieval_pool.submit(self._get_kg_context, teams, question, as_of)
+        vec_future = self._retrieval_pool.submit(self._get_vector_context, question, teams, as_of)
+        kg_context = kg_future.result()
+        vec_context = vec_future.result()
 
         contexts: list[str] = []
         if kg_context and kg_context.strip():
@@ -274,7 +251,6 @@ class FootballRAGSystem:
         if vec_context and vec_context.strip():
             contexts.append(vec_context.strip())
 
-        # None-safe LLM: when no LLM is configured, return assembled KG + vector context as fallback
         if self.llm is None:
             fallback_text = json.dumps({
                 "question": question,
@@ -294,7 +270,6 @@ class FootballRAGSystem:
         model_name = getattr(self.llm, "_backend", None) or getattr(self.llm, "model_name", None) or type(self.llm).__name__
         full_prompt = self._build_prompt(question, kg_context, vec_context)
 
-        # Generate with context (logged as Langfuse generation observation)
         with trace_step("llm_generation", as_type="generation", model=str(model_name), input=full_prompt, metadata={"llm_type": type(self.llm).__name__}) as span:
             try:
                 if hasattr(self.llm, "generate_with_context"):
@@ -338,24 +313,13 @@ class FootballRAGSystem:
                 }
 
     def query(self, question: str, as_of: str = None, teams: list[str] = None) -> str:
-        """
-        General-purpose RAG query.
-        Automatically extracts teams (if not provided), retrieves context, and generates an answer.
-
-        Args:
-            question: Free-form natural language question.
-            as_of: Optional cutoff date (YYYY-MM-DD) to prevent look-ahead leakage.
-            teams: Optional explicit list of teams to analyze (e.g. [home_team, away_team]).
-
-        Returns:
-            LLM-generated answer with grounding in retrieved facts.
-        """
+        """General-purpose RAG query."""
         result = self.query_with_context(question, as_of=as_of, teams=teams)
         return result["response"]
 
-    def _get_gnn_prediction(self, home_team: str, away_team: str) -> str:
-        """Return a human-readable GNN prediction block (for LLM prompts). Empty on failure."""
-        result = self.predict_structured(home_team, away_team)
+    @staticmethod
+    def _format_gnn_prediction_block(result: Optional[dict]) -> str:
+        """Format a precomputed GNN prediction dict into a prompt block."""
         if result is None:
             return ""
         probs = result["probabilities"]
@@ -366,26 +330,28 @@ class FootballRAGSystem:
             f"=================================================="
         )
 
-    def predict_structured(self, home_team: str, away_team: str) -> Optional[dict]:
-        """
-        Return Expert 1's structured prediction (dict) or None on failure.
+    def _get_gnn_prediction(self, home_team: str, away_team: str) -> str:
+        """Return a human-readable GNN prediction block (for LLM prompts). Empty on failure."""
+        result = self.predict_structured(home_team, away_team)
+        return self._format_gnn_prediction_block(result)
 
-        Delegates to the pluggable BasePredictionProvider; safe to call even
-        when the LLM is disabled (`llm=None`) and even when the GNN checkpoint
-        is missing (the provider warns once and returns None).
-        """
+    def predict_structured(self, home_team: str, away_team: str) -> Optional[dict]:
+        """Return Expert 1's structured prediction (dict) or None on failure."""
         return self.predictor.predict(home_team, away_team)
 
-    def predict_match(self, home_team: str, away_team: str, as_of: str = None) -> str:
+    def predict_match(
+        self,
+        home_team: str,
+        away_team: str,
+        as_of: str = None,
+        gnn_prediction: Optional[dict] = None,
+    ) -> str:
         """
         Structured match prediction with full RAG context and GNN ensemble.
-
-        None-safe: when no LLM is configured, returns the GNN structured
-        prediction as JSON (no narrative), so the API can still answer.
+        Accepts optional pre-computed `gnn_prediction` so Expert 1 runs only once per request.
         """
-        gnn_result = self.predict_structured(home_team, away_team)
+        gnn_result = gnn_prediction if gnn_prediction is not None else self.predict_structured(home_team, away_team)
 
-        # LLM absent: return structured GNN result only.
         if self.llm is None:
             return json.dumps({
                 "home_team": home_team,
@@ -394,7 +360,7 @@ class FootballRAGSystem:
                 "note": "LLM not configured; returning Expert 1 (GNN) result only.",
             }, ensure_ascii=False)
 
-        gnn_pred_text = self._get_gnn_prediction(home_team, away_team)
+        gnn_pred_text = self._format_gnn_prediction_block(gnn_result)
         question = (
             f"You are Expert 2 (Fine-tuned LLM). Analyze the upcoming match between {home_team} (Home) and {away_team} (Away).\n"
             f"Consider their recent form, head-to-head history, and tactical styles (attack and defense).\n"
@@ -416,12 +382,9 @@ class FootballRAGSystem:
         """
         Expert 2 live-match narrative: pre-match GNN block + current match
         state (minute, score, live probs, drivers) -> coach-actionable analysis.
-
-        None-safe: when no LLM is configured, returns the structured context
-        as JSON so the API still answers with the live model numbers.
         """
         gnn_result = self.predict_structured(home_team, away_team)
-        gnn_pred_text = self._get_gnn_prediction(home_team, away_team)
+        gnn_pred_text = self._format_gnn_prediction_block(gnn_result)
 
         live_block = (
             f"LIVE STATE (minute {live_context.get('minute', '?')}):\n"
@@ -463,28 +426,27 @@ class FootballRAGSystem:
             f"{live_block}\n\n"
             f"Give a concise, coach-actionable analysis grounded ONLY in the live driver data.\n\n"
             f"Respond with a SINGLE JSON object and nothing else: no markdown fences, no prose "
-            f"outside the object. Use exactly this structure:\n"
+            f"outside the object. Fill in real match-specific text for every field:\n"
             f"{{\n"
             f'  "match_state": {{"minute": {live_context.get("minute", "?")}, '
             f'"score": "{live_context.get("home_goals", 0)}-{live_context.get("away_goals", 0)}"}},\n'
             f'  "analysis": {{\n'
-            f'    "who_controls_now": "2-3 sentences: who is actually controlling the match right now and why, from the driver numbers.",\n'
-            f'    "why": ["bullet 1", "bullet 2", "bullet 3"],\n'
-            f'    "how_outlook_changed": "2-3 sentences: how the live picture shifted vs the pre-match prediction.",\n'
+            f'    "who_controls_now": "<2-3 sentences explaining whether {home_team} or {away_team} controls the match at {live_context.get("minute", "?")}\' and why>",\n'
+            f'    "why": [\n'
+            f'      "<signal 1 with exact numbers from LIVE STAT DRIVERS>",\n'
+            f'      "<signal 2 with exact numbers from LIVE STAT DRIVERS>",\n'
+            f'      "<signal 3 with remaining time and expected final score>"\n'
+            f'    ],\n'
+            f'    "how_outlook_changed": "<2-3 sentences comparing pre-match probabilities vs live probabilities at {live_context.get("minute", "?")}\'>",\n'
             f'    "coach_recommendations": [\n'
-            f'      {{"priority": 1, "action": "specific action", "reason": "grounded reason"}},\n'
-            f'      {{"priority": 2, "action": "specific action", "reason": "grounded reason"}},\n'
-            f'      {{"priority": 3, "action": "specific action", "reason": "grounded reason"}}\n'
+            f'      {{"priority": 1, "action": "<concrete tactical adjustment for {home_team}>", "reason": "<data-backed reason from live state>"}},\n'
+            f'      {{"priority": 2, "action": "<concrete tactical adjustment for {away_team}>", "reason": "<data-backed reason from live state>"}},\n'
+            f'      {{"priority": 3, "action": "<key substitution or set-piece focus for final minutes>", "reason": "<data-backed reason from live state>"}}\n'
             f"    ]\n"
             f"  }}\n"
             f"}}\n\n"
-            f"Rules: who_controls_now, why and how_outlook_changed must be plain strings/bullets "
-            f"without markdown. You MUST include EXACTLY 3 coach_recommendations items with "
-            f"integer priorities 1..3 — NEVER leave coach_recommendations empty — each with a "
-            f"concrete action (substitution, formation/tactical tweak, pressing/intensity) and a "
-            f"reason tied to a specific driver (e.g. shots/SOT/xG pace, corners, yellows, reds). "
-            f"If coaching advice would differ per side, keep both perspectives inside the same "
-            f"actions. Keep each sentence short (max 15 words)."
+            f"Rules: NEVER output placeholder words like 'bullet 1' or 'specific action'. "
+            f"Every string must reference {home_team}, {away_team}, the {live_context.get('home_goals', 0)}-{live_context.get('away_goals', 0)} scoreline at {live_context.get('minute', '?')}', and the exact numbers above."
         )
         try:
             return self.query(question, teams=[home_team, away_team])
@@ -499,15 +461,7 @@ class FootballRAGSystem:
             }, ensure_ascii=False)
 
     def get_team_report(self, team_name: str) -> str:
-        """
-        Generate a full team tactical report.
-
-        Args:
-            team_name: Team name as stored in the database.
-
-        Returns:
-            Comprehensive tactical and statistical report.
-        """
+        """Generate a full team tactical report."""
         question = (
             f"Provide a comprehensive tactical analysis of {team_name}. "
             f"Describe their attacking style, defensive organization, "
@@ -540,16 +494,18 @@ class FootballRAGSystem:
         return "\n".join(parts)
 
     def get_available_teams(self) -> list[str]:
-        """
-        Return a sorted list of all available team names from the cached known teams.
-        """
+        """Return a sorted list of all available team names from the cached known teams."""
         global _TEAM_CACHE
         return sorted(list(_TEAM_CACHE))
 
     # ── Context Management ────────────────────────────────────────────────────
 
     def close(self):
-        """Close database connections."""
+        """Close database connections and thread pool."""
+        try:
+            self._retrieval_pool.shutdown(wait=False)
+        except Exception:
+            pass
         try:
             self.kg.close()
         except Exception:

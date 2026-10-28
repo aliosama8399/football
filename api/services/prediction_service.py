@@ -16,7 +16,7 @@ class PredictionService:
     """
     Business flow for match predictions:
     1. validate teams, 2. override check, 3. GNN structured result (None-safe),
-    4. optional LLM narrative (stripped of markdown), 5. assemble response.
+    4. optional LLM narrative (re-using pre-computed GNN prediction), 5. assemble response.
     """
 
     def __init__(self, feedback_repo: FeedbackRepository, rag_wrapper: AsyncRAGWrapper):
@@ -57,22 +57,26 @@ class PredictionService:
                 probabilities=mock_probs
             )
 
-        # ── Expert 1: GNN (ONNX) ────────────────────────────────────────────
+        # ── Expert 1: GNN (ONNX) — executed once and passed into Expert 2 ───
         gnn_prediction = await self.rag_wrapper.predict_structured(home_team, away_team)
         predicted_res = gnn_prediction["predicted_result"] if gnn_prediction else "D"
         probs = gnn_prediction["probabilities"] if gnn_prediction else {"H": 0.33, "D": 0.34, "A": 0.33}
         logger.info("[service] GNN result: %s probs=%s", predicted_res, probs)
 
-        # ── Expert 2: LLM narrative (ONNX GPU) ──────────────────────────────
+        # ── Expert 2: LLM narrative (ONNX GPU / Ollama / Gemini) ────────────
         t_llm = time.perf_counter()
         logger.info("[service] requesting LLM narrative...")
-        analysis_text = await self.rag_wrapper.predict_match(home_team, away_team)
+        as_of_str = str(match_date) if match_date else None
+        analysis_text = await self.rag_wrapper.predict_match(
+            home_team,
+            away_team,
+            as_of=as_of_str,
+            gnn_prediction=gnn_prediction,
+        )
         analysis_text = strip_markdown(analysis_text)
         logger.info("[service] LLM narrative done in %.1fs (%d chars)",
                     time.perf_counter() - t_llm, len(analysis_text or ""))
 
-        # Structured breakdown: prefer real JSON from the narrative; for
-        # free-text narratives, combine heuristic extraction with verified KG profile fallback
         breakdown = extract_json_object(analysis_text) or {}
         heur = extract_team_analysis(analysis_text, home_team, away_team)
 
@@ -81,13 +85,11 @@ class PredictionService:
         if "away_team_analysis" not in breakdown or not isinstance(breakdown["away_team_analysis"], dict):
             breakdown["away_team_analysis"] = {"strengths": [], "weaknesses": []}
 
-        # Step 1: Incorporate heuristic extraction from narrative
         for key in ("home_team_analysis", "away_team_analysis"):
             for bucket in ("strengths", "weaknesses"):
                 if not breakdown[key].get(bucket) and heur.get(key, {}).get(bucket):
                     breakdown[key][bucket] = heur[key][bucket]
 
-        # Step 2: Ground any missing strengths/weaknesses from Knowledge Graph profiles
         home_prof = await self.rag_wrapper.get_team_profile(home_team) or {}
         away_prof = await self.rag_wrapper.get_team_profile(away_team) or {}
 
@@ -101,7 +103,6 @@ class PredictionService:
         if not breakdown["away_team_analysis"].get("weaknesses"):
             breakdown["away_team_analysis"]["weaknesses"] = list(away_prof.get("weaknesses") or [])
 
-        # Step 3: Fall back to team_tactics.json if profile properties were unpopulated
         if not breakdown["home_team_analysis"].get("strengths") or not breakdown["away_team_analysis"].get("strengths"):
             try:
                 import os, json
@@ -124,7 +125,7 @@ class PredictionService:
                     "home_strengths=%d, away_strengths=%d)",
                     time.perf_counter() - t0,
                     len(breakdown["home_team_analysis"].get("strengths", [])),
-                    len(breakdown["away_team_analysis"].get("strengths", [])))
+                    len(breakdown["away_team_analysis"].get("weaknesses", [])))
 
         return MatchPredictionResponse(
             home_team=home_team,

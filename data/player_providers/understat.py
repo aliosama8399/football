@@ -2,8 +2,7 @@
 UnderstatPlayerProvider — per-league playersData JSON (xG/xA rich, thin elsewhere).
 
 Provides goals/assists/xG/xA/shots per player per season plus a rough
-position — but no GK stats (saves), no tackles/interceptions, no ages.
-Best used fused with FBRef (GK + defense) rather than standalone.
+position — works via pure HTTP JSON requests without any browser dependency.
 
 Season format in: '2425'  →  Understat year '2024' (start of season).
 """
@@ -16,6 +15,7 @@ import requests
 
 from data.player_providers.base import BasePlayerProvider
 from data.player_providers.schema import PlayerRecord
+from data.team_registry import normalize_team_name
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +50,23 @@ def _coarse_position(pos: Optional[str]) -> Optional[str]:
     return _POS_MAP.get(primary)
 
 
+def _pos_list(pos: Optional[str], primary_bucket: Optional[str]) -> List[str]:
+    if not pos:
+        return [primary_bucket] if primary_bucket else []
+    buckets = []
+    for tok in str(pos).strip().upper().split():
+        b = _POS_MAP.get(tok[:1])
+        if b and b not in buckets:
+            buckets.append(b)
+    if not buckets and primary_bucket:
+        buckets.append(primary_bucket)
+    return buckets
+
+
 class UnderstatPlayerProvider(BasePlayerProvider):
     provider_name = "understat"
 
-    def __init__(self, rate_limit_sec: float = 3.0, timeout: int = 30):
+    def __init__(self, rate_limit_sec: float = 1.5, timeout: int = 30):
         self._delay = rate_limit_sec
         self._timeout = timeout
         self._last_fetch = 0.0
@@ -94,11 +107,19 @@ class UnderstatPlayerProvider(BasePlayerProvider):
 
     def fetch_team_squad(self, team: str, league_code: str, season: str) -> List[PlayerRecord]:
         rows = self._league_data(league_code, season)
-        want = team.lower()
+        want_canon = normalize_team_name(team, league_code).lower()
+        want_raw = team.lower()
         records = []
         for p in rows:
-            team_title = str(p.get("team_title", "")).strip()
-            if team_title.lower() != want:
+            # Understat team_title can be a comma-separated list if player transferred mid-season
+            raw_titles = [t.strip() for t in str(p.get("team_title", "")).split(",") if t.strip()]
+            matched_team = False
+            for t_title in raw_titles:
+                t_canon = normalize_team_name(t_title, league_code).lower()
+                if t_canon == want_canon or t_title.lower() == want_raw:
+                    matched_team = True
+                    break
+            if not matched_team:
                 continue
             coarse_pos = _coarse_position(p.get("position"))
             records.append(PlayerRecord(
@@ -121,10 +142,10 @@ class UnderstatPlayerProvider(BasePlayerProvider):
                        "key_passes": _num(p.get("key_passes")),
                        "npxg": _num(p.get("npxG")),
                        "xg_chain": _num(p.get("xGChain")),
-                       "xg_buildup": _num(p.get("xGBuildup")),
-                       "pos_list": [coarse_pos] if coarse_pos else []},
+                       "xg_buildup": _num(p.get("xg_buildup") or p.get("xGBuildup")),
+                       "pos_list": _pos_list(p.get("position"), coarse_pos)},
             ))
-        logger.info("Understat %s: %d players", team, len(records))
+        logger.info("Understat %s (%s): %d players", team, season, len(records))
         return records
 
 

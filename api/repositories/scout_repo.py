@@ -23,6 +23,7 @@ import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
+from data._config import get_leagues as _gl
 from data.player_providers.api_football import ApiFootballPlayerProvider
 from data.player_providers.schema import PlayerRecord
 
@@ -30,8 +31,8 @@ from api.repositories.best11_repo import Best11Repository
 
 logger = logging.getLogger("best11.scout")
 
-# data/config.yaml league codes the scouting feature covers (5 leagues).
-SCOUT_LEAGUES = ("E0", "SP1", "D1", "I1", "F1")
+# Dynamically derived from data/config.yaml league codes.
+SCOUT_LEAGUES: Tuple[str, ...] = tuple(_gl().keys()) or ("E0", "SP1", "D1", "I1", "F1")
 
 
 def _normalize(name: str) -> str:
@@ -127,7 +128,7 @@ class ScoutRepository:
         empty dict — the service then falls back to a neutral (no-fit) score.
         """
         team_name = _resolve_team_name(team, league_code, season,
-                                       self._teams_in_league(team, league_code))
+                                       self._teams_in_league(league_code, season))
         if not team_name:
             return {}
         try:
@@ -275,7 +276,6 @@ class ScoutRepository:
 
 
 # league-code → project league name lookup
-from data._config import get_leagues as _gl  # noqa: E402  (late-bound)
 _LEAGUE_NAMES = {code: info["name"] for code, info in _gl().items()}
 
 

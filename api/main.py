@@ -11,7 +11,12 @@ from strawberry.fastapi import GraphQLRouter
 from api.config import settings
 from api.database import init_db, AsyncSessionLocal
 from api.graph_db import init_graph_db, close_graph_db
-from api.dependencies import init_rag_system, get_rag_system, init_knowledge_base
+from api.dependencies import (
+    init_rag_system,
+    get_rag_system,
+    init_knowledge_base,
+    reload_all_singletons,
+)
 from api.auth import seed_supervisor_user
 from api.routes import (
     auth_router,
@@ -23,8 +28,10 @@ from api.routes import (
     submissions_router,
     kb_router,
     best11_router,
-    scout_router
+    scout_router,
+    jobs_router
 )
+from api.services.job_runner import job_manager
 from api.graphql import schema
 
 import os
@@ -54,8 +61,8 @@ logger.info("Logging to file: %s", os.path.abspath(_log_file))
 async def lifespan(app: FastAPI):
     """
     Handles FastAPI application lifespan startup/shutdown hooks.
-    Bootstraps resources (Postgres ORM schemas, KG connection pools, and singleton RAG structures)
-    and ensures clean teardowns on shutdown.
+    Bootstraps resources (Postgres ORM schemas, KG connection pools, singleton RAG structures,
+    and the autonomous MLOps background scheduler) and ensures clean teardowns on shutdown.
     """
     logger.info("Initializing Football RAG SaaS Service startup...")
     
@@ -106,6 +113,15 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error initializing KnowledgeBase: {e}")
         kb_status = "DOWN"
 
+    # 4.8. Start Autonomous Background Scheduler & Self-Healing Bootstrap
+    try:
+        job_manager.start_auto_scheduler(app)
+        sched_info = job_manager.get_scheduler_status()
+        sched_status = f"ENABLED (every {sched_info['interval_hours']}h)" if sched_info["enabled"] else "PAUSED"
+    except Exception as e:
+        logger.error(f"Error starting autonomous scheduler: {e}")
+        sched_status = "ERROR"
+
     logger.info("=" * 62)
     logger.info("STARTUP SUMMARY")
     logger.info(f"  DB (Postgres/Alembic) : OK")
@@ -115,12 +131,17 @@ async def lifespan(app: FastAPI):
     logger.info(f"  GNN (Expert 1)        : {gnn_status}")
     logger.info(f"  RAG orchestrator      : {rag_status}")
     logger.info(f"  Knowledge base        : {kb_status}")
+    logger.info(f"  Auto MLOps Scheduler  : {sched_status}")
     logger.info("=" * 62)
     logger.info("Application startup COMPLETE — serving on port 8001")
 
     yield
     
     logger.info("Executing teardown / shutdown cleanup...")
+    try:
+        job_manager.stop_auto_scheduler()
+    except Exception:
+        pass
     # 5. Clean up graph connections
     close_graph_db()
     # 6. Clean up RAG resources
@@ -158,6 +179,7 @@ app.include_router(submissions_router, prefix="/api/v1")
 app.include_router(kb_router, prefix="/api/v1")
 app.include_router(best11_router, prefix="/api/v1")
 app.include_router(scout_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
 
 # Mount Strawberry GraphQL endpoint
 graphql_app = GraphQLRouter(schema)
@@ -174,6 +196,22 @@ async def root():
         "kg_provider": settings.kg_provider,
         "version": "1.0.0"
     }
+
+
+@app.post("/api/v1/admin/reload", tags=["Administration"])
+async def reload_api_state(request: Request):
+    """
+    Hot-reload FootballRAGSystem, ONNX/PyTorch GNN graph snapshots, FAISS/pgvector
+    handles, and KnowledgeBase caches after an automated scrape/retrain cycle.
+    """
+    try:
+        info = reload_all_singletons(request.app)
+        logger.info("Hot-reloaded API singletons: %s", info)
+        return info
+    except Exception as e:
+        logger.error("Failed hot-reloading API singletons: %s", e, exc_info=True)
+        return {"status": "error", "message": str(e)}
+
 
 # ── Serve UI Assets ──────────────────────────────────────────────────────────
 
@@ -219,6 +257,8 @@ async def metrics_endpoint():
     except Exception as e:
         logger.error("Prometheus metrics export error: %s", e)
         return Response(content=f"# Error exporting metrics: {e}\n", media_type="text/plain", status_code=500)
+
+
 @app.post("/api/v1/monitoring/live-metrics", tags=["Monitoring"])
 async def receive_live_metrics(payload: dict):
     """

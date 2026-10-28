@@ -1,9 +1,18 @@
-from typing import Optional, List, Dict, Any
+import json
+import logging
 from datetime import date
-from sqlalchemy.future import select
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from api.database import Feedback, PredictionOverride, MatchSubmission, TacticalAnalysis, User
+from sqlalchemy.future import select
+
+from api.database import Feedback, MatchSubmission, PredictionOverride, TacticalAnalysis, User
+
+logger = logging.getLogger(__name__)
+
+_TACTICS_JSON_PATH = Path(__file__).resolve().parent.parent.parent / "rag" / "knowledge_base" / "team_tactics.json"
 
 
 class FeedbackRepository:
@@ -146,6 +155,8 @@ class FeedbackRepository:
         defense_headline: Optional[str] = None,
         strengths: Optional[str] = None,
         weaknesses: Optional[str] = None,
+        strengths_list: Optional[List[str]] = None,
+        weaknesses_list: Optional[List[str]] = None,
     ) -> bool:
         query = text("""
             UPDATE teams
@@ -167,7 +178,99 @@ class FeedbackRepository:
             "name": team_name
         })
         await self.db.commit()
-        return result.rowcount > 0
+        updated = result.rowcount > 0
+
+        if updated:
+            self._sync_team_tactics_across_stores(
+                team_name=team_name,
+                attack_tactic=attack_tactic,
+                defense_tactic=defense_tactic,
+                attack_headline=attack_headline,
+                defense_headline=defense_headline,
+                strengths_list=strengths_list,
+                weaknesses_list=weaknesses_list,
+            )
+
+        return updated
+
+    def _sync_team_tactics_across_stores(
+        self,
+        team_name: str,
+        attack_tactic: Optional[str] = None,
+        defense_tactic: Optional[str] = None,
+        attack_headline: Optional[str] = None,
+        defense_headline: Optional[str] = None,
+        strengths_list: Optional[List[str]] = None,
+        weaknesses_list: Optional[List[str]] = None,
+    ) -> None:
+        """
+        Reactive multi-store sync: propagates supervisor-approved team tactical edits
+        to `rag/knowledge_base/team_tactics.json`, active Neo4j graph nodes, and
+        in-memory `KnowledgeBase` caches so changes take effect immediately without CLI.
+        """
+        # 1. Sync to rag/knowledge_base/team_tactics.json
+        try:
+            if _TACTICS_JSON_PATH.exists():
+                with open(_TACTICS_JSON_PATH, "r", encoding="utf-8") as f:
+                    tactics_data = json.load(f)
+            else:
+                tactics_data = {}
+
+            entry = tactics_data.get(team_name, {})
+            if attack_tactic:
+                entry["attack"] = attack_tactic
+            if defense_tactic:
+                entry["defense"] = defense_tactic
+            if attack_headline:
+                entry["attack_headline"] = attack_headline
+            if defense_headline:
+                entry["defense_headline"] = defense_headline
+            if strengths_list:
+                entry["strengths"] = strengths_list
+            if weaknesses_list:
+                entry["weaknesses"] = weaknesses_list
+            tactics_data[team_name] = entry
+
+            _TACTICS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(_TACTICS_JSON_PATH, "w", encoding="utf-8") as f:
+                json.dump(tactics_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.warning("Non-fatal: failed syncing tactics JSON for %s: %s", team_name, e)
+
+        # 2. Sync to Neo4j if active
+        try:
+            from api.graph_db import get_graph_db
+
+            kg = get_graph_db()
+            if hasattr(kg, "_run"):
+                kg._run(
+                    """
+                    MATCH (t:Team {name: $name})
+                    SET t.attack_tactic    = COALESCE($attack_tactic, t.attack_tactic),
+                        t.defense_tactic   = COALESCE($defense_tactic, t.defense_tactic),
+                        t.attack_headline  = COALESCE($attack_headline, t.attack_headline),
+                        t.defense_headline = COALESCE($defense_headline, t.defense_headline),
+                        t.strengths        = COALESCE($strengths, t.strengths),
+                        t.weaknesses       = COALESCE($weaknesses, t.weaknesses)
+                    """,
+                    name=team_name,
+                    attack_tactic=attack_tactic,
+                    defense_tactic=defense_tactic,
+                    attack_headline=attack_headline,
+                    defense_headline=defense_headline,
+                    strengths=strengths_list,
+                    weaknesses=weaknesses_list,
+                )
+        except Exception as e:
+            logger.debug("Neo4j reactive tactics sync skipped: %s", e)
+
+        # 3. Refresh in-memory KnowledgeBase singleton
+        try:
+            from api.dependencies import init_knowledge_base
+
+            init_knowledge_base(force_reload=True)
+        except Exception as e:
+            logger.debug("KnowledgeBase reload skipped: %s", e)
 
     async def _parse_text_array(self, text_val: Optional[str]) -> Optional[str]:
         if not text_val:
@@ -177,9 +280,17 @@ class FeedbackRepository:
             return None
         return "{" + ",".join(f'"{line}"' for line in lines) + "}"
 
+    def _parse_list(self, text_val: Optional[str]) -> Optional[List[str]]:
+        if not text_val:
+            return None
+        lines = [line.strip() for line in text_val.split("\n") if line.strip()]
+        return lines if lines else None
+
     async def approve_team_profile_edit(self, feedback: Feedback) -> bool:
         strengths_arr = None
         weaknesses_arr = None
+        strengths_list = self._parse_list(feedback.suggested_strengths)
+        weaknesses_list = self._parse_list(feedback.suggested_weaknesses)
         if feedback.suggested_strengths:
             strengths_arr = await self._parse_text_array(feedback.suggested_strengths)
         if feedback.suggested_weaknesses:
@@ -192,6 +303,8 @@ class FeedbackRepository:
             defense_headline=feedback.suggested_defense_headline,
             strengths=strengths_arr,
             weaknesses=weaknesses_arr,
+            strengths_list=strengths_list,
+            weaknesses_list=weaknesses_list,
         )
 
     # ═══════════════════════════════════════════════════════════════════════════

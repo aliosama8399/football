@@ -8,25 +8,12 @@
 # THIS file only — collectors and preprocess.py will pick it up on next run.
 # =============================================================================
 
-# --- Seasons (10 seasons: 2015-16 through 2024-25) ---------------------------
-# football-data.co.uk format: 4-char YYYY where first 2 = start YY, last 2 = end YY
-seasons: ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425']
-
-# Understat format (calendar year of season start)
-understat_years: [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-
-# soccerdata format (YYYY-YYYY)
-soccerdata_seasons:
-  - '2015-2016'
-  - '2016-2017'
-  - '2017-2018'
-  - '2018-2019'
-  - '2019-2020'
-  - '2020-2021'
-  - '2021-2022'
-  - '2022-2023'
-  - '2023-2024'
-  - '2024-2025'
+# --- Dynamic Seasons Configuration -----------------------------------------
+# Automatically computes all seasons from start_year through the current active season
+# (derived from system clock, season starts in July).
+# No code or YAML updates are ever needed when next season begins!
+auto_seasons: true
+start_year: 2015
 
 # --- Leagues -----------------------------------------------------------------
 # Each league has identifiers for each data source we use.

@@ -140,6 +140,14 @@ class LivePredictionRequest(BaseModel):
     away_yellows: Optional[int] = None
     home_reds: Optional[int] = Field(default=0, ge=0)
     away_reds: Optional[int] = Field(default=0, ge=0)
+    home_red_minutes: Optional[List[int]] = Field(
+        default=None,
+        description="Optional list of dismissal minutes for home red cards (Spec Section 6.3.2)",
+    )
+    away_red_minutes: Optional[List[int]] = Field(
+        default=None,
+        description="Optional list of dismissal minutes for away red cards (Spec Section 6.3.2)",
+    )
 
     explain: bool = Field(
         default=False,

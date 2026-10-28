@@ -4,7 +4,9 @@ Unified BentoML Service for Football RAG & Match Prediction SaaS
 Wraps the full FastAPI application with BentoML serving infrastructure:
   1. Mounts FastAPI via @bentoml.asgi_app(fastapi_app, path="/")
      Preserves all REST routes, GraphQL (/graphql), UI (/ui), and Prometheus (/metrics).
-  2. Exposes adaptive batching endpoint predict_match_batch for GNN high-throughput predictions.
+  2. Exposes adaptive batching endpoint predict_match_batch for GNN high-throughput predictions
+     using ONNXPredictionProvider (with GNNPredictionProvider fallback) and vectorized
+     predict_batch(matchups) execution.
   3. Provides declarative packaging for containerization (bentofile.yaml).
 """
 
@@ -48,12 +50,24 @@ class FootballBentoService:
     @property
     def gnn_provider(self):
         if self._gnn_provider is None:
+            # Prefer ONNX Runtime provider for low-latency adaptive batching, fallback to PyG GNN
+            try:
+                from rag.providers.gnn_provider_onnx import ONNXPredictionProvider
+                provider = ONNXPredictionProvider()
+                provider.load()
+                if provider._loaded:
+                    self._gnn_provider = provider
+                    logger.info("ONNX GNN prediction provider loaded successfully in BentoML.")
+                    return self._gnn_provider
+            except Exception as onnx_err:
+                logger.info("ONNX GNN provider unavailable in BentoML (%s); falling back to PyG GNN.", onnx_err)
+
             try:
                 from rag.providers.gnn_provider import GNNPredictionProvider
                 provider = GNNPredictionProvider()
                 provider.load()
                 self._gnn_provider = provider
-                logger.info("GNN prediction provider loaded successfully in BentoML.")
+                logger.info("PyG GNN prediction provider loaded successfully in BentoML.")
             except Exception as e:
                 logger.warning("GNN Provider lazy load warning in BentoML service: %s", e)
         return self._gnn_provider
@@ -63,41 +77,50 @@ class FootballBentoService:
         """
         Adaptive Batching Prediction API.
         BentoML automatically collects individual match prediction calls arriving concurrently
-        into a single batch and returns individual predictions.
+        into a single batch and executes a vectorized batch forward pass via predict_batch().
 
         Input: list of {"home_team": str, "away_team": str}
         """
-        results = []
         provider = self.gnn_provider
-        for item in matchups:
-            home = item.get("home_team", "")
-            away = item.get("away_team", "")
-            if provider and provider._loaded:
-                pred = provider.predict(home, away)
-                results.append(pred or {
-                    "home_team": home,
-                    "away_team": away,
-                    "predicted_result": "D",
-                    "probabilities": {"H": 0.33, "D": 0.34, "A": 0.33},
-                    "source": "fallback"
-                })
+        if provider and provider._loaded:
+            if hasattr(provider, "predict_batch"):
+                batch_preds = provider.predict_batch(matchups)
             else:
-                results.append({
-                    "home_team": home,
-                    "away_team": away,
+                batch_preds = [
+                    provider.predict(m.get("home_team", ""), m.get("away_team", ""))
+                    for m in matchups
+                ]
+            results = []
+            for item, pred in zip(matchups, batch_preds):
+                results.append(pred or {
+                    "home_team": item.get("home_team", ""),
+                    "away_team": item.get("away_team", ""),
                     "predicted_result": "D",
                     "probabilities": {"H": 0.33, "D": 0.34, "A": 0.33},
-                    "source": "fallback"
+                    "source": "fallback",
                 })
-        return results
+            return results
+
+        return [
+            {
+                "home_team": item.get("home_team", ""),
+                "away_team": item.get("away_team", ""),
+                "predicted_result": "D",
+                "probabilities": {"H": 0.33, "D": 0.34, "A": 0.33},
+                "source": "fallback",
+            }
+            for item in matchups
+        ]
 
     @bentoml.api
     def service_status(self) -> Dict[str, Any]:
         """BentoML health and metadata inspection probe."""
+        provider = self.gnn_provider
         return {
             "service": "football_rag_service",
             "bentoml_version": bentoml.__version__,
-            "gnn_loaded": bool(self._gnn_provider and self._gnn_provider._loaded),
+            "gnn_loaded": bool(provider and provider._loaded),
+            "gnn_backend": type(provider).__name__ if provider else None,
             "fastapi_mounted": True,
             "status": "healthy"
         }
