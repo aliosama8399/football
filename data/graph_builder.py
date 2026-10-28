@@ -4,12 +4,13 @@ Graph Builder for Football Match Prediction
 Converts processed match data into PyTorch Geometric graph format.
 
 DESIGN:
-- Nodes: Teams (147 unique across 5 leagues) with rolling + cumulative stat features
-- Historical edges: Past matches form the graph structure, carrying
-  match-stat features (shots, corners, fouls, cards — NOT goals/result)
-- Prediction: For each match to predict, we use the graph state BEFORE
-  that match. The prediction edge has NO edge features (match hasn't happened).
-  Instead, we use home/away node embeddings + H2H features from graph structure.
+- Nodes: Teams (unique across 5 leagues) with rolling + cumulative stat features
+- Edges: Matches form the graph structure, carrying strictly PRE-MATCH
+  expected match-stat features (rolling 5-match Shots, SOT, Corners, Fouls,
+  Yellows, Reds for Home and Away — zero post-match box-score leakage)
+- Prediction: For each match (including unplayed or cross-league matchups),
+  `build_query_edge_attr()` constructs the 12-dim pre-match edge feature vector
+  from the two teams' latest node feature snapshots.
 
 TEA-GNN EXTRAS:
 - edge_time: FloatTensor [num_edges], years-ago per match (for learned temporal decay)
@@ -52,15 +53,23 @@ class FootballGraphBuilder:
         'season_progress', 'form_vs_season',
     ]  # 32 features per team
     
-    # Edge features for HISTORICAL matches (no goals — they'd leak the result)
-    HIST_EDGE_FEATURE_COLS = [
-        'HS', 'AS',          # Shots
-        'HST', 'AST',        # Shots on target
-        'HC', 'AC',          # Corners
-        'HF', 'AF',          # Fouls  
-        'HY', 'AY',          # Yellow cards
-        'HR', 'AR',          # Red cards
-    ]  # 12 features (kept unchanged — no leakage)
+    # Strictly PRE-MATCH edge features (12 features — rolling 5-match expectations for Home & Away).
+    # Replaces post-match box-score stats (HS/AS/HST/AST/HR/AR) to eliminate target-edge leakage
+    # while preserving the exact 12-feature dimensionality and physical meaning.
+    PRE_MATCH_EDGE_FEATURE_COLS = [
+        'HomeShots_5', 'AwayShots_5',       # Expected Shots
+        'HomeSOT_5', 'AwaySOT_5',           # Expected Shots on target
+        'HomeCorners_5', 'AwayCorners_5',   # Expected Corners
+        'HomeFouls_5', 'AwayFouls_5',       # Expected Fouls
+        'HomeYellows_5', 'AwayYellows_5',   # Expected Yellow cards
+        'HomeReds_5', 'AwayReds_5',         # Expected Red cards
+    ]  # 12 features (100% pre-match, zero leakage)
+
+    # Alias kept for backward compatibility with export_gnn.py & callers
+    HIST_EDGE_FEATURE_COLS = PRE_MATCH_EDGE_FEATURE_COLS
+
+    # Indices into NODE_FEATURE_SUFFIXES corresponding to [Shots_5, SOT_5, Corners_5, Fouls_5, Yellows_5, Reds_5]
+    _EDGE_SUFFIX_NODE_INDICES = [5, 7, 9, 11, 13, 14]
     
     # Tabular features for Hybrid model (per-edge, pre-match, no leakage).
     # Mirrors rolling + cumulative node features + H2H + referee + weather + stadium.
@@ -100,7 +109,7 @@ class FootballGraphBuilder:
     def __init__(self, data_path: str = None):
         if data_path is None:
             data_path = Path(__file__).parent / "processed" / "processed_matches.csv"
-        self.df = pd.read_csv(data_path)
+        self.df = pd.read_csv(data_path, low_memory=False)
         self.df['Date'] = pd.to_datetime(self.df['Date'])
         self.df = self.df.sort_values('Date').reset_index(drop=True)
         
@@ -116,6 +125,7 @@ class FootballGraphBuilder:
         # Encode target: A=0, D=1, H=2
         self.label_map = {'A': 0, 'D': 1, 'H': 2}
         self.class_names = ['A', 'D', 'H']
+        self.edge_scaler: StandardScaler | None = None
         
         print(f"[OK] Loaded {len(self.df)} matches, {self.num_teams} teams, {self.df['League'].nunique()} leagues")
     
@@ -142,9 +152,9 @@ class FootballGraphBuilder:
         return features
     
     def _get_hist_edge_features(self, row):
-        """Extract edge features from a historical match (no goals/result!)."""
+        """Extract pre-match edge features for a match row (no post-match leakage)."""
         features = []
-        for col in self.HIST_EDGE_FEATURE_COLS:
+        for col in self.PRE_MATCH_EDGE_FEATURE_COLS:
             val = row.get(col, 0.0)
             features.append(float(val) if not pd.isna(val) else 0.0)
         return features
@@ -156,6 +166,34 @@ class FootballGraphBuilder:
             val = row.get(col, 0.0)
             features.append(float(val) if not pd.isna(val) else 0.0)
         return features
+
+    def build_query_edge_attr(
+        self,
+        home_indices: list[int] | np.ndarray,
+        away_indices: list[int] | np.ndarray,
+        node_features: np.ndarray | torch.Tensor,
+    ) -> np.ndarray:
+        """
+        Construct scaled 12-dim pre-match edge attributes for arbitrary (home_idx, away_idx)
+        pairs (including unplayed or cross-league matchups) directly from node_features.
+        """
+        if isinstance(node_features, torch.Tensor):
+            x_np = node_features.detach().cpu().numpy()
+        else:
+            x_np = np.asarray(node_features, dtype=np.float32)
+
+        h_idx = np.asarray(home_indices, dtype=np.int64)
+        a_idx = np.asarray(away_indices, dtype=np.int64)
+        batch_size = len(h_idx)
+
+        raw_edges = np.zeros((batch_size, len(self.PRE_MATCH_EDGE_FEATURE_COLS)), dtype=np.float32)
+        for pair_pos, node_col_idx in enumerate(self._EDGE_SUFFIX_NODE_INDICES):
+            raw_edges[:, 2 * pair_pos] = x_np[h_idx, node_col_idx]
+            raw_edges[:, 2 * pair_pos + 1] = x_np[a_idx, node_col_idx]
+
+        if self.edge_scaler is not None:
+            return self.edge_scaler.transform(raw_edges).astype(np.float32)
+        return raw_edges
     
     def _compute_latest_node_features(self, df_subset: pd.DataFrame) -> torch.FloatTensor:
         """Vectorized extraction of latest rolling + cumulative node features per team."""
@@ -185,22 +223,31 @@ class FootballGraphBuilder:
 
         return torch.tensor(node_feats, dtype=torch.float)
 
-    def build_train_test_graphs(self):
+    def build_train_test_graphs(self, train_seasons=None, test_seasons=None):
         """
         Build graph data for training and testing.
         
-        APPROACH: Transductive edge classification
-        - Build ONE graph with all matches as edges
-        - Train on edges from 2015-2024 seasons (9 seasons)
-        - Test on edges from 2024-25 season
-        - Edge features: match stats (NO goals/result to prevent leakage),
-          StandardScaler-normalized (fit ONLY on train edges)
-        - Node features: latest rolling + cumulative team stats (fully populated)
-        - TEA-GNN extras: edge_time (recency) and league_id (cross-league context)
+        APPROACH: Leakage-Free Temporal Edge Classification
+        - Train message passing uses ONLY training edges (`train_mask`), preventing future
+          test-season matches from passing messages into historical node representations.
+        - Edge features (`PRE_MATCH_EDGE_FEATURE_COLS`) are strictly pre-match rolling expectations,
+          StandardScaler-normalized (fit ONLY on train edges).
+        - Node features: latest rolling + cumulative team stats (`x` for train, `x_test` for test).
+        - TEA-GNN extras: edge_time (recency) and league_id (cross-league context).
         """
-        train_seasons = [1516, 1617, 1718, 1819, 1920, 2021, 2122, 2223, 2324]
-        test_seasons = [2425]
-        
+        all_avail_seasons = sorted([int(s) for s in self.df['Season'].dropna().unique()])
+
+        if test_seasons is None:
+            if len(all_avail_seasons) >= 2:
+                test_seasons = [all_avail_seasons[-1]]
+            else:
+                test_seasons = all_avail_seasons
+
+        if train_seasons is None:
+            train_seasons = [s for s in all_avail_seasons if s not in test_seasons]
+            if not train_seasons:
+                train_seasons = test_seasons
+
         train_mask_df = self.df['Season'].isin(train_seasons)
         test_mask_df = self.df['Season'].isin(test_seasons)
         valid_mask = train_mask_df | test_mask_df
@@ -218,15 +265,15 @@ class FootballGraphBuilder:
         dst_nodes = df_sub['AwayTeam'].map(self.team_to_idx).values.astype(np.int64)
         edge_index = torch.tensor(np.array([src_nodes, dst_nodes]), dtype=torch.long)
 
-        # Ensure all columns exist and fillna
-        for c in self.HIST_EDGE_FEATURE_COLS:
+        # Ensure all pre-match edge & tabular columns exist and fillna
+        for c in self.PRE_MATCH_EDGE_FEATURE_COLS:
             if c not in df_sub.columns:
                 df_sub[c] = 0.0
         for c in self.TABULAR_FEATURES:
             if c not in df_sub.columns:
                 df_sub[c] = 0.0
 
-        edge_attrs_np = df_sub[self.HIST_EDGE_FEATURE_COLS].fillna(0.0).values.astype(np.float32)
+        edge_attrs_np = df_sub[self.PRE_MATCH_EDGE_FEATURE_COLS].fillna(0.0).values.astype(np.float32)
         tabular_np = df_sub[self.TABULAR_FEATURES].fillna(0.0).values.astype(np.float32)
         labels_np = df_sub['FTR'].map(self.label_map).fillna(1).values.astype(np.int64)
 
@@ -237,6 +284,7 @@ class FootballGraphBuilder:
         # ── 3. StandardScaler fit strictly on train split only ──
         edge_scaler = StandardScaler()
         edge_scaler.fit(edge_attrs_np[is_train])
+        self.edge_scaler = edge_scaler
         edge_attr_scaled = torch.tensor(edge_scaler.transform(edge_attrs_np), dtype=torch.float)
 
         tabular_scaler = StandardScaler()
@@ -250,22 +298,23 @@ class FootballGraphBuilder:
         edge_time = torch.tensor(years_ago, dtype=torch.float32)
 
         graph_data = {
-            'x': node_features,                  # Node features (train)
-            'x_test': test_node_features,         # Node features (updated for test)
+            'x': node_features,                  # Node features (train snapshot)
+            'x_test': test_node_features,         # Node features (test/inference snapshot)
             'edge_index': edge_index,             # All edges
-            'edge_attr': edge_attr_scaled,        # Edge features (scaled on train only, no goals!)
+            'edge_attr': edge_attr_scaled,        # Pre-match edge features (scaled on train only)
             'edge_y': edge_y,                     # Labels
-            'train_mask': train_mask_t,            # Which edges are training
-            'test_mask': test_mask_t,              # Which edges are testing
-            'tabular_features': tabular_tensor,    # Per-edge tabular features (for Hybrid)
+            'train_mask': train_mask_t,           # Which edges are training
+            'test_mask': test_mask_t,             # Which edges are testing
+            'tabular_features': tabular_tensor,   # Per-edge tabular features (for Hybrid)
             'num_nodes': self.num_teams,
             'num_node_features': len(self.NODE_FEATURE_SUFFIXES),
-            'num_edge_features': len(self.HIST_EDGE_FEATURE_COLS),
+            'num_edge_features': len(self.PRE_MATCH_EDGE_FEATURE_COLS),
             'num_tabular_features': len(self.TABULAR_FEATURES),
+            'edge_scaler': edge_scaler,
             # TEA-GNN extras:
-            'edge_time': edge_time,                # [num_edges] years-ago per match
-            'league_id': self.team_to_league_idx,  # [num_nodes] league 0..4 per team
-            'num_leagues': len(self.LEAGUE_TO_ID), # 5
+            'edge_time': edge_time,               # [num_edges] years-ago per match
+            'league_id': self.team_to_league_idx, # [num_nodes] league 0..4 per team
+            'num_leagues': len(self.LEAGUE_TO_ID),# 5
         }
         
         print(f"\n[OK] Graph built:")
@@ -274,7 +323,7 @@ class FootballGraphBuilder:
         print(f"  Train edges:      {int(train_mask_t.sum())}")
         print(f"  Test edges:       {int(test_mask_t.sum())}")
         print(f"  Node features:    {len(self.NODE_FEATURE_SUFFIXES)} (rolling + cumulative + season)")
-        print(f"  Edge features:    {len(self.HIST_EDGE_FEATURE_COLS)} (scaled, no goals!)")
+        print(f"  Edge features:    {len(self.PRE_MATCH_EDGE_FEATURE_COLS)} (strictly pre-match rolling, zero leakage)")
         print(f"  Tabular features: {len(self.TABULAR_FEATURES)} (for Hybrid)")
         print(f"  Edge time:        [num_edges] years-ago (for TEA-GNN)")
         print(f"  League id:        [{self.num_teams}] per team (for TEA-GNN, {len(self.LEAGUE_TO_ID)} leagues)")

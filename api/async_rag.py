@@ -1,7 +1,9 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import List, Optional
 from rag.rag_orchestrator import FootballRAGSystem
+
 
 class AsyncRAGWrapper:
     """
@@ -18,10 +20,26 @@ class AsyncRAGWrapper:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self.rag.query, question)
 
-    async def predict_match(self, home_team: str, away_team: str) -> str:
-        """Asynchronously execute the match prediction pipeline (GNN + LLM analysis)."""
+    async def predict_match(
+        self,
+        home_team: str,
+        away_team: str,
+        as_of: Optional[str] = None,
+        gnn_prediction: Optional[dict] = None,
+    ) -> str:
+        """
+        Asynchronously execute the match prediction pipeline (GNN + LLM analysis).
+        Accepts optional pre-computed `gnn_prediction` to prevent redundant GNN inference.
+        """
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self.rag.predict_match, home_team, away_team)
+        fn = partial(
+            self.rag.predict_match,
+            home_team,
+            away_team,
+            as_of=as_of,
+            gnn_prediction=gnn_prediction,
+        )
+        return await loop.run_in_executor(self._executor, fn)
 
     async def get_team_report(self, team_name: str) -> str:
         """Asynchronously generate a comprehensive team tactical report."""

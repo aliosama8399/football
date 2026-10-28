@@ -1,7 +1,8 @@
 """
-FAISS Vector Provider
-======================
-Implements BaseVectorProvider using FAISS + JSON metadata sidecar.
+FAISS & pgvector Vector Providers
+==================================
+Implements BaseVectorProvider using FAISS + JSON metadata sidecar or
+PostgreSQL pgvector with thread-safe connection pooling.
 
 Index file  : rag/vector_store/faiss.index
 Metadata    : rag/vector_store/faiss_metadata.json
@@ -15,10 +16,11 @@ Factory:
 
 import json
 import logging
-import numpy as np
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import yaml
 
 from rag.providers.base import BaseVectorProvider
@@ -148,13 +150,14 @@ class FAISSProvider(BaseVectorProvider):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# pgvector Provider (vectors live inside PostgreSQL)
+# pgvector Provider (vectors live inside PostgreSQL with Thread-Safe Pool)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class PgVectorProvider(BaseVectorProvider):
     """
     Vector search using the pgvector extension (cosine distance, HNSW index).
-    Requires that build_pgvector_index.py has been run (or startup seeding).
+    Uses psycopg2.pool.ThreadedConnectionPool so concurrent FastAPI / Strawberry
+    worker threads never collide on a shared connection.
     """
 
     def __init__(self, dsn: str = None, table: str = None):
@@ -164,19 +167,36 @@ class PgVectorProvider(BaseVectorProvider):
             "postgres_dsn", "postgresql://postgres:123@localhost:5432/football_rag")
         self.table = table or cfg.get("pgvector_table", "kb_vectors")
         self.embed_model = cfg.get("embed_model", "sentence-transformers/all-MiniLM-L6-v2")
-        self._conn = None
+        self._pool = None
         self._embedder = None
         self._faiss_fallback = None
 
+    @contextmanager
+    def _get_conn(self):
+        """Borrow a thread-safe connection from ThreadedConnectionPool and return it."""
+        if self._pool is None:
+            self.load()
+        conn = self._pool.getconn()
+        try:
+            conn.autocommit = True
+            yield conn
+        finally:
+            self._pool.putconn(conn)
+
     def load(self) -> None:
-        import psycopg2
+        from psycopg2.pool import ThreadedConnectionPool
         from sentence_transformers import SentenceTransformer
 
-        self._conn = psycopg2.connect(self.dsn)
-        self._conn.autocommit = True
-        self._embedder = SentenceTransformer(self.embed_model)
+        if self._pool is not None:
+            try:
+                self._pool.closeall()
+            except Exception:
+                pass
+        self._pool = ThreadedConnectionPool(minconn=1, maxconn=10, dsn=self.dsn)
+        if self._embedder is None:
+            self._embedder = SentenceTransformer(self.embed_model)
         size = self.get_index_size()
-        logger.info("pgvector connected: table=%s | vectors=%d | embed_model=%s",
+        logger.info("pgvector pool connected: table=%s | vectors=%d | embed_model=%s",
                     self.table, size, self.embed_model)
         if size == 0:
             logger.warning(
@@ -187,7 +207,7 @@ class PgVectorProvider(BaseVectorProvider):
 
     def search(self, query: str, k: int = 5, filter_meta: dict = None,
                as_of: str = None) -> list[dict]:
-        if self._conn is None:
+        if self._pool is None:
             self.load()
 
         if self.get_index_size() == 0:
@@ -214,20 +234,22 @@ class PgVectorProvider(BaseVectorProvider):
 
         sql = (f"SELECT text, metadata, embedding <=> %s::vector AS dist "
                f"FROM {self.table} {clause} ORDER BY dist LIMIT %s")
-        with self._conn.cursor() as cur:
-            cur.execute(sql, [literal, *params, k])
-            rows = cur.fetchall()
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, [literal, *params, k])
+                rows = cur.fetchall()
         return [{"text": t, "score": float(d), "metadata": m} for t, m, d in rows]
 
     def get_index_size(self) -> int:
-        if self._conn is None:
+        if self._pool is None:
             self.load()
-        with self._conn.cursor() as cur:
-            cur.execute("SELECT to_regclass(%s)", (self.table,))
-            if cur.fetchone()[0] is None:
-                return 0
-            cur.execute(f"SELECT COUNT(*) FROM {self.table}")
-            return cur.fetchone()[0]
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass(%s)", (self.table,))
+                if cur.fetchone()[0] is None:
+                    return 0
+                cur.execute(f"SELECT COUNT(*) FROM {self.table}")
+                return cur.fetchone()[0]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

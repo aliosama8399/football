@@ -77,6 +77,39 @@ class TeamTotals:
         return getattr(self, stat, 0.0) / self.matches
 
 
+def find_latest_team_season(team: str, league_code: str) -> Optional[str]:
+    """
+    Find the most recent season code (e.g. '2324' for Sheffield United in E0)
+    in which `team` competed in `league_code` inside processed_matches.csv.
+    """
+    if not _PROCESSED.exists():
+        return None
+    league_info = get_leagues().get(league_code)
+    if not league_info:
+        return None
+    league_name = league_info["name"]
+    try:
+        df = pd.read_csv(_PROCESSED, usecols=["League", "Season", "HomeTeam", "AwayTeam"])
+        df = df[df["League"] == league_name]
+        if df.empty:
+            return None
+        canon_target = normalize_team_name(str(team), league_code).lower()
+        home_canon = df["HomeTeam"].map(lambda t: normalize_team_name(str(t), league_code).lower())
+        away_canon = df["AwayTeam"].map(lambda t: normalize_team_name(str(t), league_code).lower())
+        sub = df[(home_canon == canon_target) | (away_canon == canon_target)]
+        if sub.empty:
+            return None
+        seasons = sorted(
+            {str(s).strip() for s in sub["Season"].dropna() if str(s).strip().isdigit()},
+            key=lambda s: int(s),
+            reverse=True,
+        )
+        return seasons[0] if seasons else None
+    except Exception as e:
+        logger.warning("find_latest_team_season failed for %s (%s): %s", team, league_code, e)
+        return None
+
+
 def load_team_totals(league_code: str, season: str,
                      as_of: Optional[str] = None) -> Dict[str, TeamTotals]:
     """Aggregate one league-season from the processed match dataset.

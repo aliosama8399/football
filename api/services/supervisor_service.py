@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -10,12 +11,14 @@ from api.database import User
 from api.repositories.user_repo import UserRepository
 from api.repositories.feedback_repo import FeedbackRepository
 
+logger = logging.getLogger(__name__)
+
 
 class SupervisorService:
     """
     Supervisor business flow: user onboarding, feedback review, unified submission
-    queue, and match-submission approval (owns the rolling-form / H2H computation
-    that was previously inside FeedbackRepository).
+    queue, and match-submission approval (with automatic multi-store reactive sync
+    across PostgreSQL matches/teams, Neo4j, and in-memory KnowledgeBase singletons).
     """
 
     def __init__(self, db: AsyncSession, user_repo: UserRepository, feedback_repo: FeedbackRepository):
@@ -318,7 +321,7 @@ class SupervisorService:
         items.sort(key=lambda x: x["created_at"], reverse=True)
         return items
 
-    # ── Match submission approval (computation moved from FeedbackRepository) ──
+    # ── Match submission approval + Reactive Multi-Store Sync ──────────────────
 
     async def approve_match_submission(self, submission) -> bool:
         hg = submission.home_goals
@@ -448,8 +451,119 @@ class SupervisorService:
             "over_1_5": over_1_5, "over_3_5": over_3_5,
             "home_clean_sheet": home_cs, "away_clean_sheet": away_cs,
         })
+
+        # Recompute PostgreSQL `teams` aggregate rows for both teams
+        await self._refresh_team_aggregates(submission.home_team)
+        await self._refresh_team_aggregates(submission.away_team)
         await self.db.commit()
+
+        # Reactive sync to Neo4j + in-memory KnowledgeBase
+        self._sync_approved_match_to_neo4j_and_caches(submission, result)
         return True
+
+    async def _refresh_team_aggregates(self, team_name: str) -> None:
+        """Recomputes team-level aggregate statistics in PostgreSQL `teams` table after match approval."""
+        agg_sql = text("""
+            WITH team_matches AS (
+                SELECT
+                    CASE WHEN home_team = :t THEN 1 ELSE 0 END AS is_home,
+                    CASE WHEN (home_team = :t AND result = 'H') OR (away_team = :t AND result = 'A') THEN 1.0 ELSE 0.0 END AS is_win,
+                    CASE WHEN result = 'D' THEN 1.0 ELSE 0.0 END AS is_draw,
+                    CASE WHEN (home_team = :t AND result = 'A') OR (away_team = :t AND result = 'H') THEN 1.0 ELSE 0.0 END AS is_loss,
+                    CASE WHEN (home_team = :t AND away_goals = 0) OR (away_team = :t AND home_goals = 0) THEN 1.0 ELSE 0.0 END AS is_cs,
+                    CASE WHEN home_team = :t THEN home_goals ELSE NULL END AS hg,
+                    CASE WHEN away_team = :t THEN away_goals ELSE NULL END AS ag,
+                    CASE WHEN home_team = :t THEN home_xg ELSE away_xg END AS xg,
+                    CASE WHEN home_team = :t THEN away_xg ELSE home_xg END AS xga,
+                    CASE WHEN home_team = :t THEN home_shots ELSE away_shots END AS shots,
+                    CASE WHEN home_team = :t THEN away_shots ELSE home_shots END AS shots_against,
+                    CASE WHEN home_team = :t THEN home_sot ELSE away_sot END AS sot,
+                    CASE WHEN home_team = :t THEN away_sot ELSE home_sot END AS sot_against,
+                    CASE WHEN home_team = :t THEN home_corners ELSE away_corners END AS corners,
+                    CASE WHEN home_team = :t THEN home_fouls ELSE away_fouls END AS fouls,
+                    CASE WHEN home_team = :t THEN home_yellows ELSE away_yellows END AS yellows
+                FROM matches
+                WHERE home_team = :t OR away_team = :t
+            )
+            UPDATE teams
+            SET total_matches     = (SELECT COUNT(*) FROM team_matches),
+                win_rate          = COALESCE((SELECT AVG(is_win) FROM team_matches), 0.0),
+                draw_rate         = COALESCE((SELECT AVG(is_draw) FROM team_matches), 0.0),
+                loss_rate         = COALESCE((SELECT AVG(is_loss) FROM team_matches), 0.0),
+                clean_sheet_rate  = COALESCE((SELECT AVG(is_cs) FROM team_matches), 0.0),
+                avg_goals_home    = COALESCE((SELECT AVG(hg) FROM team_matches), 0.0),
+                avg_goals_away    = COALESCE((SELECT AVG(ag) FROM team_matches), 0.0),
+                avg_xg            = COALESCE((SELECT AVG(xg) FROM team_matches), 0.0),
+                avg_xga           = COALESCE((SELECT AVG(xga) FROM team_matches), 0.0),
+                avg_shots         = COALESCE((SELECT AVG(shots) FROM team_matches), 0.0),
+                avg_shots_against = COALESCE((SELECT AVG(shots_against) FROM team_matches), 0.0),
+                avg_sot           = COALESCE((SELECT AVG(sot) FROM team_matches), 0.0),
+                avg_sot_against   = COALESCE((SELECT AVG(sot_against) FROM team_matches), 0.0),
+                avg_corners       = COALESCE((SELECT AVG(corners) FROM team_matches), 0.0),
+                avg_fouls         = COALESCE((SELECT AVG(fouls) FROM team_matches), 0.0),
+                avg_yellows       = COALESCE((SELECT AVG(yellows) FROM team_matches), 0.0)
+            WHERE name = :t
+        """)
+        try:
+            await self.db.execute(agg_sql, {"t": team_name})
+        except Exception as e:
+            logger.warning("Non-fatal: could not refresh PostgreSQL team aggregates for %s: %s", team_name, e)
+
+    def _sync_approved_match_to_neo4j_and_caches(self, submission, result: str) -> None:
+        """
+        Propagates newly approved match submissions to Neo4j (if active) and refreshes
+        in-memory `KnowledgeBase` caches so the Chatbot & Team Dossier see the match immediately.
+        """
+        try:
+            from api.graph_db import get_graph_db
+
+            kg = get_graph_db()
+            if hasattr(kg, "_run"):
+                kg._run(
+                    """
+                    MERGE (h:Team {name: $home_team})
+                    MERGE (a:Team {name: $away_team})
+                    MERGE (h)-[m:MATCH {date: $date}]->(a)
+                    SET m.home_goals   = $home_goals,
+                        m.away_goals   = $away_goals,
+                        m.result       = $result,
+                        m.home_xg      = $home_xg,
+                        m.away_xg      = $away_xg,
+                        m.home_shots   = $home_shots,
+                        m.away_shots   = $away_shots,
+                        m.home_sot     = $home_sot,
+                        m.away_sot     = $away_sot,
+                        m.home_corners = $home_corners,
+                        m.away_corners = $away_corners,
+                        m.league       = $league,
+                        m.season       = $season
+                    """,
+                    home_team=submission.home_team,
+                    away_team=submission.away_team,
+                    date=str(submission.match_date),
+                    home_goals=int(submission.home_goals),
+                    away_goals=int(submission.away_goals),
+                    result=result,
+                    home_xg=float(submission.home_xg) if submission.home_xg is not None else 0.0,
+                    away_xg=float(submission.away_xg) if submission.away_xg is not None else 0.0,
+                    home_shots=int(submission.home_shots or 0),
+                    away_shots=int(submission.away_shots or 0),
+                    home_sot=int(submission.home_sot or 0),
+                    away_sot=int(submission.away_sot or 0),
+                    home_corners=int(submission.home_corners or 0),
+                    away_corners=int(submission.away_corners or 0),
+                    league=submission.league,
+                    season=str(submission.season),
+                )
+        except Exception as e:
+            logger.debug("Neo4j reactive match sync skipped: %s", e)
+
+        try:
+            from api.dependencies import init_knowledge_base
+
+            init_knowledge_base(force_reload=True)
+        except Exception as e:
+            logger.debug("KnowledgeBase reload skipped: %s", e)
 
     async def _compute_rolling_form_5(self, team: str, match_date: date, is_home: bool) -> dict:
         prefix = "home_" if is_home else "away_"

@@ -61,7 +61,7 @@
             </button>
             <button class="nav-item supervisor-only" data-tab="supervisor-tab" style="display: none;">
                 <span class="nav-icon">⚡</span>
-                <span class="nav-label">SUPERVISOR QUEUE</span>
+                <span class="nav-label">SUPERVISOR & MLOPS</span>
             </button>
         </nav>
 
@@ -183,7 +183,7 @@
                             </div>
                             <button id="run-live-btn" class="tech-btn block-btn accent-fill">RUN LIVE PREDICTION</button>
                             <div class="empty-state" style="padding:14px 0 0;">
-                                <div class="empty-desc">TEA-GNN pre-match prior blended with a live Poisson model: current score, minute and stat pace vs season averages. Empty stats are skipped; score + minute always count. At full time, submit the result under DATA CONTRIBUTE to feed retraining.</div>
+                                <div class="empty-desc">TEA-GNN pre-match prior blended with a live Bivariate Poisson model: current score, minute and stat pace vs season averages. Empty stats are skipped; score + minute always count. At full time, submit the result under DATA CONTRIBUTE to feed retraining.</div>
                             </div>
                         </div>
                     </div>
@@ -298,7 +298,7 @@
                             </div>
                             <button id="predict-best11-btn" class="tech-btn block-btn accent-fill">PREDICT NEXT-SEASON LINEUPS</button>
                             <div class="empty-state" style="padding:14px 0 0;">
-                                <div class="empty-desc">Prediction for their next-season meeting, computed from each team's 2024-25 games (player ratings through the full season).</div>
+                                <div class="empty-desc">Prediction for their next-season meeting, computed from each team's latest completed season player ratings.</div>
                             </div>
                         </div>
                     </div>
@@ -346,8 +346,8 @@
                             </div>
                             <div class="form-row">
                                 <div class="form-group">
-                                    <label for="scout-season">SEASON</label>
-                                    <input type="text" id="scout-season" class="tech-input" value="2425">
+                                    <label for="scout-season">SEASON (BLANK = LATEST)</label>
+                                    <input type="text" id="scout-season" class="tech-input" placeholder="Auto (Latest Season)" value="">
                                 </div>
                                 <div class="form-group">
                                     <label for="scout-top">TOP N</label>
@@ -537,9 +537,71 @@
                 </div>
             </div>
 
-            <!-- TAB 5: Supervisor Queue (visible only to supervisors) -->
+            <!-- TAB 7: Supervisor Queue & Automated MLOps Control Center -->
             <div id="supervisor-tab" class="tab-content">
                 <div class="supervisor-layout">
+                    <!-- Automated MLOps Pipeline & Scheduler Control Center -->
+                    <div class="contribute-section" style="margin-bottom: 18px;">
+                        <div class="section-header" onclick="toggleSection(this)">▼ AUTOMATED MLOPS PIPELINE &amp; SCHEDULER (ZERO-CLI CONTROL)</div>
+                        <div class="section-body">
+                            <div class="form-row" style="align-items: center; gap: 12px; margin-bottom: 12px;">
+                                <div class="form-group" style="flex: 2;">
+                                    <label>AUTONOMOUS SCHEDULER STATUS</label>
+                                    <div id="mlops-scheduler-banner" class="tech-input" style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span id="mlops-scheduler-state">LOADING SCHEDULER...</span>
+                                        <span id="mlops-scheduler-next" style="font-size: 0.7rem; color: var(--text-muted);"></span>
+                                    </div>
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label for="mlops-interval-hours">INTERVAL (HOURS)</label>
+                                    <input type="number" id="mlops-interval-hours" class="tech-input" min="0.5" max="168" step="0.5" value="24">
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label>&nbsp;</label>
+                                    <button id="mlops-toggle-scheduler-btn" class="tech-btn block-btn accent-border" onclick="toggleAutoScheduler()">APPLY SCHEDULE</button>
+                                </div>
+                            </div>
+
+                            <div class="form-row" style="gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                                <button class="tech-btn accent-fill" onclick="triggerFullPipeline()">▶ RUN FULL 8-STAGE PIPELINE</button>
+                                <button class="tech-btn accent-border" onclick="triggerAutoScrapeEval()">🔄 AUTO-SCRAPE + SYNC + EVAL</button>
+                                <button class="tech-btn accent-border" onclick="triggerHotReload()">⚡ HOT-RELOAD MODELS</button>
+                                <button class="tech-btn muted-btn" onclick="cancelActivePipelineJob()">⏹ CANCEL ACTIVE JOB</button>
+                            </div>
+
+                            <div class="form-row" style="gap: 8px; align-items: center; margin-bottom: 12px;">
+                                <div class="form-group" style="flex: 3;">
+                                    <label for="mlops-step-select">RUN INDIVIDUAL PIPELINE STAGE</label>
+                                    <select id="mlops-step-select" class="tech-select">
+                                        <option value="1">Step 1/8 — Incremental Data Ingestion (UK CSV + Understat + Players)</option>
+                                        <option value="2">Step 2/8 — Preprocessing &amp; Temporal Feature Engineering</option>
+                                        <option value="3">Step 3/8 — Team Tactics &amp; Multi-Store Sync (PG + Neo4j + FAISS + pgvector)</option>
+                                        <option value="4">Step 4/8 — Teacher LLM Tactical Annotation Generation</option>
+                                        <option value="5">Step 5/8 — Chronological Train/Val Split (Golden Set Excluded)</option>
+                                        <option value="6">Step 6/8 — TEA-GNN Retraining with MLflow Tracking</option>
+                                        <option value="7">Step 7/8 — Dynamic ONNX Export (tea_gnn.onnx)</option>
+                                        <option value="8">Step 8/8 — Live API Singleton Hot-Reload</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label>&nbsp;</label>
+                                    <button class="tech-btn block-btn accent-border" onclick="triggerSelectedStep()">RUN SELECTED STEP</button>
+                                </div>
+                            </div>
+
+                            <div id="mlops-job-status-box" style="padding: 10px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.25); margin-bottom: 10px;">
+                                <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:6px;">
+                                    <span id="mlops-job-label">JOB STATUS: <b>IDLE</b></span>
+                                    <span id="mlops-job-progress-text">0%</span>
+                                </div>
+                                <div class="prob-bar-wrapper" style="height: 8px; margin-bottom: 8px;">
+                                    <div id="mlops-job-progress-bar" class="prob-bar-fill" style="width: 0%;"></div>
+                                </div>
+                                <pre id="mlops-job-logs" style="max-height: 160px; overflow-y: auto; font-size: 0.68rem; color: var(--text-muted); margin: 0; white-space: pre-wrap;">Awaiting pipeline activity...</pre>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="queue-header">
                         <span id="queue-title">PENDING REVIEW QUEUE</span>
                         <span id="queue-count" class="queue-badge">0 ITEMS</span>

@@ -11,6 +11,8 @@ let currentTab = 'predictions-tab';
 let selectedLeague = 'Premier_League';
 let conversations = [];
 let activeConversationId = null;
+let mlopsPollTimer = null;
+let currentSchedulerEnabled = true;
 
 // On startup
 document.addEventListener('DOMContentLoaded', () => {
@@ -50,6 +52,10 @@ function initTabNavigation() {
             }
             if (currentTab === 'supervisor-tab') {
                 fetchSupervisorQueue();
+                initMlopsControlPanel();
+            } else if (mlopsPollTimer) {
+                clearInterval(mlopsPollTimer);
+                mlopsPollTimer = null;
             }
         });
     });
@@ -484,12 +490,9 @@ async function runMatchPrediction() {
         
         const data = await res.json();
         
-        // Formulate probability predictions: Mock outcome probabilities since actual backend might have different outputs
-        // Typically GNN outputs a prediction result like H, D, or A.
         const rawRes = data.predicted_result;
         const verdict = (rawRes === 'H' || rawRes === 'Home Win') ? 'HOME WIN' : ((rawRes === 'A' || rawRes === 'Away Win') ? 'AWAY WIN' : 'DRAW');
         
-        // Dynamically compute confidence rating based on highest probability
         let maxProb = 0;
         if (data.probabilities) {
             maxProb = Math.max(data.probabilities.H || 0, data.probabilities.D || 0, data.probabilities.A || 0);
@@ -501,10 +504,6 @@ async function runMatchPrediction() {
             confidenceRating = "Low";
         }
 
-        // Parse the LLM response if it is structured JSON.
-        // Backend may also provide data.analysis_breakdown (extracted server-side
-        // via api/utils.extract_json_object). No static placeholders — sections
-        // without real data are simply not rendered.
         const breakdown = (data.analysis_breakdown && typeof data.analysis_breakdown === 'object')
             ? data.analysis_breakdown : null;
         let parsedJson = null;
@@ -513,9 +512,6 @@ async function runMatchPrediction() {
             if (p && typeof p === 'object') parsedJson = p;
         } catch (e) { /* plain-text narrative */ }
 
-        // The full narrative ALWAYS lands in TACTICAL ENCOUNTER SUMMARY.
-        // Structured fields (verdict / scouting) layer on top when available
-        // (parsed JSON or backend-extracted breakdown).
         let analysis;
         if (parsedJson || breakdown) {
             analysis = {
@@ -540,7 +536,6 @@ async function runMatchPrediction() {
         const drawPct = Math.round(probs.D * 100) + '%';
         const awayPct = Math.round(probs.A * 100) + '%';
         
-        // Render Result UI
         container.innerHTML = `
             <div class="pred-header-card">
                 <div class="pred-title">
@@ -660,7 +655,7 @@ async function runLivePrediction() {
         <div class="empty-state">
             <div class="empty-icon">⏳</div>
             <div>COMPUTING LIVE PREDICTION...${payload.explain ? ' (LLM EXPLANATION)' : ''}</div>
-            <div class="empty-desc">TEA-GNN prior + Poisson conditioning on minute ${payload.minute}' ${payload.home_goals}-${payload.away_goals}.</div>
+            <div class="empty-desc">TEA-GNN prior + Bivariate Poisson conditioning on minute ${payload.minute}' ${payload.home_goals}-${payload.away_goals}.</div>
         </div>
     `;
 
@@ -689,10 +684,6 @@ async function runLivePrediction() {
         `;
     }
 }
-
-// ── Dynamic team-scouting card from structured LLM breakdown ─────────────────
-// Renders ONLY real data from the response (analysis.home_team_analysis /
-// away_team_analysis). No static placeholders when data is missing.
 
 function renderScouting(teamName, ta) {
     if (!ta || typeof ta !== 'object') return '';
@@ -758,7 +749,7 @@ function renderLivePrediction(d) {
             </div>
             <div style="font-size: 0.65rem; color: var(--text-muted); padding: 0 14px 8px;">
                 EXPECTED FINAL SCORE <b class="accent-text">${es.home ?? '?'} - ${es.away ?? '?'}</b>
-                · BLENDED LIVE MODEL (${esc(d.source === 'live_model+llm' ? 'GNN + POISSON + LLM' : 'GNN + POISSON')}) · PRE-MATCH PRIOR ${pct(pre.H)}/${pct(pre.D)}/${pct(pre.A)}
+                · BLENDED LIVE MODEL (${esc(d.source === 'live_model+llm' ? 'GNN + BIVARIATE POISSON + LLM' : 'GNN + BIVARIATE POISSON')}) · PRE-MATCH PRIOR ${pct(pre.H)}/${pct(pre.D)}/${pct(pre.A)}
             </div>
         </div>
 
@@ -808,8 +799,6 @@ function renderCoachAdvisor(d) {
     const a = bd && bd.analysis;
     if (!a) {
         const rawText = typeof (d.tactical_analysis) === 'string' ? d.tactical_analysis : '';
-        // Degraded orchestrator payload ({"question":..,"note":..}) or an
-        // unparseable JSON blob -> never dump it raw; show a friendly notice.
         const degraded = (bd && (bd.note || bd.question)) ||
             (rawText.trim().startsWith('{') && !bd);
         const text = degraded ? '' : rawText;
@@ -941,7 +930,6 @@ function renderMessages(messages) {
         messagesContainer.appendChild(div);
     });
     
-    // Scroll to bottom
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
@@ -989,12 +977,10 @@ async function sendChatMessage() {
         return;
     }
     
-    // Disable inputs immediately so user knows it is loading and can't double-submit
     input.disabled = true;
     sendBtn.disabled = true;
     sendBtn.textContent = '...';
     
-    // If no active thread, automatically initialize a new conversation first
     if (!activeConversationId) {
         const title = content.length > 25 ? content.substring(0, 25) + "..." : content;
         try {
@@ -1031,10 +1017,8 @@ async function sendChatMessage() {
         }
     }
     
-    // Clear input
     input.value = '';
     
-    // Add user message to UI immediately for feedback
     const messagesContainer = document.getElementById('chat-messages-container');
     const userDiv = document.createElement('div');
     userDiv.className = 'chat-msg user';
@@ -1042,7 +1026,6 @@ async function sendChatMessage() {
     messagesContainer.appendChild(userDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     
-    // Add temporary pulsing typing indicator
     const loaderDiv = document.createElement('div');
     loaderDiv.className = 'chat-msg assistant typing-indicator';
     loaderDiv.innerHTML = '<span></span><span></span><span></span>';
@@ -1060,7 +1043,6 @@ async function sendChatMessage() {
         });
         if (res.ok) {
             const data = await res.json();
-            // Remove typing indicator class and insert actual response text
             loaderDiv.classList.remove('typing-indicator');
             loaderDiv.textContent = data.content;
         } else {
@@ -1073,7 +1055,6 @@ async function sendChatMessage() {
         loaderDiv.textContent = `[Error: ${e.message}]`;
     }
     
-    // Re-enable inputs
     input.disabled = false;
     sendBtn.disabled = false;
     sendBtn.textContent = 'SEND';
@@ -1213,14 +1194,11 @@ async function loadTeamProfile() {
 // Best XI Tab — Next-Season Preview (predicted XIs + subs, no fixture data)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Data season for predictions = last completed season; the preview targets
-// the teams' next-season meeting.
-const BEST11_DATA_SEASON = '2425';
-const BEST11_PREVIEW_LABEL = '2025-26 SEASON PREVIEW';
+const BEST11_PREVIEW_LABEL = 'NEXT-SEASON PREVIEW';
 
 async function loadBest11Teams(league) {
-    const query = `query GetTeams($league: String!, $season: String) { leagueTeams(league: $league, season: $season) }`;
-    const data = await graphqlQuery(query, { league, season: BEST11_DATA_SEASON });
+    const query = `query GetTeams($league: String!) { leagueTeams(league: $league) }`;
+    const data = await graphqlQuery(query, { league });
     const teams = data ? data.leagueTeams : [];
     ['best11-home-team-select', 'best11-away-team-select'].forEach(sid => {
         const sel = document.getElementById(sid);
@@ -1253,13 +1231,13 @@ async function predictBest11() {
         <div class="empty-state">
             <div class="empty-icon">⏳</div>
             <div>COMPUTING PREVIEW FOR ${home.replace(/_/g, ' ')} &amp; ${away.replace(/_/g, ' ')}</div>
-            <div class="empty-desc">Team-share player ratings · best-fit formation · 2024-25 season games</div>
+            <div class="empty-desc">Team-share player ratings · best-fit formation · latest completed season</div>
         </div>
     `;
 
     const query = `
-        query Best11($team: String!, $league: String!, $season: String!, $formation: String!, $opponent: String) {
-            best11(team: $team, league: $league, season: $season, formation: $formation, opponent: $opponent) {
+        query Best11($team: String!, $league: String!, $formation: String!, $opponent: String) {
+            best11(team: $team, league: $league, formation: $formation, opponent: $opponent) {
                 team leagueCode season formation error
                 lineup { slot name position rating minutes flex
                          season { goals assists xg xa shots }
@@ -1271,7 +1249,7 @@ async function predictBest11() {
         }
     `;
     try {
-        const baseVars = { team: home, league, season: BEST11_DATA_SEASON, formation, opponent: away };
+        const baseVars = { team: home, league, formation, opponent: away };
         const [homeData, awayData] = await Promise.all([
             graphqlQuery(query, baseVars),
             graphqlQuery(query, { ...baseVars, team: away, opponent: home }),
@@ -1315,7 +1293,7 @@ function renderBest11Panels(homeResult, awayResult, homeTeam, awayTeam, formatio
             </div>
             <div class="verdict-row">${verdictLine}</div>
             <div style="font-size:0.65rem; color: var(--text-muted); padding: 0 14px 8px;">
-                PREDICTED LINEUPS · AUTO-FIT FORMATIONS · TEAM-SHARE RATINGS (2024-25 SEASON GAMES) · ★ CAPTAIN
+                PREDICTED LINEUPS · AUTO-FIT FORMATIONS · TEAM-SHARE RATINGS · ★ CAPTAIN
             </div>
         </div>
     `;
@@ -1399,7 +1377,6 @@ const SCOUT_LEAGUE_LABELS = {
     F1: 'LIGUE 1'
 };
 
-// Position-relevant stat emphasis in the candidate card
 const SCOUT_KEY_STATS = {
     GK: ['saves', 'goalsConceded', 'appearances'],
     DF: ['tackles', 'interceptions', 'blocks', 'duelsWon'],
@@ -1417,7 +1394,8 @@ const SCOUT_STAT_LABELS = {
 async function scoutCandidates() {
     const position = document.getElementById('scout-position-select').value;
     const league = document.getElementById('scout-league-select').value;
-    const season = document.getElementById('scout-season').value.trim() || '2425';
+    const rawSeason = document.getElementById('scout-season').value.trim();
+    const season = rawSeason || null;
     const youth = document.getElementById('scout-youth').checked;
     const top = Math.min(Math.max(parseInt(document.getElementById('scout-top').value, 10) || 5, 1), 20);
     const teamNeeding = document.getElementById('scout-exclude-team').value.trim() || null;
@@ -1432,7 +1410,7 @@ async function scoutCandidates() {
     `;
 
     const query = `
-        query Scout($position: String!, $league: String!, $season: String!, $youth: Boolean!, $top: Int!, $teamNeeding: String) {
+        query Scout($position: String!, $league: String!, $season: String, $youth: Boolean!, $top: Int!, $teamNeeding: String) {
             scout(position: $position, league: $league, season: $season,
                   youth: $youth, top: $top, teamNeeding: $teamNeeding) {
                 position season youth leagues poolSize top error
@@ -1507,14 +1485,13 @@ function scoutCard(c) {
     const extraStats = extras.length
         ? `<div class="scout-extras">${extras.map(statCell).join('')}</div>`
         : '';
-    // Breakdown chips — translate `_per90` to "/90" and emphasise style_fit.
     const fmtMetricLabel = (k) => k.replace(/_per90$/, ' / 90')
         .replace(/_/g, ' ');
     const breakdown = c.scoreBreakdown
         ? Object.entries(c.scoreBreakdown)
             .filter(([, v]) => v > 0.001)
             .sort((a, b) => {
-                if (a[0] === 'style_fit') return -1;   // fit bonus first
+                if (a[0] === 'style_fit') return -1;
                 if (b[0] === 'style_fit') return 1;
                 return b[1] - a[1];
             })
@@ -1586,22 +1563,19 @@ async function loadContributeTeams(league) {
 }
 
 async function submitMatchRecord() {
-    console.log('submitMatchRecord CALLED');
     if (!token) {
-        console.log('No token — showing auth modal');
         alert("Login required.");
         showAuthModal();
         return;
     }
     const statusEl = document.getElementById('match-submit-status');
     const btn = document.getElementById('submit-match-btn');
-    if (!statusEl) { console.error('match-submit-status element NOT FOUND'); return; }
-    if (!btn) { console.error('submit-match-btn NOT FOUND'); return; }
+    if (!statusEl || !btn) return;
     btn.disabled = true;
     btn.textContent = 'SUBMITTING...';
     statusEl.style.display = 'block';
     statusEl.innerHTML = '<div style="color:#0096ff;padding:8px;border:1px solid #0096ff">⏳ Processing...</div>';
-    const get = id => { const el = document.getElementById(id); if(!el){console.error('Missing element:',id);return '';} return el.value; };
+    const get = id => { const el = document.getElementById(id); return el ? el.value : ''; };
     const getInt = id => { const el = document.getElementById(id); if(!el){return 0;} const v = parseInt(el.value); return isNaN(v) ? 0 : v; };
     const getFloat = id => { const v = get(id); return v ? parseFloat(v) : null; };
     const payload = {
@@ -1618,26 +1592,21 @@ async function submitMatchRecord() {
         home_yellows: getInt('match-hy'), away_yellows: getInt('match-ay'),
         home_reds: getInt('match-hr'), away_reds: getInt('match-ar'),
     };
-    console.log('Submitting payload:', payload);
     try {
         const res = await fetch(`${API_BASE}/submissions/match`, {
             method: 'POST', headers: {'Content-Type':'application/json','Authorization':`Bearer ${token}`},
             body: JSON.stringify(payload)
         });
-        console.log('Response status:', res.status);
         if (res.ok) {
             const data = await res.json();
-            console.log('Success data:', data);
             statusEl.innerHTML = `<div class="status-banner success">✓ MATCH RECORD SUBMITTED — PENDING ADMIN REVIEW<br><small>ID #${data.id} | ${data.home_team} vs ${data.away_team} | ${data.match_date}</small></div>`;
         } else {
             const text = await res.text();
-            console.error('Error response:', text);
             let errMsg = text.substring(0, 200);
             try { const err = JSON.parse(text); errMsg = err.detail || errMsg; } catch (_) {}
             statusEl.innerHTML = `<div class="status-banner error">✗ ${errMsg}</div>`;
         }
     } catch(e) {
-        console.error('Network error:', e);
         statusEl.innerHTML = `<div class="status-banner error">✗ Network error: ${e.message}</div>`;
     }
     btn.disabled = false;
@@ -1715,6 +1684,177 @@ async function submitTeamProfileEdit() {
         }
     } catch(e) { statusEl.innerHTML = `<div class="status-banner error">✗ Network error: ${e.message}</div>`; }
     btn.disabled = false; btn.textContent = 'SUBMIT PROFILE EDIT';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Automated MLOps Pipeline & Scheduler Control Center (Zero-CLI UI)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function initMlopsControlPanel() {
+    refreshMlopsStatus();
+    if (mlopsPollTimer) clearInterval(mlopsPollTimer);
+    mlopsPollTimer = setInterval(refreshMlopsStatus, 3000);
+}
+
+async function refreshMlopsStatus() {
+    if (!token) return;
+    try {
+        const [schedRes, statusRes] = await Promise.all([
+            fetch(`${API_BASE}/jobs/scheduler/status`, { headers: { 'Authorization': `Bearer ${token}` } }),
+            fetch(`${API_BASE}/jobs/pipeline/status`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        ]);
+
+        if (schedRes.ok) {
+            const sched = await schedRes.json();
+            currentSchedulerEnabled = !!sched.enabled;
+            const stateEl = document.getElementById('mlops-scheduler-state');
+            const nextEl = document.getElementById('mlops-scheduler-next');
+            const intervalInput = document.getElementById('mlops-interval-hours');
+            const toggleBtn = document.getElementById('mlops-toggle-scheduler-btn');
+            if (stateEl) {
+                stateEl.innerHTML = sched.enabled
+                    ? `<span style="color: var(--accent);">● AUTO-SCHEDULER ACTIVE (every ${sched.interval_hours}h)</span>`
+                    : `<span style="color: #ff6600;">⏸ AUTO-SCHEDULER PAUSED</span>`;
+            }
+            if (nextEl) {
+                nextEl.textContent = sched.next_scheduled_run
+                    ? `NEXT RUN: ${sched.next_scheduled_run.replace('T', ' ').substring(0, 19)}`
+                    : '';
+            }
+            if (intervalInput && document.activeElement !== intervalInput) {
+                intervalInput.value = sched.interval_hours || 24;
+            }
+            if (toggleBtn) {
+                toggleBtn.textContent = sched.enabled ? 'UPDATE / PAUSE' : 'ENABLE SCHEDULE';
+            }
+        }
+
+        if (statusRes.ok) {
+            const st = await statusRes.json();
+            const labelEl = document.getElementById('mlops-job-label');
+            const pctEl = document.getElementById('mlops-job-progress-text');
+            const barEl = document.getElementById('mlops-job-progress-bar');
+            const logsEl = document.getElementById('mlops-job-logs');
+
+            if (labelEl) {
+                const stepStr = st.step ? ` [Step ${st.step}: ${esc(st.step_name || '')}]` : '';
+                const elapsedStr = st.elapsed_s ? ` (${st.elapsed_s}s)` : '';
+                labelEl.innerHTML = `JOB STATUS: <b>${esc(st.status)}</b>${stepStr}${elapsedStr}`;
+            }
+            if (pctEl) pctEl.textContent = `${st.progress_pct || 0}%`;
+            if (barEl) barEl.style.width = `${st.progress_pct || 0}%`;
+            if (logsEl && Array.isArray(st.recent_logs) && st.recent_logs.length > 0) {
+                logsEl.textContent = st.recent_logs.join('\n');
+                logsEl.scrollTop = logsEl.scrollHeight;
+            }
+        }
+    } catch (e) {
+        console.error('Failed polling MLOps status:', e);
+    }
+}
+
+async function toggleAutoScheduler() {
+    if (!token) return;
+    const intervalInput = document.getElementById('mlops-interval-hours');
+    const hrs = parseFloat(intervalInput ? intervalInput.value : '24') || 24;
+    try {
+        const res = await fetch(`${API_BASE}/jobs/scheduler/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ enabled: !currentSchedulerEnabled, interval_hours: hrs }),
+        });
+        if (res.ok) {
+            await refreshMlopsStatus();
+        }
+    } catch (e) {
+        console.error('Error configuring scheduler:', e);
+    }
+}
+
+async function triggerFullPipeline() {
+    if (!token) return;
+    try {
+        const res = await fetch(`${API_BASE}/jobs/pipeline/trigger`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ sync_db: true, gnn_model: 'TEA-GNN', gnn_epochs: 100 }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            alert(`Could not start pipeline: ${data.detail || 'Error'}`);
+        }
+        await refreshMlopsStatus();
+    } catch (e) {
+        alert(`Error starting pipeline: ${e.message}`);
+    }
+}
+
+async function triggerAutoScrapeEval() {
+    if (!token) return;
+    try {
+        const res = await fetch(`${API_BASE}/jobs/eval/trigger`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ rag_limit: 10, pred_limit: 15, skip_scrape: false }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            alert(`Could not start Auto-Scrape & Eval: ${data.detail || 'Error'}`);
+        }
+        await refreshMlopsStatus();
+    } catch (e) {
+        alert(`Error starting eval job: ${e.message}`);
+    }
+}
+
+async function triggerSelectedStep() {
+    if (!token) return;
+    const stepSel = document.getElementById('mlops-step-select');
+    const stepId = stepSel ? parseInt(stepSel.value, 10) : 1;
+    try {
+        const res = await fetch(`${API_BASE}/jobs/pipeline/step/${stepId}?sync_db=true`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            alert(`Could not start Step ${stepId}: ${data.detail || 'Error'}`);
+        }
+        await refreshMlopsStatus();
+    } catch (e) {
+        alert(`Error triggering Step ${stepId}: ${e.message}`);
+    }
+}
+
+async function triggerHotReload() {
+    if (!token) return;
+    try {
+        const res = await fetch(`${API_BASE}/admin/reload`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await res.json();
+        const logsEl = document.getElementById('mlops-job-logs');
+        if (logsEl) {
+            logsEl.textContent += `\n[HOT-RELOAD] ${JSON.stringify(data)}`;
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+    } catch (e) {
+        alert(`Hot-reload error: ${e.message}`);
+    }
+}
+
+async function cancelActivePipelineJob() {
+    if (!token) return;
+    try {
+        await fetch(`${API_BASE}/jobs/pipeline/cancel`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        await refreshMlopsStatus();
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

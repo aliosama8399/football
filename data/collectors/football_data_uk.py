@@ -42,13 +42,27 @@ def download_season(league_code: str, season: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def download_all_data(output_dir: str = "data/raw") -> pd.DataFrame:
+from datetime import datetime
+
+
+def get_active_season() -> str:
+    """Determine currently active football season (starts July)."""
+    now = datetime.now()
+    start_year = now.year if now.month >= 7 else now.year - 1
+    end_year = start_year + 1
+    return f"{str(start_year)[-2:]}{str(end_year)[-2:]}"
+
+
+def download_all_data(output_dir: str = "data/raw", incremental: bool = True, force: bool = False) -> pd.DataFrame:
     """
-    Download all match data for the leagues and seasons defined in data/config.yaml
+    Download match data for the leagues and seasons defined in data/config.yaml.
+    Supports smart incremental caching: finished seasons already on disk are skipped.
 
     Args:
         output_dir: Directory to save the CSV files
-         
+        incremental: If True, skip downloading finished seasons if file already exists
+        force: If True, redownload all seasons from scratch
+
     Returns:
         Combined DataFrame with all matches
     """
@@ -60,35 +74,57 @@ def download_all_data(output_dir: str = "data/raw") -> pd.DataFrame:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
+    active_season = get_active_season()
     all_matches = []
     
+    print(f"Collection mode: {'Incremental' if incremental and not force else 'Full'}")
+    print(f"Active season: {active_season}")
+
     for league_code, league_name in leagues.items():
         for season in seasons:
+            filename = f"{league_name}_{season}.csv"
+            filepath = output_path / filename
+            is_finished = season < active_season
+
+            if incremental and not force and is_finished and filepath.exists():
+                try:
+                    df = pd.read_csv(filepath, low_memory=False)
+                    if 'League' not in df.columns:
+                        df['League'] = league_name
+                    if 'Season' not in df.columns:
+                        df['Season'] = season
+                    all_matches.append(df)
+                    print(f"  [Cached] {filename} ({len(df)} matches)")
+                    continue
+                except Exception as e:
+                    print(f"  [Warn] Failed reading cached {filename}: {e}, will re-download.")
+
             df = download_season(league_code, season)
             
             if not df.empty:
-                # Add metadata columns
                 df['League'] = league_name
                 df['Season'] = season
-                
-                # Save individual file
-                filename = f"{league_name}_{season}.csv"
-                df.to_csv(output_path / filename, index=False)
+                df.to_csv(filepath, index=False)
                 print(f"  Saved to {filename}")
-                
                 all_matches.append(df)
             
-            # Be nice to the server
+            # Rate limit politeness
             time.sleep(1)
     
     if all_matches:
-        # Combine all data
         combined_df = pd.concat(all_matches, ignore_index=True)
         
-        # Save combined file
+        # Deduplicate on key match identity columns
+        dedup_cols = [c for c in ['League', 'Date', 'HomeTeam', 'AwayTeam'] if c in combined_df.columns]
+        if dedup_cols:
+            before_len = len(combined_df)
+            combined_df = combined_df.drop_duplicates(subset=dedup_cols, keep='last')
+            if before_len != len(combined_df):
+                print(f"  Deduplicated: removed {before_len - len(combined_df)} duplicates.")
+
         combined_path = output_path / "football_data_uk_combined.csv"
         combined_df.to_csv(combined_path, index=False)
-        print(f"\n✓ Combined data saved to {combined_path}")
+        print(f"\n[OK] Combined data saved to {combined_path}")
         print(f"  Total matches: {len(combined_df)}")
         
         return combined_df

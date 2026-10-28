@@ -11,14 +11,16 @@ Monitors 5 dimensions:
   4. Faithfulness / Hallucination Drift (Numeric fact grounding against retrieved sources)
   5. Concept / Supervisor Override Drift (Human expert overrides & outcome disagreement)
 
-Updates Prometheus metrics and cached disk state automatically.
+Updates Prometheus metrics and persists sliding-window disk state automatically across restarts.
 """
 
+import json
 import re
 import math
 import time
 import logging
 from collections import deque
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from monitoring.metrics_registry import (
@@ -28,6 +30,8 @@ from monitoring.metrics_registry import (
 )
 
 logger = logging.getLogger("drift_service")
+
+_DRIFT_STATE_PATH = Path(__file__).resolve().parent.parent.parent / "monitoring" / "online_drift_state.json"
 
 # Common football terminology tokens for out-of-domain detection
 FOOTBALL_LEXICON = {
@@ -44,22 +48,62 @@ FOOTBALL_LEXICON = {
 class OnlineDriftEvaluator:
     """
     Stateful sliding-window drift evaluator for streaming RAG and Match Predictions.
+    Automatically persists and restores sliding-window state across container restarts.
     """
 
-    def __init__(self, window_size: int = 30):
+    def __init__(self, window_size: int = 30, state_path: Optional[Path] = None):
         self.window_size = window_size
+        self.state_path = state_path or _DRIFT_STATE_PATH
 
         # Sliding windows for online statistics
         self.query_lengths = deque(maxlen=window_size)
         self.evidence_scores = deque(maxlen=window_size)
         self.faithfulness_scores = deque(maxlen=window_size)
         self.prediction_outcomes = deque(maxlen=window_size)
+        self.override_history = deque(maxlen=window_size)
 
         # Baseline expectations
         self.baseline_query_len_mean = 45.0
         self.baseline_query_len_std = 25.0
         self.evidence_threshold = 0.65
         self.faithfulness_threshold = 0.70
+
+        self._load_state()
+
+    def _load_state(self) -> None:
+        """Restore persisted sliding-window drift state if available on disk."""
+        try:
+            if self.state_path.exists():
+                data = json.loads(self.state_path.read_text(encoding="utf-8"))
+                for v in data.get("query_lengths", [])[-self.window_size:]:
+                    self.query_lengths.append(int(v))
+                for v in data.get("evidence_scores", [])[-self.window_size:]:
+                    self.evidence_scores.append(float(v))
+                for v in data.get("faithfulness_scores", [])[-self.window_size:]:
+                    self.faithfulness_scores.append(float(v))
+                for v in data.get("prediction_outcomes", [])[-self.window_size:]:
+                    self.prediction_outcomes.append(str(v))
+                for v in data.get("override_history", [])[-self.window_size:]:
+                    self.override_history.append(v)
+        except Exception as e:
+            logger.debug("OnlineDriftEvaluator state load skipped: %s", e)
+
+    def _save_state(self) -> None:
+        """Persist sliding-window drift state to disk."""
+        try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "updated_at": time.time(),
+                "window_size": self.window_size,
+                "query_lengths": list(self.query_lengths),
+                "evidence_scores": list(self.evidence_scores),
+                "faithfulness_scores": list(self.faithfulness_scores),
+                "prediction_outcomes": list(self.prediction_outcomes),
+                "override_history": list(self.override_history),
+            }
+            self.state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.debug("OnlineDriftEvaluator state save skipped: %s", e)
 
     # ─────────────────────────────────────────────────────────────────────────
     # 1. & 3. & 4. RAG Live Stream Evaluator (Input, Evidence, Faithfulness)
@@ -161,6 +205,7 @@ class OnlineDriftEvaluator:
             query_drift_score=round(query_drift_score, 3),
             drift_type=primary_drift,
         )
+        self._save_state()
 
         return {
             "query_drift_score": query_drift_score,
@@ -228,6 +273,7 @@ class OnlineDriftEvaluator:
             entropy=round(normalized_entropy, 3),
             drift_type=primary_drift,
         )
+        self._save_state()
 
         return {
             "normalized_entropy": round(normalized_entropy, 3),
@@ -252,7 +298,15 @@ class OnlineDriftEvaluator:
             "[Drift] Supervisor override recorded on match '%s': '%s' -> '%s' (Reason: %s)",
             match_id, original_prediction, override_prediction, reason or "None"
         )
+        self.override_history.append({
+            "timestamp": time.time(),
+            "match_id": match_id,
+            "original_prediction": original_prediction,
+            "override_prediction": override_prediction,
+            "reason": reason,
+        })
         football_drift_detected_total.labels(drift_type="concept_supervisor_override").inc()
+        self._save_state()
 
 
 # Global singleton instance

@@ -58,11 +58,12 @@ RUN /app/.venv/bin/python -c "import onnxruntime as o; p=o.get_available_provide
 
 # ── Application code (big artifacts excluded by .dockerignore) ────────────────
 COPY . .
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=240s --retries=3 \
     CMD curl -fsS http://localhost:8001/ || exit 1
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]

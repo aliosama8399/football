@@ -1,10 +1,8 @@
-
 from api.repositories import KnowledgeBaseRepository
 from api.repositories import Best11Repository
 from api.services.best11_service import Best11ApiService
 from api.services.scout_service import ScoutApiService
 from api.repositories.scout_repo import ScoutRepository
-from api.services.scout_service import ScoutApiService
 from rag.knowledge_base.kb import KnowledgeBase
 import logging
 from typing import AsyncGenerator, Optional
@@ -28,15 +26,26 @@ _best11_api_service: Optional["Best11ApiService"] = None
 _scout_repo: Optional["ScoutRepository"] = None
 _scout_api_service: Optional["ScoutApiService"] = None
 
-def init_rag_system() -> FootballRAGSystem:
+
+def init_rag_system(force_reload: bool = False) -> FootballRAGSystem:
     """
-    Initialize the global singleton RAG System instance on app startup.
+    Initialize the global singleton RAG System instance on app startup (or hot-reload).
     Tolerates LLM-config failure by retrying with llm="none" so the API
     still starts (returns structured predictions without narrative).
     """
-    global _rag_system
+    global _rag_system, _async_rag
+    if force_reload and _rag_system is not None:
+        logger.info("Closing previous FootballRAGSystem instance for hot-reload...")
+        try:
+            if hasattr(_rag_system, "close"):
+                _rag_system.close()
+        except Exception as e:
+            logger.warning("Non-fatal error closing previous RAG system: %s", e)
+        _rag_system = None
+        _async_rag = None
+
     if _rag_system is None:
-        logger.info("Initializing global FootballRAGSystem...")
+        logger.info("Initializing global FootballRAGSystem (force_reload=%s)...", force_reload)
         try:
             _rag_system = FootballRAGSystem()
             logger.info("Global FootballRAGSystem initialized successfully.")
@@ -78,6 +87,7 @@ def init_rag_system() -> FootballRAGSystem:
             logger.warning("GNN eager load failed (%s); it will retry lazily on first request.", type(e).__name__)
     return _rag_system
 
+
 def get_rag_system(request: Request) -> FootballRAGSystem:
     """
     Dependency that returns the active FootballRAGSystem instance,
@@ -89,6 +99,7 @@ def get_rag_system(request: Request) -> FootballRAGSystem:
     if _rag_system is None:
         return init_rag_system()
     return _rag_system
+
 
 def get_async_rag(request: Request,
                   rag_sys: FootballRAGSystem = Depends(get_rag_system)) -> AsyncRAGWrapper:
@@ -103,19 +114,62 @@ def get_async_rag(request: Request,
         _async_rag = AsyncRAGWrapper(rag_sys)
     return _async_rag
 
+
 # ── KnowledgeBase (chat-KB facade) ────────────────────────────────────────────
 
-def init_knowledge_base() -> "KnowledgeBase":
+def init_knowledge_base(force_reload: bool = False) -> "KnowledgeBase":
     """
-    Initialize the global KnowledgeBase singleton on app startup.
+    Initialize the global KnowledgeBase singleton on app startup or hot-reload.
     Cheap: construction is lazy — CSV/Postgres/FAISS/GNN load only on first use.
     """
-    global _kb
+    global _kb, _kb_repo, _best11_repo, _best11_api_service, _scout_repo, _scout_api_service
+    if force_reload:
+        _kb = None
+        _kb_repo = None
+        _best11_repo = None
+        _best11_api_service = None
+        _scout_repo = None
+        _scout_api_service = None
+
     if _kb is None:
         from rag.knowledge_base.kb import KnowledgeBase
         _kb = KnowledgeBase()
-        logger.info("KnowledgeBase singleton initialized (lazy internals).")
+        logger.info("KnowledgeBase singleton initialized (force_reload=%s).", force_reload)
     return _kb
+
+
+def reload_all_singletons(app=None) -> dict:
+    """
+    Hot-reload FootballRAGSystem, AsyncRAGWrapper, KnowledgeBase, Best11, and Scout
+    singletons in-memory without restarting the FastAPI process.
+    """
+    rag_sys = init_rag_system(force_reload=True)
+    async_rag = AsyncRAGWrapper(rag_sys)
+    kb = init_knowledge_base(force_reload=True)
+
+    global _async_rag
+    _async_rag = async_rag
+
+    if app is not None and hasattr(app, "state"):
+        app.state.rag_system = rag_sys
+        app.state.async_rag = async_rag
+        app.state.knowledge_base = kb
+
+    llm_backend = getattr(getattr(rag_sys, "llm", None), "_backend", None) or (
+        "onnx" if getattr(rag_sys, "llm", None) is not None else "disabled"
+    )
+    gnn_backend = (
+        type(getattr(rag_sys, "predictor", None)).__name__
+        if getattr(rag_sys, "predictor", None)
+        else "disabled"
+    )
+    return {
+        "status": "reloaded",
+        "gnn_backend": gnn_backend,
+        "llm_backend": llm_backend,
+        "knowledge_base": "reinitialized",
+    }
+
 
 def get_knowledge_base() -> "KnowledgeBase":
     """
@@ -125,6 +179,7 @@ def get_knowledge_base() -> "KnowledgeBase":
     if _kb is None:
         raise RuntimeError("KnowledgeBase not initialized. Call init_knowledge_base() on startup.")
     return _kb
+
 
 def get_kb_repo() -> "KnowledgeBaseRepository":
     """
@@ -139,6 +194,7 @@ def get_kb_repo() -> "KnowledgeBaseRepository":
         from api.repositories.kb_repo import KnowledgeBaseRepository
         _kb_repo = KnowledgeBaseRepository()
     return _kb_repo
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
@@ -157,6 +213,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         finally:
             await session.close()
 
+
 # ── Repository Dependency Injectors (Deferred Imports) ────────────────────────
 
 def get_user_repo(db: AsyncSession = Depends(get_db)):
@@ -166,6 +223,7 @@ def get_user_repo(db: AsyncSession = Depends(get_db)):
     from api.repositories.user_repo import UserRepository
     return UserRepository(db)
 
+
 def get_chat_repo(db: AsyncSession = Depends(get_db)):
     """
     Inject ChatRepository. Deferred import avoids early dependency cycle errors.
@@ -173,12 +231,14 @@ def get_chat_repo(db: AsyncSession = Depends(get_db)):
     from api.repositories.chat_repo import ChatRepository
     return ChatRepository(db)
 
+
 def get_feedback_repo(db: AsyncSession = Depends(get_db)):
     """
     Inject FeedbackRepository. Deferred import avoids early dependency cycle errors.
     """
     from api.repositories.feedback_repo import FeedbackRepository
     return FeedbackRepository(db)
+
 
 def get_best11_repo() -> "Best11Repository":
     """
@@ -191,6 +251,7 @@ def get_best11_repo() -> "Best11Repository":
         _best11_repo = Best11Repository()
     return _best11_repo
 
+
 # ── Service Dependency Injectors (Deferred Imports) ───────────────────────────
 
 def get_prediction_service(
@@ -200,11 +261,13 @@ def get_prediction_service(
     from api.services.prediction_service import PredictionService
     return PredictionService(feedback_repo, rag_wrapper)
 
+
 def get_live_prediction_service(
     rag_wrapper: AsyncRAGWrapper = Depends(get_async_rag)
 ):
     from api.services.live_prediction_service import LivePredictionService
     return LivePredictionService(rag_wrapper)
+
 
 def get_chat_service(
     chat_repo = Depends(get_chat_repo),
@@ -213,6 +276,7 @@ def get_chat_service(
     from api.services.chat_service import ChatService
     return ChatService(chat_repo, kb_repo)
 
+
 def get_supervisor_service(
     db: AsyncSession = Depends(get_db),
     user_repo = Depends(get_user_repo),
@@ -220,6 +284,7 @@ def get_supervisor_service(
 ):
     from api.services.supervisor_service import SupervisorService
     return SupervisorService(db, user_repo, feedback_repo)
+
 
 def get_best11_api_service() -> "Best11ApiService":
     """
@@ -233,6 +298,7 @@ def get_best11_api_service() -> "Best11ApiService":
         _best11_api_service = Best11ApiService(get_best11_repo())
     return _best11_api_service
 
+
 def get_scout_repo() -> "ScoutRepository":
     """
     Inject the Scout data repository singleton (collects identity pools,
@@ -243,6 +309,7 @@ def get_scout_repo() -> "ScoutRepository":
         from api.repositories.scout_repo import ScoutRepository
         _scout_repo = ScoutRepository()
     return _scout_repo
+
 
 def get_scout_api_service() -> "ScoutApiService":
     """

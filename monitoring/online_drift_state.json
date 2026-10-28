@@ -1,0 +1,19 @@
+{
+  "updated_at": 1793219644.8992064,
+  "window_size": 30,
+  "query_lengths": [
+    16
+  ],
+  "evidence_scores": [
+    1.0
+  ],
+  "faithfulness_scores": [
+    0.0
+  ],
+  "prediction_outcomes": [
+    "H",
+    "H",
+    "H"
+  ],
+  "override_history": []
+}

@@ -17,7 +17,7 @@ from datetime import datetime
 from data._config import load_config
 
 
-def run_all_collectors():
+def run_all_collectors(incremental: bool = True, force: bool = False):
     """Run all data collectors: football-data.co.uk + canonical Understat (soccerdata)."""
     cfg = load_config()
     league_names = [v["name"] for v in cfg["leagues"].values()]
@@ -27,6 +27,7 @@ def run_all_collectors():
     print("FOOTBALL DATA COLLECTION PIPELINE")
     print(f"Leagues ({len(league_names)}): {', '.join(league_names)}")
     print(f"Seasons ({len(seasons_list)}): {seasons_list[0]} .. {seasons_list[-1]}")
+    print(f"Mode: {'FULL FORCE RE-DOWNLOAD' if force else ('INCREMENTAL' if incremental else 'FULL')}")
     print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
 
@@ -36,7 +37,7 @@ def run_all_collectors():
     print("=" * 70)
 
     from collectors.football_data_uk import download_all_data
-    fduk_df = download_all_data()
+    fduk_df = download_all_data(incremental=incremental and not force, force=force)
 
     # Step 2: Collect Understat xG data via soccerdata (canonical 5-league path)
     print("\n" + "=" * 70)
@@ -44,7 +45,7 @@ def run_all_collectors():
     print("=" * 70)
 
     from collectors.understat_scraper import main as run_understat_scraper
-    run_understat_scraper()
+    run_understat_scraper(incremental=incremental and not force, force=force)
 
     print("\n" + "=" * 70)
     print("DATA COLLECTION COMPLETE")
@@ -57,17 +58,22 @@ def run_all_collectors():
     return fduk_df
 
 
-def collect_football_data_uk():
+def collect_football_data_uk(incremental: bool = True, force: bool = False):
     """Collect only football-data.co.uk data (5 leagues, N seasons per config)."""
     from collectors.football_data_uk import download_all_data
-    return download_all_data()
+    return download_all_data(incremental=incremental and not force, force=force)
 
 
-def collect_understat_data():
+def collect_understat_data(incremental: bool = True, force: bool = False):
     """Collect only Understat xG data via the canonical soccerdata scraper."""
     from collectors.understat_scraper import main as run_understat_scraper
-    run_understat_scraper()
+    run_understat_scraper(incremental=incremental and not force, force=force)
 
 
 if __name__ == "__main__":
-    run_all_collectors()
+    import argparse
+    parser = argparse.ArgumentParser(description="Run all football data collectors")
+    parser.add_argument("--force", action="store_true", help="Force full multi-season re-download")
+    parser.add_argument("--no-incremental", action="store_true", help="Disable incremental mode")
+    args = parser.parse_args()
+    run_all_collectors(incremental=not args.no_incremental and not args.force, force=args.force)
