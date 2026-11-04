@@ -24,8 +24,8 @@ default_args = {
     "execution_timeout": timedelta(hours=2),
 }
 
-BASE_DIR = os.environ.get("PROJECT_ROOT", "/opt/airflow")
-PYTHON_BIN = os.environ.get("PYTHON_BIN", "python")
+BASE_DIR = os.environ.get("PROJECT_ROOT", "/workspace")
+PYTHON_BIN = f"PYTHONPATH={BASE_DIR} {os.environ.get('PYTHON_BIN', 'python')}"
 
 with DAG(
     "football_scrape_and_continuous_eval",

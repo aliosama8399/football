@@ -7,20 +7,25 @@ Supports local models like Llama, Mistral, Gemma, Phi, Qwen, etc.
 from __future__ import annotations
 
 import logging
+import os
 from models.llm_providers.base import BaseLLMProvider, _provider_cfg, _resolve_model
 
 logger = logging.getLogger(__name__)
 
 
 class OllamaProvider(BaseLLMProvider):
-    """Local SLM via Ollama (Llama, Mistral, Phi, Gemma, ...)."""
+    """Local/Cloud SLM via Ollama (Gemma, Llama, Mistral, Phi, Qwen, ...)."""
 
     provider_name = "ollama"
 
     def __init__(self, model_name: str = "", api_url: str = "", **kwargs):
         cfg = _provider_cfg("ollama")
         self.model_name = _resolve_model("ollama", model_name or None)
-        base_url = api_url or cfg.get("api_url", "http://localhost:11434/api/chat")
+        env_host = os.getenv("OLLAMA_HOST", "").strip().rstrip("/")
+        if env_host and not api_url:
+            base_url = env_host if env_host.endswith("/api/chat") else f"{env_host}/api/chat"
+        else:
+            base_url = api_url or cfg.get("api_url", "http://localhost:11434/api/chat")
         # Newer Ollama versions removed /api/generate (HTTP 410); normalise to /api/chat.
         if base_url.rstrip("/").endswith("/api/generate"):
             base_url = base_url[: base_url.rfind("/api/generate")] + "/api/chat"

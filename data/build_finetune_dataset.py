@@ -27,21 +27,36 @@ import time
 import argparse
 import pandas as pd
 import numpy as np
-import torch
-import torch.nn.functional as F
 from pathlib import Path
-from tqdm import tqdm
 
-from data.graph_builder import FootballGraphBuilder
-from models.gnn_models import get_model
-from models.llm_providers import get_llm_provider
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, *args, **kwargs):
+        return iterable
+    tqdm.write = print
+
+try:
+    import torch
+    import torch.nn.functional as F
+    from data.graph_builder import FootballGraphBuilder
+    from models.gnn_models import get_model
+    from models.llm_providers import get_llm_provider
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    _HAS_TORCH = True
+except ImportError:
+    torch = None
+    F = None
+    FootballGraphBuilder = None
+    get_model = None
+    get_llm_provider = None
+    DEVICE = None
+    _HAS_TORCH = False
 
 BASE_DIR   = Path(__file__).parent.parent
 DATA_PATH  = BASE_DIR / "data" / "processed" / "processed_matches.csv"
 OUTPUT_DIR = BASE_DIR / "data" / "finetune"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 FEATURE_LABELS = {
     # ── Rolling 5-match window ──
@@ -505,41 +520,46 @@ def run_gnn_explainer(model, graph, builder, edge_idx):
 
     explainer = Explainer(
         model=explain_model,
-        algorithm=GNNExplainer(epochs=100),
+        algorithm=GNNExplainer(epochs=15),
         explanation_type='model',
         node_mask_type='attributes',
         edge_mask_type='object',
         model_config=dict(mode='multiclass_classification', task_level='edge', return_type='raw'),
     )
 
-    explanation = explainer(x, ei, edge_attr=ea, index=edge_idx)
+    try:
+        explanation = explainer(x, ei, edge_attr=ea, index=edge_idx)
 
-    node_mask = explanation.node_mask.cpu()
-    home_idx  = ei[0, edge_idx].item()
-    away_idx  = ei[1, edge_idx].item()
-    home_imp  = node_mask[home_idx].numpy()
-    away_imp  = node_mask[away_idx].numpy()
+        node_mask = explanation.node_mask.cpu()
+        home_idx  = ei[0, edge_idx].item()
+        away_idx  = ei[1, edge_idx].item()
+        home_imp  = node_mask[home_idx].numpy()
+        away_imp  = node_mask[away_idx].numpy()
 
-    feat_names = builder.NODE_FEATURE_SUFFIXES
-    home_team  = builder.idx_to_team[home_idx]
-    away_team  = builder.idx_to_team[away_idx]
+        feat_names = builder.NODE_FEATURE_SUFFIXES
+        home_team  = builder.idx_to_team[home_idx]
+        away_team  = builder.idx_to_team[away_idx]
 
-    top_home = {f"{home_team}_{feat_names[i]}": float(home_imp[i])
-                for i in np.argsort(home_imp)[-3:][::-1]}
-    top_away = {f"{away_team}_{feat_names[i]}": float(away_imp[i])
-                for i in np.argsort(away_imp)[-3:][::-1]}
+        top_home = {f"{home_team}_{feat_names[i]}": float(home_imp[i])
+                    for i in np.argsort(home_imp)[-3:][::-1]}
+        top_away = {f"{away_team}_{feat_names[i]}": float(away_imp[i])
+                    for i in np.argsort(away_imp)[-3:][::-1]}
 
-    edge_mask = explanation.edge_mask.cpu().numpy()
-    top_edges = np.argsort(edge_mask)[-6:][::-1]
-    top_matches = []
-    for e in top_edges:
-        if int(e) == int(edge_idx):
-            continue
-        h = builder.idx_to_team[ei[0, e].item()]
-        a = builder.idx_to_team[ei[1, e].item()]
-        top_matches.append({"match": f"{h} vs {a}", "influence_score": round(float(edge_mask[e]), 6)})
-        if len(top_matches) == 3:
-            break
+        edge_mask = explanation.edge_mask.cpu().numpy()
+        top_edges = np.argsort(edge_mask)[-6:][::-1]
+        top_matches = []
+        for e in top_edges:
+            if int(e) == int(edge_idx):
+                continue
+            h = builder.idx_to_team[ei[0, e].item()]
+            a = builder.idx_to_team[ei[1, e].item()]
+            top_matches.append({"match": f"{h} vs {a}", "influence_score": round(float(edge_mask[e]), 6)})
+            if len(top_matches) == 3:
+                break
+    finally:
+        del explainer
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     return {
         'top_node_features':       {'home_team': top_home, 'away_team': top_away},
@@ -643,8 +663,8 @@ def _fix_broken_mode(output_path, provider_name, model_name):
 
 def main():
     parser = argparse.ArgumentParser(description="Build fine-tuning dataset for football SLM")
-    parser.add_argument('--provider',     type=str, default='gemini',
-                        help="Teacher LLM provider (default: gemini)")
+    parser.add_argument('--provider',     type=str, default='ollama',
+                        help="Teacher LLM provider (default: ollama -> models/llm_config.yaml default_model)")
     parser.add_argument('--model-name',   type=str, default='',
                         help="Teacher LLM model name (default: from config)")
     parser.add_argument('--max-samples',  type=int, default=0,
@@ -674,6 +694,12 @@ def main():
     if args.fix_broken_only:
         _fix_broken_mode(output_path, args.provider, args.model_name)
         return
+
+    if not _HAS_TORCH:
+        print("  [FATAL] PyTorch / torch_geometric not importable in this interpreter "
+              f"({sys.executable}). GNN prediction + teacher LLM annotation cannot run here. "
+              "Run this step in the GPU environment (football-auto-eval container or host conda env).")
+        sys.exit(2)
 
     print("=" * 70)
     print("  FINE-TUNING DATASET BUILDER")
@@ -717,18 +743,38 @@ def main():
                     pass
         print(f"[OK] Incremental: {len(existing_keys)} already annotated matches found in {output_path.name}")
 
+    # Vectorized match ID pre-computation for instant filtering without full-dataset iterations
+    dates_clean = process_df['Date'].apply(format_match_date)
+    process_df['_clean_match_id'] = (
+        dates_clean + '_' + process_df['HomeTeam'] + '_vs_' + process_df['AwayTeam']
+    ).apply(clean_match_id)
+
+    if (args.resume or args.incremental) and existing_keys:
+        pending_df = process_df[~process_df['_clean_match_id'].isin(existing_keys)].copy()
+    else:
+        pending_df = process_df.copy()
+
+    # Prioritize latest matches (e.g. active 2026 / Season 2627) first unless user explicitly pinned custom seasons
+    if not args.seasons:
+        pending_df = pending_df.sort_values(by=['Season', 'Date'], ascending=[False, False])
+
+    print(f"[OK] Pending unannotated matches: {len(pending_df)}")
+
     teacher = None
     if not args.dry_run:
         teacher = get_llm_provider(provider_type=args.provider, model_name=args.model_name)
-        print(f"[OK] Teacher LLM ready: {args.provider}")
+        print(f"[OK] Teacher LLM ready: {args.provider} | model={teacher.model_name} | "
+              f"url={getattr(teacher, 'api_url', 'n/a')}")
 
+    pending = 0
     samples_written = 0
     errors = 0
     broken_count = 0
-    max_s = args.max_samples if args.max_samples > 0 else len(process_df)
+    max_s = args.max_samples if args.max_samples > 0 else len(pending_df)
+    target_df = pending_df.head(max_s).copy() if max_s > 0 else pending_df.copy()
 
     with open(output_path, 'a', encoding='utf-8') as out_f:
-        for idx, (_, row) in enumerate(tqdm(process_df.iterrows(), total=min(len(process_df), max_s),
+        for idx, (_, row) in enumerate(tqdm(target_df.iterrows(), total=len(target_df),
                                             desc="Building dataset")):
             if samples_written >= max_s:
                 break
@@ -741,14 +787,17 @@ def main():
             if clean_match_id(match_id) in existing_keys:
                 continue
 
+            pending += 1
             edge_idx = get_edge_idx_for_match(graph, builder, home_team, away_team)
             if edge_idx is None:
+                tqdm.write(f"  ✗ [{match_id}] no graph edge for this pair — GNN cannot predict it")
                 errors += 1
                 continue
 
             try:
                 pred, probs = run_gnn_prediction(model, graph, edge_idx)
-            except Exception:
+            except Exception as e:
+                tqdm.write(f"  ✗ [{match_id}] GNN prediction failed: {e}")
                 errors += 1
                 continue
 
@@ -756,8 +805,8 @@ def main():
             if not args.skip_explainer:
                 try:
                     gnn_exp = run_gnn_explainer(model, graph, builder, edge_idx)
-                except Exception:
-                    pass
+                except Exception as e:
+                    tqdm.write(f"  ⚠ [{match_id}] GNNExplainer failed (continuing without it): {e}")
 
             user_prompt = build_user_prompt(row, builder, graph, model, edge_idx,
                                             pred, probs, gnn_exp)
@@ -774,6 +823,7 @@ def main():
             match_context = {
                 'home_team': home_team, 'away_team': away_team,
                 'prediction': pred, 'probabilities': probs,
+                'raw_stats_json': user_prompt,
             }
             try:
                 assistant_response = teacher.generate_explanation(match_context, gnn_exp)
@@ -800,6 +850,7 @@ def main():
                 continue
 
             if not assistant_response or len(assistant_response.strip()) < 50:
+                tqdm.write(f"  ✗ [{match_id}] teacher returned empty/short response")
                 errors += 1
                 continue
 
@@ -807,6 +858,10 @@ def main():
                 "match_id": match_id,
                 "actual_result": row.get('FTR', ''),
                 "gnn_prediction": pred,
+                "gnn_probabilities": {k: round(v, 4) for k, v in probs.items()},
+                "teacher_provider": args.provider,
+                "teacher_model": teacher.model_name,
+                "generated_at": time.strftime('%Y-%m-%dT%H:%M:%S'),
                 "messages": [
                     {"role": "user",      "content": user_prompt},
                     {"role": "assistant", "content": assistant_response.strip()},
@@ -830,7 +885,19 @@ def main():
         size_mb = output_path.stat().st_size / (1024 * 1024)
         print(f"  File size: {size_mb:.2f} MB")
 
-    if not args.dry_run and output_path.exists():
+    if args.dry_run:
+        return
+
+    if pending > 0 and samples_written == 0:
+        print(f"  [FATAL] {pending} un-annotated matches were pending but 0 analyses were written "
+              f"(errors={errors}, broken={broken_count}). Failing loudly instead of reporting success.")
+        sys.exit(3)
+
+    if samples_written == 0:
+        print("  [OK] No new matches to annotate — train/val splits left untouched.")
+        return
+
+    if output_path.exists():
         all_records = []
         with open(output_path, 'r', encoding='utf-8') as f:
             for line in f:
