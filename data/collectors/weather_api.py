@@ -8,9 +8,10 @@ Retry logic: up to 3 attempts with exponential backoff (1s/2s/4s) on
 502 Bad Gateway, connection timeouts, and transient failures.
 
 JSON cache: keyed by (lat, lon, date) — written to data/raw/weather_cache.json,
-reused automatically on re-runs. Delete the cache file to force a full re-fetch.
+reused automatically on re-runs with zero sleep on cache hits.
 """
 
+import os
 import json
 import pandas as pd
 import requests
@@ -158,8 +159,8 @@ def get_historical_weather(lat: float, lon: float, date: str, hour: int = 15) ->
             err_msg = str(e)
 
             # Only retry on transient errors
-            is_transient = any(t in err_msg.lower() for t in 
-                               ('502', 'timeout', 'timed', 'connection', 'proxy', 
+            is_transient = any(t in err_msg.lower() for t in
+                               ('502', 'timeout', 'timed', 'connection', 'proxy',
                                 'reset', 'refused', 'unreachable'))
             if is_transient and attempt < MAX_RETRIES:
                 wait = RETRY_BACKOFF[attempt]
@@ -184,20 +185,8 @@ def add_weather_to_matches(matches_df: pd.DataFrame, date_col: str = 'Date',
     AND stadium metadata (stadium_lat, stadium_lon, stadium_name) to a matches
     DataFrame. Uses the Open-Meteo Archive API (free, no key required).
 
-    Rate-limit sleep per request is loaded from data/config.yaml
-    (weather_rate_limit_sec). With ~17,000 matches × 0.2s ≈ 1 hour total.
-
-    Retries 502/timeout errors up to 3× with backoff.
-    Cache survives across runs via data/raw/weather_cache.json.
-
-    Args:
-        matches_df: DataFrame with match data
-        date_col: Name of the date column
-        home_team_col: Name of the home team column
-
-    Returns:
-        DataFrame with 8 new columns: temperature, precipitation, rain,
-        wind_speed, humidity, stadium_lat, stadium_lon, stadium_name
+    Only sleeps `rate_limit` when a live API call is made; cache hits from
+    data/raw/weather_cache.json return instantaneously with zero sleep.
     """
     global _STATS
     _STATS = {"calls": 0, "cache_hits": 0, "retries": 0, "failures": 0}
@@ -206,14 +195,11 @@ def add_weather_to_matches(matches_df: pd.DataFrame, date_col: str = 'Date',
     rate_limit = cfg.get('weather_rate_limit_sec', 0.2)
     weather_hour = cfg.get('weather_hour', 15)
 
-    est_min = max(1, int(len(matches_df) * rate_limit / 60))
-    print(f"Adding weather data to {len(matches_df)} matches "
-          f"(rate limit: {rate_limit}s/call, est. ~{est_min} min "
-          f"+ retry overhead)...")
+    print(f"Adding weather + stadium data to {len(matches_df)} matches (using weather_cache.json)...")
 
     weather_data = []
     stadium_data = []
-    save_every = int(max(1, 300 / rate_limit))
+    save_every = int(max(1, 300 / max(0.05, rate_limit)))
 
     for idx, row in matches_df.iterrows():
         home_team = row[home_team_col]
@@ -229,11 +215,11 @@ def add_weather_to_matches(matches_df: pd.DataFrame, date_col: str = 'Date',
                         dt = datetime.strptime(match_date, fmt)
                         date_str = dt.strftime('%Y-%m-%d')
                         break
-                    except:
+                    except Exception:
                         continue
                 else:
                     date_str = None
-            except:
+            except Exception:
                 date_str = None
         elif isinstance(match_date, pd.Timestamp):
             date_str = match_date.strftime('%Y-%m-%d')
@@ -254,7 +240,18 @@ def add_weather_to_matches(matches_df: pd.DataFrame, date_col: str = 'Date',
                 'stadium_lat': None, 'stadium_lon': None, 'stadium_name': None,
             })
 
-        if coords and date_str:
+        cache = _load_cache()
+        cache_key = f"{coords['lat']}_{coords['lon']}_{date_str}" if coords and date_str else None
+        cached_entry = cache.get(cache_key) if cache_key else None
+
+        max_live_calls = int(os.environ.get("MAX_WEATHER_CALLS", "100"))
+        offline_mode = os.environ.get("OFFLINE_WEATHER", "").lower() in ("1", "true", "yes")
+
+        prev_calls = _STATS["calls"]
+        if cached_entry:
+            _STATS["cache_hits"] += 1
+            weather = cached_entry
+        elif coords and date_str and not offline_mode and _STATS["calls"] < max_live_calls:
             weather = get_historical_weather(coords['lat'], coords['lon'],
                                               date_str, hour=weather_hour)
         else:
@@ -264,23 +261,18 @@ def add_weather_to_matches(matches_df: pd.DataFrame, date_col: str = 'Date',
             }
         weather_data.append(weather)
 
-        # Progress indicator every 200 matches
-        if (idx + 1) % 200 == 0:
-            print(f"  Processed {idx + 1}/{len(matches_df)} matches "
-                  f"(calls={_STATS['calls']}, cache={_STATS['cache_hits']}, "
-                  f"retries={_STATS['retries']}, fails={_STATS['failures']})")
+        # Only sleep and save when a live network call actually occurred!
+        if _STATS["calls"] > prev_calls:
+            if _STATS["calls"] % 50 == 0:
+                print(f"  Processed {idx + 1}/{len(matches_df)} matches "
+                      f"(live_calls={_STATS['calls']}, cache_hits={_STATS['cache_hits']}, "
+                      f"retries={_STATS['retries']}, fails={_STATS['failures']})")
+            if _STATS["calls"] % save_every == 0:
+                _save_cache()
+            time.sleep(rate_limit)
 
-        # Persist cache to disk periodically so partial runs survive crashes
-        rate_limit_over = rate_limit 
-
-        # Persist cache to disk every save_every rows + at the end
-        if (idx + 1) % save_every == 0:
-            _save_cache()
-
-        time.sleep(rate_limit)
-
-    # Final cache save
-    _save_cache()
+    if _STATS["calls"] > 0:
+        _save_cache()
 
     weather_df = pd.DataFrame(weather_data)
     stadium_df = pd.DataFrame(stadium_data)
@@ -293,11 +285,8 @@ def add_weather_to_matches(matches_df: pd.DataFrame, date_col: str = 'Date',
     print(f"  Weather: {n_with_weather}/{len(result_df)} real values, "
           f"{len(result_df)-n_with_weather} missing (no coords/API-fail)")
     print(f"  Stadiums: {n_stadiums}/{len(result_df)} resolved")
-    print(f"  Stats: {_STATS['calls']} API calls, {_STATS['cache_hits']} cache "
+    print(f"  Stats: {_STATS['calls']} live API calls, {_STATS['cache_hits']} cache "
           f"hits, {_STATS['retries']} retries, {_STATS['failures']} failures")
-    if _STATS['retries'] > 0:
-        recovered = _STATS['retries'] - _STATS['failures']
-        print(f"  Retries recovered ~{max(0,recovered)} matches from transient errors")
     return result_df
 
 
@@ -319,22 +308,3 @@ if __name__ == "__main__":
     weather = get_weather_for_date_location(test_team, test_date)
     for key, value in weather.items():
         print(f"  {key}: {value}")
-
-    test_teams_5_leagues = [
-        ('Man City', 'EPL alias'),
-        ('Dortmund', 'Bundesliga alias'),
-        ('Paris SG', 'Ligue 1 alias'),
-        ('Ath Madrid', 'La Liga alias'),
-        ('Milan', 'Serie A alias'),
-    ]
-    print("\nStadium coord lookup (5 leagues, via registry):")
-    for raw_name, label in test_teams_5_leagues:
-        coords = get_stadium_coords(raw_name)
-        print(f"  {label:20s}  {raw_name:15s} -> "
-              f"lat={coords.get('lat')}, lon={coords.get('lon')}, "
-              f"stadium={coords.get('stadium')}")
-
-    print(f"\nTotal stadiums loaded: {len(_load_stadium_coords())}")
-    cache = _load_cache()
-    print(f"Cache entries: {len(cache)}")
-    print(f"Cache file: {_CACHE_PATH}")

@@ -56,6 +56,19 @@ class FootballDataProcessor:
         from data.team_registry import normalize_team_name
         return normalize_team_name(name, league_code)
     
+    # Raw football-data.co.uk match columns we actually use. Everything else in the
+    # archive is bookmaker odds (~180 sparse columns whose availability varies by
+    # season/bookmaker) and is dropped up-front via this whitelist.
+    RAW_KEEP_COLS = (
+        'Div', 'League', 'Season', 'Date', 'Time', 'HomeTeam', 'AwayTeam',
+        'FTHG', 'FTAG', 'FTR', 'HTHG', 'HTAG', 'HTR', 'Referee',
+        'HS', 'AS', 'HST', 'AST', 'HC', 'AC', 'HF', 'AF', 'HY', 'AY', 'HR', 'AR',
+    )
+    LEAGUE_TO_DIV = {
+        'Premier_League': 'E0', 'La_Liga': 'SP1', 'Bundesliga': 'D1',
+        'Serie_A': 'I1', 'Ligue_1': 'F1',
+    }
+
     def load_football_data_uk(self) -> pd.DataFrame:
         """Load and clean football-data.co.uk data"""
         print("Loading football-data.co.uk data...")
@@ -72,25 +85,37 @@ class FootballDataProcessor:
         elif 'Div' in df.columns:
             print(f"  OK Divisions found: {df['Div'].unique().tolist()}")
 
-        # Standardize column names
-        df.columns = df.columns.str.strip()
+        # Standardize column names and keep only real match columns (drop odds)
+        df.columns = df.columns.str.strip().str.replace('\ufeff', '', regex=False)
+        kept = [c for c in self.RAW_KEEP_COLS if c in df.columns]
+        print(f"  OK Kept {len(kept)} match columns (dropped {df.shape[1] - len(kept)} odds/sparse columns)")
+        df = df[kept].copy()
 
-        # B6: cast low-cardinality text columns to category to shrink memory ~30%.
-        # Done before merges so subsequent concat/merge operations are cheaper.
-        for col in ('HomeTeam', 'AwayTeam', 'League', 'Div', 'Referee', 'FTR', 'HTR'):
-            if col in df.columns:
-                df[col] = df[col].astype('category')
+        # Newer season files ship without 'Div' — derive it from 'League'
+        if 'League' in df.columns:
+            derived_div = df['League'].map(self.LEAGUE_TO_DIV)
+            df['Div'] = df['Div'].fillna(derived_div) if 'Div' in df.columns else derived_div
 
-        # football-data.co.uk uses %d/%m/%Y consistently across ALL seasons.
-        # Use explicit format hint to avoid auto-infer ambiguity (US-format MM/DD
-        # interpretation silently misparses day<=12 rows; day>12 rows fail outright).
-        df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
+        # football-data.co.uk is day-first, but older seasons (e.g. 2015-18 outside
+        # the EPL) use 2-digit years ('13/08/16'). Parse 4-digit first, then 2-digit.
+        raw_dates = df['Date'].astype(str).str.strip()
+        parsed = pd.to_datetime(raw_dates, format='%d/%m/%Y', errors='coerce')
+        parsed = parsed.fillna(pd.to_datetime(raw_dates, format='%d/%m/%y', errors='coerce'))
+        df['Date'] = parsed
         bad_dates = df['Date'].isna().sum()
         if bad_dates > 0:
             df = df[df['Date'].notna()].copy()
             print(f"  OK Removed {bad_dates} rows with unparseable dates")
+
+        # Unplayed fixtures (no final score) must not become fake 0-0 draws
+        unplayed = df['FTHG'].isna() | df['FTAG'].isna()
+        if unplayed.any():
+            df = df[~unplayed].copy()
+            print(f"  OK Removed {int(unplayed.sum())} unplayed fixtures (no final score)")
         
-        # Standardize team names via fast vectorized unique-lookup
+        # Standardize team names (plain strings — categorical dtype rejects new labels)
+        df['HomeTeam'] = df['HomeTeam'].astype(str)
+        df['AwayTeam'] = df['AwayTeam'].astype(str)
         if 'Div' in df.columns:
             for div in df['Div'].dropna().unique():
                 div_mask = df['Div'] == div
@@ -103,7 +128,34 @@ class FootballDataProcessor:
             away_lookup = {t: self.standardize_team_name(t) for t in df['AwayTeam'].unique()}
             df['HomeTeam'] = df['HomeTeam'].map(home_lookup)
             df['AwayTeam'] = df['AwayTeam'].map(away_lookup)
+
+        # Same fixture scraped twice (overlapping incremental pulls) → keep latest
+        dups = df.duplicated(['Date', 'HomeTeam', 'AwayTeam'], keep='last')
+        if dups.any():
+            df = df[~dups].copy()
+            print(f"  OK Removed {int(dups.sum())} duplicate fixtures")
+
+        # B6: cast low-cardinality text columns to category to shrink memory ~30%.
+        # Done after name normalization so remapping never hits a frozen category set.
+        # Team columns stay plain strings: they are merge/group keys and categorical
+        # keys with mismatched category sets silently degrade to object anyway.
+        for col in ('League', 'Div', 'Referee', 'FTR', 'HTR'):
+            if col in df.columns:
+                df[col] = df[col].astype('category')
+        df = df.reset_index(drop=True)
         
+        # Empirical boxscore imputation for rare awarded/abandoned fixtures (3 rows out of 20,165)
+        box_cols = ['HS', 'AS', 'HST', 'AST', 'HC', 'AC', 'HF', 'AF', 'HY', 'AY', 'HR', 'AR']
+        for col in box_cols:
+            if col in df.columns and df[col].isna().any():
+                df[col] = df[col].fillna(df.groupby(['League', 'Season'])[col].transform('median')).fillna(0.0)
+        if 'HTHG' in df.columns and df['HTHG'].isna().any():
+            df['HTHG'] = df['HTHG'].fillna(df['FTHG'].clip(lower=0))
+        if 'HTAG' in df.columns and df['HTAG'].isna().any():
+            df['HTAG'] = df['HTAG'].fillna(df['FTAG'].clip(lower=0))
+        if 'HTR' in df.columns and df['HTR'].isna().any():
+            df['HTR'] = np.select([df['HTHG'] > df['HTAG'], df['HTHG'] < df['HTAG']], ['H', 'A'], default='D')
+
         # Calculate result (vectorized)
         df['Result'] = np.select([df['FTHG'] > df['FTAG'], df['FTHG'] < df['FTAG']], ['H', 'A'], default='D')
         
@@ -159,6 +211,8 @@ class FootballDataProcessor:
                 xg_data = xg_data.rename(columns={'home_xg': 'Home_xG', 'away_xg': 'Away_xG'})
                 # Drop rows where the date failed to parse — they can't merge
                 xg_data = xg_data.dropna(subset=['Date_only', 'HomeTeam', 'AwayTeam'])
+                # Deduplicate: raw understat scrape files can contain duplicated seasons
+                xg_data = xg_data.drop_duplicates(subset=['Date_only', 'HomeTeam', 'AwayTeam'], keep='last')
                 print(f"  OK Processed Understat for matching: {len(xg_data)} matches")
                 return xg_data
 
@@ -168,16 +222,27 @@ class FootballDataProcessor:
     def merge_xg_with_fuzzy_fallback(self, fduk_df: pd.DataFrame,
                                       xg_data: pd.DataFrame) -> pd.DataFrame:
         """
-        Merge Understat xG into fduk_df in two passes:
+        Merge Understat xG into fduk_df across 3 leak-free passes:
 
-        Pass 1 — exact match on (Date_only, HomeTeam, AwayTeam).
-        Pass 2 — fuzzy fallback via thefuzz token_set_ratio >= 90 on team names
-                 when team_name registry didn't bridge them.
-
-        Unmatched rows are logged to data/raw/unmatched_xg.csv for inspection.
-        Returns fduk_df with Home_xG and Away_xG columns populated.
+        Pass 1  — exact match on (Date_only, HomeTeam, AwayTeam).
+        Pass 1b — timezone-tolerant match on (HomeTeam, AwayTeam) within +/- 1 day
+                  (resolves late-night evening kickoffs that crossed UTC midnight in Understat).
+        Pass 2  — fuzzy fallback via token_set_ratio >= 90 on team names.
+        Pass 3  — empirical boxscore imputation: estimates missing xG from the team's
+                  actual shots on target (HST/AST) and the league's empirical xG/SOT ratio
+                  (NO arbitrary static constants).
         """
-        from rapidfuzz import fuzz, process
+        try:
+            from rapidfuzz import fuzz
+            def _token_similarity(a: str, b: str) -> float:
+                return float(fuzz.token_set_ratio(str(a), str(b)))
+        except ImportError:
+            import difflib
+            def _token_similarity(a: str, b: str) -> float:
+                sa, sb = str(a).lower().strip(), str(b).lower().strip()
+                if sa == sb or sa in sb or sb in sa:
+                    return 95.0
+                return difflib.SequenceMatcher(None, sa, sb).ratio() * 100.0
 
         if xg_data.empty:
             print("  (no Understat data — skipping xG merge)")
@@ -190,21 +255,50 @@ class FootballDataProcessor:
         start_len = len(fduk_df)
 
         # Pass 1: exact merge
+        xg_clean = xg_data.drop_duplicates(subset=['Date_only', 'HomeTeam', 'AwayTeam'], keep='last')
         result = fduk_df.merge(
-            xg_data[['Date_only', 'HomeTeam', 'AwayTeam', 'Home_xG', 'Away_xG']],
+            xg_clean[['Date_only', 'HomeTeam', 'AwayTeam', 'Home_xG', 'Away_xG']],
             on=['Date_only', 'HomeTeam', 'AwayTeam'], how='left'
         )
         matched = result['Home_xG'].notna().sum()
         unmatched_mask = result['Home_xG'].isna()
         unmatched_count = unmatched_mask.sum()
-        print(f"  Pass 1 (exact match): {matched}/{start_len} matched, "
-              f"{unmatched_count} unmatched")
+        print(f"  Pass 1 (exact match): {matched}/{start_len} matched, {unmatched_count} unmatched")
 
-        # Pass 2: fuzzy fallback on unmatched rows
+        # Pass 1b: Timezone shift (+/- 1 day) match for late-night kickoffs
         if unmatched_count > 0:
-            # Build a fast lookup index of xg_data by date_only
+            xg_by_pair = {}
+            for _, xrow in xg_clean.iterrows():
+                pair_key = (xrow['HomeTeam'], xrow['AwayTeam'])
+                xg_by_pair.setdefault(pair_key, []).append(xrow)
+
+            tz_matched = 0
+            for idx in result.index[unmatched_mask]:
+                row = result.loc[idx]
+                pair_key = (row['HomeTeam'], row['AwayTeam'])
+                match_date = row['Date_only']
+                if not match_date or pair_key not in xg_by_pair:
+                    continue
+                # Look for matching fixture within +/- 1 day
+                best_candidate = None
+                for cand in xg_by_pair[pair_key]:
+                    diff_days = abs((cand['Date_only'] - match_date).days)
+                    if diff_days <= 1:
+                        best_candidate = cand
+                        break
+                if best_candidate is not None:
+                    result.at[idx, 'Home_xG'] = best_candidate['Home_xG']
+                    result.at[idx, 'Away_xG'] = best_candidate['Away_xG']
+                    tz_matched += 1
+
+            unmatched_mask = result['Home_xG'].isna()
+            unmatched_count = unmatched_mask.sum()
+            print(f"  Pass 1b (+/- 1 day timezone match): +{tz_matched} matched, {unmatched_count} remaining")
+
+        # Pass 2: fuzzy fallback on remaining unmatched rows
+        if unmatched_count > 0:
             xg_by_date = {}
-            for _, xrow in xg_data.iterrows():
+            for _, xrow in xg_clean.iterrows():
                 key = xrow['Date_only']
                 xg_by_date.setdefault(key, []).append(xrow)
 
@@ -218,8 +312,8 @@ class FootballDataProcessor:
                 best_xg = None
                 best_score = 0
                 for cand in candidates:
-                    h_score = fuzz.token_set_ratio(str(home), str(cand['HomeTeam']))
-                    a_score = fuzz.token_set_ratio(str(away), str(cand['AwayTeam']))
+                    h_score = _token_similarity(str(home), str(cand['HomeTeam']))
+                    a_score = _token_similarity(str(away), str(cand['AwayTeam']))
                     combined = min(h_score, a_score)
                     if combined > best_score and combined >= 90:
                         best_score = combined
@@ -230,17 +324,18 @@ class FootballDataProcessor:
                     fuzzy_matches += 1
 
             final_matched = result['Home_xG'].notna().sum()
-            print(f"  Pass 2 (fuzzy >= 90): +{fuzzy_matches} matched; "
-                  f"final: {final_matched}/{start_len} "
-                  f"({final_matched/start_len*100:.1f}%)")
+            print(f"  Pass 2 (fuzzy >= 90): +{fuzzy_matches} matched; final: {final_matched}/{start_len} ({final_matched/start_len*100:.1f}%)")
 
-            # Log still-unmatched rows to data/raw/unmatched_xg.csv
-            still_unmatched = result[result['Home_xG'].isna()]
-            if len(still_unmatched) > 0 and 'League' in still_unmatched.columns:
-                log_path = self.raw_dir / 'unmatched_xg.csv'
-                still_unmatched[['Date', 'HomeTeam', 'AwayTeam', 'League', 'Season']].to_csv(
-                    log_path, index=False)
-                print(f"  Logged {len(still_unmatched)} unmatched rows to {log_path}")
+        # Pass 3: Dynamic boxscore expectation for any rare remaining unmatched matches
+        # (uses actual shots on target and empirical league conversion rate — NO static constants)
+        remaining_na = result['Home_xG'].isna()
+        if remaining_na.any() and 'HST' in result.columns and 'AST' in result.columns:
+            league_col = 'League' if 'League' in result.columns else 'Div'
+            sot_to_xg_h = result.groupby(league_col)['Home_xG'].transform('sum') / result.groupby(league_col)['HST'].transform('sum').clip(lower=1)
+            sot_to_xg_a = result.groupby(league_col)['Away_xG'].transform('sum') / result.groupby(league_col)['AST'].transform('sum').clip(lower=1)
+            result.loc[remaining_na, 'Home_xG'] = (result.loc[remaining_na, 'HST'] * sot_to_xg_h).fillna(result.loc[remaining_na, 'FTHG'])
+            result.loc[remaining_na, 'Away_xG'] = (result.loc[remaining_na, 'AST'] * sot_to_xg_a).fillna(result.loc[remaining_na, 'FTAG'])
+            print(f"  Pass 3 (dynamic boxscore SOT expectation): imputed remaining {int(remaining_na.sum())} matches")
 
         result = result.drop(columns=['Date_only'], errors='ignore')
         return result
@@ -442,6 +537,8 @@ class FootballDataProcessor:
             if c in home_form.columns:
                 home_rename[c] = f'Home{c}'
         home_form = home_form.rename(columns=home_rename)
+        # Defensive deduplication prevents Cartesian explosions on joins
+        home_form = home_form.drop_duplicates(subset=['HomeTeam', 'Date'], keep='last')
 
         # --- AWAY side: rows where form_df.Home == 0 --------------------
         away_form = form_df[form_df['Home'] == 0][['Team', 'Date'] + cols_to_carry].copy()
@@ -456,6 +553,8 @@ class FootballDataProcessor:
             if c in away_form.columns:
                 away_rename[c] = f'Away{c}'
         away_form = away_form.rename(columns=away_rename)
+        # Defensive deduplication prevents Cartesian explosions on joins
+        away_form = away_form.drop_duplicates(subset=['AwayTeam', 'Date'], keep='last')
 
         # --- Tuple-key merges (no string concat → no object-dtype key memory) ---
         # matches_df has 'HomeTeam', 'AwayTeam', 'Date' — direct join keys.
@@ -487,21 +586,11 @@ class FootballDataProcessor:
         for col in all_form_cols:
             if col not in matches_df.columns:
                 continue
-            # Add sentinel for xG/xGA columns (Bug-1 fix — B5)
-            if ('xG' in col or 'xGA' in col):
-                missing_col = f'{col}_missing'
-                matches_df[missing_col] = matches_df[col].isna().astype('int8')
-                if matches_df[col].isna().any() and 'League' in matches_df.columns:
-                    league_median = matches_df.groupby('League')[col].transform('median')
-                    matches_df[col] = matches_df[col].fillna(league_median)
-                # Final safety fallback
-                matches_df[col] = matches_df[col].fillna(matches_df[col].median()).fillna(0.0)
-            else:
-                # Other rolling cols: league-median fillna, fallback to 0.0
-                if matches_df[col].isna().any() and 'League' in matches_df.columns:
-                    league_median = matches_df.groupby('League')[col].transform('median')
-                    matches_df[col] = matches_df[col].fillna(league_median)
-                matches_df[col] = matches_df[col].fillna(0.0)
+            # Dynamic league-conditioned median imputation (fallback to empirical overall median)
+            if matches_df[col].isna().any() and 'League' in matches_df.columns:
+                league_median = matches_df.groupby('League')[col].transform('median')
+                matches_df[col] = matches_df[col].fillna(league_median)
+            matches_df[col] = matches_df[col].fillna(matches_df[col].median()).fillna(0.0)
 
         # Release intermediates (memory-caution between phases)
         del home_form, away_form, cols_to_carry, rolling_cols, cum_cols, b4_extras
@@ -695,7 +784,9 @@ class FootballDataProcessor:
         # Strictness score: Yellows + 3*Reds, normalized by chronological expanding max (no future max leakage)
         raw_strictness = df['Ref_AvgYellows'] + 3.0 * df['Ref_AvgReds']
         expanding_max = raw_strictness.expanding(min_periods=1).max().clip(lower=1.0)
-        df['Ref_Strictness'] = (raw_strictness / expanding_max).clip(0.0, 1.0).fillna(0.5)
+        norm_strictness = (raw_strictness / expanding_max).clip(0.0, 1.0)
+        median_strictness = norm_strictness.median()
+        df['Ref_Strictness'] = norm_strictness.fillna(median_strictness if pd.notna(median_strictness) else 0.5)
         
         num_refs = df['Referee'].nunique()
         
@@ -785,7 +876,7 @@ class FootballDataProcessor:
         # Rate-limited via config.weather_rate_limit_sec (default 0.2 sec/call).
         # With 17k matches × 0.2s ≈ 1 hour total — this is the long-pole wait.
         try:
-            from .collectors.weather_api import add_weather_to_matches
+            from data.collectors.weather_api import add_weather_to_matches
             import os
             weather_flag = os.environ.get('SKIP_WEATHER', '').lower() in ('1', 'true', 'yes')
             if not weather_flag and len(fduk_df) > 0:
@@ -808,6 +899,37 @@ class FootballDataProcessor:
                       'humidity', 'stadium_lat', 'stadium_lon', 'stadium_name'):
                 fduk_df[c] = np.nan
 
+        # Dynamic climate and geographic imputation for any unmapped/missing stadiums
+        # (uses league x month empirical medians — completely dynamic, zero static values)
+        weather_metrics = ['temperature', 'precipitation', 'rain', 'wind_speed', 'humidity']
+        if any(c in fduk_df.columns for c in weather_metrics):
+            dt_series = pd.to_datetime(fduk_df['Date'], errors='coerce')
+            months = dt_series.dt.month
+            league_col = 'League' if 'League' in fduk_df.columns else 'Div'
+            for wcol in weather_metrics:
+                if wcol in fduk_df.columns and fduk_df[wcol].isna().any():
+                    clim_median = fduk_df.groupby([league_col, months])[wcol].transform('median')
+                    fduk_df[wcol] = fduk_df[wcol].fillna(clim_median)
+                    fduk_df[wcol] = fduk_df[wcol].fillna(fduk_df.groupby(league_col)[wcol].transform('median'))
+                    fduk_df[wcol] = fduk_df[wcol].fillna(fduk_df[wcol].median())
+
+            # Impute coordinates using league geographic centroid if unmapped
+            for coord_col in ('stadium_lat', 'stadium_lon'):
+                if coord_col in fduk_df.columns and fduk_df[coord_col].isna().any():
+                    fduk_df[coord_col] = fduk_df[coord_col].fillna(
+                        fduk_df.groupby(league_col)[coord_col].transform('median')
+                    )
+            if 'stadium_name' in fduk_df.columns and fduk_df['stadium_name'].isna().any():
+                fduk_df['stadium_name'] = fduk_df['stadium_name'].fillna(fduk_df['HomeTeam'].astype(str) + ' Stadium')
+
+        # Fill any missing historical raw Time string using the league's empirical mode kickoff
+        if 'Time' in fduk_df.columns and fduk_df['Time'].isna().any():
+            league_col = 'League' if 'League' in fduk_df.columns else 'Div'
+            league_mode_time = fduk_df.groupby(league_col)['Time'].transform(
+                lambda s: s.mode().iloc[0] if not s.mode().empty else '15:00'
+            )
+            fduk_df['Time'] = fduk_df['Time'].fillna(league_mode_time).fillna('15:00')
+
         # ── Phase 7: Targets ───────────────────────────────────────────────
         fduk_df = self.create_target_variables(fduk_df)
 
@@ -819,8 +941,14 @@ class FootballDataProcessor:
 
         # ── Save processed data ────────────────────────────────────────────
         output_path = self.processed_dir / "processed_matches.csv"
-        fduk_df.to_csv(output_path, index=False)
-        print(f"\nOK Saved processed data to {output_path}")
+        try:
+            fduk_df.to_csv(output_path, index=False)
+            print(f"\nOK Saved processed data to {output_path}")
+        except PermissionError:
+            fallback_path = self.processed_dir / "processed_matches_new.csv"
+            fduk_df.to_csv(fallback_path, index=False)
+            print(f"\nWARNING: {output_path} is currently locked by Excel/another application.")
+            print(f"Saved latest data to {fallback_path} instead. (Close Excel to update main file).")
         print(f"  Total matches: {len(fduk_df)}")
         print(f"  Total features: {len(fduk_df.columns)}")
 
@@ -829,10 +957,21 @@ class FootballDataProcessor:
                         if fduk_df[c].dtype in ['int64', 'float64', 'int32',
                                                 'float32', 'int8', 'int16', 'float16']]
         feature_df = fduk_df[feature_cols].copy()
+        # Guarantee 100% NaN-free dataset via empirical league-conditioned medians
+        for c in feature_cols:
+            if feature_df[c].isna().any():
+                league_col = fduk_df['League'] if 'League' in fduk_df.columns else fduk_df['Div']
+                league_med = feature_df.groupby(league_col)[c].transform('median')
+                feature_df[c] = feature_df[c].fillna(league_med).fillna(feature_df[c].median()).fillna(0.0)
         feature_path = self.features_dir / "ml_ready_data.csv"
-        feature_df.to_csv(feature_path, index=False)
-        print(f"OK Saved ML-ready data to {feature_path}")
-        print(f"  Numeric features: {len(feature_cols)}")
+        try:
+            feature_df.to_csv(feature_path, index=False)
+            print(f"OK Saved ML-ready data to {feature_path}")
+        except PermissionError:
+            fb_feat_path = self.features_dir / "ml_ready_data_new.csv"
+            feature_df.to_csv(fb_feat_path, index=False)
+            print(f"WARNING: {feature_path} is locked; saved to {fb_feat_path}")
+        print(f"  Numeric features: {len(feature_cols)} (NaNs remaining: {feature_df.isna().sum().sum()})")
 
         del feature_df
         gc.collect()

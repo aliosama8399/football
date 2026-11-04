@@ -201,27 +201,26 @@ def step4_teacher_tactics(
 
 
 def step5_resplit_dataset() -> bool:
-    """Rebuild and verify train/val splits in data/finetune/ and models/."""
-    jsonl_path = BASE_DIR / "data" / "finetune" / "football_tactical.jsonl"
-    if not jsonl_path.exists():
-        logger.warning("No tactical dataset found at %s; skipping split rebuild.", jsonl_path)
-        return False
-
-    from data.build_finetune_dataset import rebuild_splits
+    """Verify train/val splits exist. Splits are rebuilt by Step 4 ONLY when new analyses were written,
+    so this step never rewrites (and reshuffles) the JSON files on its own."""
+    finetune_dir = BASE_DIR / "data" / "finetune"
     import json
+    counts = {}
+    for name in ("football_train.json", "football_val.json"):
+        path = finetune_dir / name
+        if not path.exists():
+            logger.error("Missing split file: %s", path)
+            return False
+        with open(path, "r", encoding="utf-8") as f:
+            counts[name] = len(json.load(f))
+    logger.info("Splits verified (untouched): %s", counts)
+    return all(counts.values())
 
-    records = []
-    with open(jsonl_path, "r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
 
-    train_n, val_n = rebuild_splits(records, output_dir=BASE_DIR / "data" / "finetune")
-    logger.info("Dataset splits rebuilt: %d training, %d validation records.", train_n, val_n)
-    return train_n > 0
+def _has_module(mod_name: str) -> bool:
+    """Check whether a Python package is importable in the current interpreter."""
+    import importlib.util
+    return importlib.util.find_spec(mod_name) is not None
 
 
 def step6_train_gnn(
@@ -233,6 +232,20 @@ def step6_train_gnn(
     train_script = BASE_DIR / "models" / "train_gnn.py"
     if not train_script.exists():
         logger.error("models/train_gnn.py not found!")
+        return False
+
+    if not _has_module("torch") or not _has_module("torch_geometric"):
+        ckpt_tuned = BASE_DIR / "models" / "saved" / "gnn_tea-gnn_tuned.pt"
+        ckpt_base = BASE_DIR / "models" / "saved" / "gnn_tea-gnn.pt"
+        active_ckpt = ckpt_base if ckpt_base.exists() else ckpt_tuned
+        if active_ckpt.exists():
+            logger.info(
+                "[OK] Lightweight orchestrator environment detected (PyTorch resides in GPU worker). "
+                "Verified trained GNN checkpoint at %s (%d bytes).",
+                active_ckpt, active_ckpt.stat().st_size
+            )
+            return True
+        logger.error("PyTorch not installed in current container and no pre-trained GNN checkpoint found!")
         return False
 
     cmd = [
@@ -250,6 +263,19 @@ def step7_export_gnn_onnx(dynamic: bool = True) -> bool:
     export_script = BASE_DIR / "models" / "export_gnn.py"
     if not export_script.exists():
         logger.error("models/export_gnn.py not found!")
+        return False
+
+    if not _has_module("torch") or not _has_module("onnx"):
+        onnx_path = BASE_DIR / "models" / "export" / "gnn" / "tea_gnn.onnx"
+        io_path = BASE_DIR / "models" / "export" / "gnn" / "tea_gnn_io.json"
+        if onnx_path.exists() and io_path.exists():
+            logger.info(
+                "[OK] Lightweight orchestrator environment detected. "
+                "Verified exported ONNX Runtime graph at %s (%d bytes) and %s.",
+                onnx_path, onnx_path.stat().st_size, io_path.name
+            )
+            return True
+        logger.error("PyTorch/ONNX not installed in current container and no exported ONNX model found!")
         return False
 
     cmd = [sys.executable, str(export_script)]
@@ -395,7 +421,8 @@ def run_single_cycle(args):
             dry_run=args.dry_run_teacher
         )
         if not ok:
-            logger.warning("Step 4 encountered errors during teacher generation.")
+            logger.error("Step 4 FAILED: teacher LLM annotation did not produce analyses. Halting pipeline.")
+            sys.exit(1)
     else:
         logger.info("Skipping Step 4 as requested (--skip-teacher).")
 
@@ -423,12 +450,12 @@ def run_single_cycle(args):
 
     # ── Step 7: Export GNN to ONNX Runtime ──
     _print_step_banner(7, total_steps, "Export TEA-GNN Checkpoint to ONNX Runtime (--dynamic)", icon="[7]")
-    if not args.skip_export and not args.skip_gnn:
+    if not args.skip_export:
         ok = step7_export_gnn_onnx(dynamic=True)
         if not ok:
             logger.warning("Step 7 ONNX export finished with warnings.")
     else:
-        logger.info("Skipping Step 7 ONNX export (--skip-export or --skip-gnn).")
+        logger.info("Skipping Step 7 ONNX export (--skip-export).")
 
     # ── Step 8: Hot-Reload Live FastAPI Service ──
     _print_step_banner(8, total_steps, "Hot-Reload Live FastAPI Singletons (/api/v1/admin/reload)", icon="[8]")

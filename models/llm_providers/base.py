@@ -128,14 +128,15 @@ class BaseLLMProvider(ABC):
 
         node_feats = json.dumps(gnn_explanation.get('top_node_features', {}), indent=2)
         hist_matches = json.dumps(gnn_explanation.get('top_influencing_matches', []), indent=2)
+        raw_stats = match_context.get("raw_stats_json", "")
+        stats_block = f"\nDETAILED STATISTICAL & ENVIRONMENTAL PROFILE:\n{raw_stats}\n" if raw_stats else ""
 
-        return f"""You are an elite football tactical analyst API. Focus on deeply analytical insights backed by the provided quantitative data.
+        return f"""You are an elite football tactical analyst delivering a comprehensive professional pre-match scouting report.
 
-INPUT DATA:
 FIXTURE: {home} (Home) vs {away} (Away)
-PREDICTION: {pred}
-PROBABILITIES: Home Win {probs.get('H', 0):.1%} | Draw {probs.get('D', 0):.1%} | Away Win {probs.get('A', 0):.1%}
-
+AI MODEL PREDICTION: {pred}
+PROBABILITY DISTRIBUTION: Home Win {probs.get('H', 0):.1%} | Draw {probs.get('D', 0):.1%} | Away Win {probs.get('A', 0):.1%}
+{stats_block}
 KEY STATISTICAL INDICATORS (recent 5-match rolling form):
 {node_feats}
 
@@ -143,17 +144,19 @@ KEY HISTORICAL CONTEXT (influential recent encounters):
 {hist_matches}
 
 INSTRUCTIONS:
-You must output ONLY valid JSON. Do not include markdown codeblocks or any conversational text. Adhere strictly to this schema:
-{{
-  "prediction_verdict": "Clear, professional thesis stating why the predicted outcome is expected (1-2 sentences)",
-  "confidence_rating": "High, Medium, or Low based on the probability",
-  "home_team_analysis": {{
-    "strengths": ["list 2-3 specific strengths based on stats"],
-    "weaknesses": ["list 1-2 specific weaknesses"]
-  }},
-  "away_team_analysis": {{
-    "strengths": ["list 2-3 specific strengths based on stats"],
-    "weaknesses": ["list 1-2 specific weaknesses"]
-  }},
-  "tactical_matchup_summary": "A concise paragraph describing how the teams' styles and form will interact."
-}}"""
+Write a comprehensive, deeply analytical tactical dossier (4 substantial, detailed paragraphs, ~500-700 words total).
+Do NOT output JSON dictionaries or bullet points. Output pure narrative prose with these exact 4 section headings:
+
+### {home} vs {away}: Tactical Analysis & Prediction
+
+**HEADLINE & VERDICT**
+Write a robust, authoritative paragraph stating the predicted outcome ({pred}) and the core tactical thesis. Detail why the data supports this outcome, contrasting current momentum, form trajectories, home/away dynamics, and stadium atmosphere.
+
+**STRENGTHS & WEAKNESSES OF {home.upper()}**
+Write an in-depth analytical paragraph examining {home}'s tactical identity. Detail their offensive creation volume, shot conversion, xG metrics, and pressing structure based on the data. Contrast with their defensive organization, concession rates, and disciplinary liabilities (fouls/cards). Keep this paragraph focused on {home}.
+
+**STRENGTHS & WEAKNESSES OF {away.upper()}**
+Write an in-depth analytical paragraph examining {away}'s tactical identity. Analyze their attacking transition speed, defensive block compactness, and resilience when absorbing pressure based on the statistics. Highlight specific away-match vulnerabilities. Keep this paragraph focused on {away}.
+
+**TACTICAL SYNTHESIS & WHAT COULD CHANGE THE OUTCOME**
+Write a comprehensive synthesis paragraph detailing how the tactical systems clash on the pitch. Analyze territorial control, transitional game-states, set-pieces, environmental conditions, and the referee's strictness profile, identifying specific catalysts that could disrupt or confirm the predicted outcome."""

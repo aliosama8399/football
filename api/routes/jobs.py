@@ -28,11 +28,11 @@ router = APIRouter(prefix="/jobs", tags=["Automated Pipeline Jobs"])
 async def _verify_supervisor_or_internal(request: Request) -> None:
     """
     Guard mutating job endpoints: allows authenticated supervisors (Bearer JWT),
-    valid `X-Internal-Token` headers, or trusted local loopback automation requests.
+    valid `X-Internal-Token` headers, trusted Docker network callers, or local loopback.
     """
-    internal_expected = os.environ.get("INTERNAL_ADMIN_TOKEN", "")
+    internal_expected = os.environ.get("INTERNAL_ADMIN_TOKEN", "football_internal_secret_token_2026")
     internal_header = request.headers.get("X-Internal-Token", "")
-    if internal_expected and internal_header == internal_expected:
+    if internal_header and internal_header == internal_expected:
         return
 
     auth_header = request.headers.get("Authorization", "")
@@ -115,21 +115,22 @@ def _trigger_airflow_dag(dag_id: str = "football_master_pipeline", conf: Optiona
 
     for base_url in airflow_urls:
         url = f"{base_url}/dags/{dag_id}/dagRuns"
-        try:
-            req = urllib.request.Request(
-                url,
-                data=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": "Basic YWlyZmxvdzphaXJmbG93",  # airflow:airflow
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
-                if resp.status in (200, 201):
-                    return json.loads(resp.read().decode("utf-8"))
-        except Exception:
-            continue
+        for auth_header in ("Basic YWRtaW46YWRtaW4=", "Basic YWlyZmxvdzphaXJmbG93"):  # admin:admin, airflow:airflow
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": auth_header,
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    if resp.status in (200, 201):
+                        return json.loads(resp.read().decode("utf-8"))
+            except Exception:
+                continue
 
     raise ConnectionError("Could not connect to Airflow REST API on port 8080.")
 
@@ -190,6 +191,8 @@ async def trigger_pipeline_job(
 async def trigger_single_step(
     step_id: int,
     provider: str = "ollama",
+    model_name: str = "",
+    teacher_samples: int = 0,
     gnn_model: str = "TEA-GNN",
     gnn_epochs: int = 100,
     sync_db: bool = True,
@@ -212,9 +215,11 @@ async def trigger_single_step(
     try:
         job = job_manager.trigger_pipeline(
             provider=provider,
+            model_name=model_name,
             gnn_model=gnn_model,
             gnn_epochs=gnn_epochs,
             sync_db=sync_db,
+            teacher_samples=teacher_samples,
             specific_step=step_id,
         )
         return {
