@@ -39,7 +39,16 @@ DEFAULT_MODEL_PATH = "models/saved/gnn_tea-gnn_tuned.pt"
 
 
 def _load_gnn_model_path() -> str:
-    """Read rag.gnn_model_path from llm_config.yaml (with fallback to newest .pt checkpoint)."""
+    """Resolve the MLflow 'production'-tagged GNN checkpoint first, with fallback to llm_config.yaml or newest .pt."""
+    try:
+        from models.mlflow_config import resolve_production_gnn_checkpoint
+
+        prod_ckpt = resolve_production_gnn_checkpoint()
+        if prod_ckpt is not None and prod_ckpt.exists():
+            return str(prod_ckpt)
+    except Exception as e:
+        logger.debug("MLflow production checkpoint resolution skipped: %s", e)
+
     try:
         if CFG_PATH.exists():
             with open(CFG_PATH) as f:
@@ -48,6 +57,10 @@ def _load_gnn_model_path() -> str:
                     return p
     except Exception as e:
         logger.warning("Could not read rag.gnn_model_path from config: %s", e)
+
+    prod_local = BASE_DIR / "models" / "saved" / "gnn_production.pt"
+    if prod_local.exists():
+        return str(prod_local)
 
     tuned = BASE_DIR / "models" / "saved" / "gnn_tea-gnn_tuned.pt"
     base = BASE_DIR / "models" / "saved" / "gnn_tea-gnn.pt"
@@ -120,6 +133,9 @@ class GNNPredictionProvider(BasePredictionProvider):
         self.model = None
         self.graph = None
         self.builder = None
+        self.model_path = Path(_load_gnn_model_path())
+        if not self.model_path.is_absolute():
+            self.model_path = BASE_DIR / self.model_path
         return self.load()
 
     def load(self) -> bool:

@@ -56,7 +56,7 @@ providers:
     hf_token:       ""
     # Fully merged fine-tuned football model (no LoRA adapter needed)
     model_id:       "aliosama8399/football-analysisN"
-    max_new_tokens: 2048
+    max_new_tokens: 512
     temperature:    0.7
 
   onnx:
@@ -101,7 +101,7 @@ rag:
   # LLM used by the RAG module (chat + /kb/ask narration).
   #   openai | gemini | ollama | onnx | none (disabled)
   # onnx is the ONNX export of the finetuned SLM (replaces huggingface for inference)
-  llm_provider:    vllm
+  llm_provider:    huggingface
 
   # GNN "Expert 1" prediction model — now ONNX (replaces torch checkpoint)
   # Export: conda run -n football python models/export_gnn.py

@@ -14,7 +14,25 @@ Configuration:
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+import enum
 import torch
+import torch.utils._pytree as _pytree
+
+# PyTorch 2.7+ natively supports Enum subclasses in torch.compile; skip redundant registration
+_orig_reg = getattr(_pytree, "register_constant", None)
+if _orig_reg is not None and not getattr(_orig_reg, "_enum_guarded", False):
+    def _safe_register_constant(cls):
+        if isinstance(cls, type) and issubclass(cls, enum.Enum):
+            return cls
+        return _orig_reg(cls)
+    _safe_register_constant._enum_guarded = True  # type: ignore[attr-defined]
+    _pytree.register_constant = _safe_register_constant
+
 import torch.nn.functional as F
 import numpy as np
 import argparse
@@ -42,9 +60,21 @@ def load_model_and_graph(model_path: Path):
     checkpoint = torch.load(model_path, map_location=DEVICE, weights_only=False)
     bp = checkpoint.get('best_params', {})
 
+    model_name = checkpoint.get('model_name', 'TEA-GNN')
+    model_kwargs = {
+        'hidden_dim': bp.get('hidden_dim', 64),
+        'dropout': bp.get('dropout', 0.3),
+    }
+    if 'heads' in bp:
+        model_kwargs['heads'] = bp['heads']
+    if 'use_cross_league' in bp:
+        model_kwargs['use_cross_league'] = bp['use_cross_league']
+
     model = get_model(
-        'EdgeConv', graph['num_node_features'], graph['num_edge_features'],
-        hidden_dim=bp.get('hidden_dim', 64), dropout=bp.get('dropout', 0.3)
+        model_name,
+        graph['num_node_features'],
+        graph['num_edge_features'],
+        **model_kwargs,
     )
     model.load_state_dict(checkpoint['model_state'])
     model = model.to(DEVICE)
@@ -233,7 +263,7 @@ Examples:
 
     # ── LLM translation ──
     # provider and model_name both read from llm_config.yaml if not passed via CLI
-    print(f"\nCalling LLM for natural language translation...")
+    print("\nCalling LLM for natural language translation...")
     try:
         llm = get_llm_provider(
             provider_type=args.provider,
@@ -241,7 +271,7 @@ Examples:
         )
     except (ValueError, ImportError) as e:
         print(f"Provider setup error: {e}")
-        return
+        llm = None
 
     match_context = {
         'home_team':     args.home,
@@ -250,12 +280,34 @@ Examples:
         'probabilities': probs,
     }
 
-    text_exp = llm.generate_explanation(match_context, math_exp)
+    text_exp = None
+    if llm:
+        try:
+            text_exp = llm.generate_explanation(match_context, math_exp)
+            if not args.provider and text_exp and text_exp.startswith(f"[{llm.provider_name.upper()}] API error"):
+                print(f"[WARN] Provider '{llm.provider_name}' unreachable; falling back to local HuggingFace provider...")
+                hf_llm = get_llm_provider(provider_type="huggingface")
+                if hf_llm:
+                    text_exp = hf_llm.generate_explanation(match_context, math_exp)
+        except Exception as e:
+            if not args.provider:
+                print(f"[WARN] Provider '{getattr(llm, 'provider_name', 'unknown')}' failed ({e}); falling back to local HuggingFace provider...")
+                try:
+                    hf_llm = get_llm_provider(provider_type="huggingface")
+                    if hf_llm:
+                        text_exp = hf_llm.generate_explanation(match_context, math_exp)
+                except Exception as inner_e:
+                    print(f"Fallback generation error: {inner_e}")
+            else:
+                print(f"LLM Generation error: {e}")
 
-    print("\nTACTICAL ANALYSIS:")
-    print("=" * 70)
-    print(text_exp)
-    print("=" * 70)
+    if text_exp:
+        print("\nTACTICAL ANALYSIS:")
+        print("=" * 70)
+        print(text_exp)
+        print("=" * 70)
+    else:
+        print("\n[NOTE] No LLM explanation generated. Ensure LLM provider service is active or run with --provider huggingface.")
 
 
 if __name__ == "__main__":

@@ -25,7 +25,21 @@ DEFAULT_OUT = Path(__file__).parent / "export" / "gnn"
 
 
 def _resolve_default_checkpoint() -> Path:
-    """Select the newest TEA-GNN checkpoint between tuned and standard training outputs."""
+    """Select the MLflow 'production'-tagged GNN checkpoint first, falling back to newest TEA-GNN .pt."""
+    try:
+        from models.mlflow_config import resolve_production_gnn_checkpoint
+
+        prod_ckpt = resolve_production_gnn_checkpoint()
+        if prod_ckpt is not None and prod_ckpt.exists():
+            print(f"[export_gnn] Resolved MLflow 'production'-tagged checkpoint: {prod_ckpt}")
+            return prod_ckpt
+    except Exception as e:
+        print(f"[export_gnn] Note: MLflow production lookup skipped ({e})")
+
+    prod = SAVED_DIR / "gnn_production.pt"
+    if prod.exists():
+        return prod
+
     tuned = SAVED_DIR / "gnn_tea-gnn_tuned.pt"
     base = SAVED_DIR / "gnn_tea-gnn.pt"
     if tuned.exists() and base.exists():
@@ -68,8 +82,11 @@ def _load_model(checkpoint_path: Path):
 
     from models.gnn_models import get_model
 
+    ckpt_model_name = ckpt.get("model_name") if isinstance(ckpt, dict) else None
     ckpt_name = checkpoint_path.name.lower()
-    if "tea" in ckpt_name:
+    if ckpt_model_name:
+        model_name = str(ckpt_model_name)
+    elif "tea" in ckpt_name:
         model_name = "TEA-GNN"
     elif "gat" in ckpt_name:
         model_name = "GAT"
@@ -78,10 +95,17 @@ def _load_model(checkpoint_path: Path):
     else:
         model_name = "TEA-GNN"
 
+    is_tea = "tea" in model_name.lower()
     has_cross = any(k.startswith("cross_league.") or k.replace("module.", "").startswith("cross_league.") for k in state.keys())
     use_cross = has_cross
-    if not has_cross:
+    if is_tea and not has_cross:
         print("[export_gnn] checkpoint has no cross_league weights -> exporting with use_cross_league=False")
+
+    extra_kwargs = {}
+    if is_tea:
+        extra_kwargs["heads"] = heads
+        extra_kwargs["num_leagues"] = num_leagues
+        extra_kwargs["use_cross_league"] = use_cross
 
     model = get_model(
         model_name,
@@ -89,10 +113,8 @@ def _load_model(checkpoint_path: Path):
         num_edge_features=num_edge_features,
         hidden_dim=hidden_dim,
         num_classes=3,
-        heads=heads,
-        num_leagues=num_leagues,
         dropout=dropout,
-        use_cross_league=use_cross,
+        **extra_kwargs,
     )
     try:
         model.load_state_dict(state, strict=True)
@@ -138,9 +160,12 @@ def main() -> None:
         def __init__(self, m):
             super().__init__()
             self.m = m
+            self.is_tea = "tea" in m.__class__.__name__.lower()
 
         def forward(self, x, edge_index, edge_attr, edge_time, league_id):
-            return self.m(x, edge_index, edge_attr, edge_time=edge_time, league_id=league_id)
+            if self.is_tea:
+                return self.m(x, edge_index, edge_attr, edge_time=edge_time, league_id=league_id)
+            return self.m(x, edge_index, edge_attr)
 
     wrapped = _Wrapper(model)
 
@@ -173,20 +198,36 @@ def main() -> None:
             print(f"[export_gnn] dynamo_export failed ({e}), falling back to torch.onnx.export ...")
 
     if not exported:
-        torch.onnx.export(
-            wrapped,
-            (x, edge_index, edge_attr, edge_time, league_id),
-            str(onnx_path),
+        import inspect
+
+        export_kwargs = dict(
             input_names=["x", "edge_index", "edge_attr", "edge_time", "league_id"],
             output_names=["logits"],
             dynamic_axes=dynamic_axes,
             opset_version=args.opset,
+        )
+        if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+            export_kwargs["dynamo"] = False
+
+        torch.onnx.export(
+            wrapped,
+            (x, edge_index, edge_attr, edge_time, league_id),
+            str(onnx_path),
+            **export_kwargs,
         )
         exported = True
         print("[export_gnn] exported via torch.onnx.export (dynamic_axes enabled)" if use_dynamic else "[export_gnn] exported via torch.onnx.export")
 
     if not exported or not onnx_path.exists():
         raise RuntimeError("ONNX export failed")
+
+    prod_info = None
+    try:
+        from models.mlflow_config import resolve_production_gnn_info
+
+        prod_info = resolve_production_gnn_info()
+    except Exception:
+        prod_info = None
 
     io_spec = {
         "inputs": {
@@ -202,6 +243,10 @@ def main() -> None:
         "checkpoint": str(ckpt_path),
         "num_node_features": num_node_feats,
         "num_edge_features": num_edge_feats,
+        "mlflow_tag": prod_info.get("tag", "production") if prod_info else None,
+        "mlflow_run_id": prod_info.get("run_id") if prod_info else None,
+        "model_name": prod_info.get("model_name", model.__class__.__name__) if prod_info else model.__class__.__name__,
+        "promoted_at": prod_info.get("promoted_at") if prod_info else None,
     }
     io_path.write_text(json.dumps(io_spec, indent=2))
     print(f"[export_gnn] wrote {io_path}")
@@ -210,13 +255,15 @@ def main() -> None:
         import onnxruntime as ort
 
         sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-        ort_inputs = {
+        raw_inputs = {
             "x": x.numpy(),
             "edge_index": edge_index.numpy(),
             "edge_attr": edge_attr.numpy(),
             "edge_time": edge_time.numpy(),
             "league_id": league_id.numpy(),
         }
+        expected_names = {i.name for i in sess.get_inputs()}
+        ort_inputs = {k: v for k, v in raw_inputs.items() if k in expected_names}
         onnx_out = sess.run(["logits"], ort_inputs)[0]
         max_abs = float(np.max(np.abs(torch_out.numpy() - onnx_out)))
         ok = bool(np.allclose(torch_out.numpy(), onnx_out, atol=1e-4))

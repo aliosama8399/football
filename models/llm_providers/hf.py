@@ -13,10 +13,12 @@ import logging
 import os
 from pathlib import Path
 
+from models.llm_providers.base import BaseLLMProvider
+
 logger = logging.getLogger(__name__)
 
 
-class HuggingFaceProvider:
+class HuggingFaceProvider(BaseLLMProvider):
     """
     Local inference using a fully merged HuggingFace causal-LM.
     Plugs into the existing LLM provider architecture.
@@ -25,9 +27,16 @@ class HuggingFaceProvider:
     provider_name = "huggingface"
 
     def __init__(self, model_id: str | None = None, **kwargs):
+        super().__init__()
         cfg = self._load_hf_cfg()
 
-        self.model_id       = model_id or cfg.get("model_id", "aliosama8399/football-analysisN")
+        local_merged = Path(__file__).resolve().parent.parent / "finetuned_qwen_unsloth" / "merged_16bit"
+        if not model_id and local_merged.exists():
+            self.model_id = str(local_merged)
+            logger.info("Using local fine-tuned merged model: %s", self.model_id)
+        else:
+            self.model_id = model_id or cfg.get("model_id", "aliosama8399/football-analysisN")
+
         self.max_new_tokens = cfg.get("max_new_tokens", 2048)
         self.temperature    = cfg.get("temperature", 0.7)
 
@@ -59,7 +68,20 @@ class HuggingFaceProvider:
         if self._loaded:
             return
 
+        import enum
         import torch
+        import torch.utils._pytree as _pytree
+
+        # PyTorch 2.7+ natively supports Enum subclasses in torch.compile; skip redundant registration
+        _orig_reg = getattr(_pytree, "register_constant", None)
+        if _orig_reg is not None and not getattr(_orig_reg, "_enum_guarded", False):
+            def _safe_register_constant(cls):
+                if isinstance(cls, type) and issubclass(cls, enum.Enum):
+                    return cls
+                return _orig_reg(cls)
+            _safe_register_constant._enum_guarded = True  # type: ignore[attr-defined]
+            _pytree.register_constant = _safe_register_constant
+
         from transformers import AutoTokenizer, AutoModelForCausalLM
 
         logger.info("Loading model: %s", self.model_id)
@@ -68,6 +90,7 @@ class HuggingFaceProvider:
             self.model_id,
             trust_remote_code=True,
             token=self.hf_token,
+            fix_mistral_regex=True,
         )
 
         self._model = AutoModelForCausalLM.from_pretrained(
@@ -144,6 +167,10 @@ class HuggingFaceProvider:
         return self.generate(rag_prompt)
 
     # ── Interface compatibility ───────────────────────────────────────────────
+    def _call_api(self, prompt: str) -> str:
+        """Forward BaseLLMProvider prompt to local generate method."""
+        return self.generate(prompt)
+
     def analyze_match(self, match_data: dict) -> str:
         """Compatibility wrapper for the existing explain_match.py pipeline."""
         prompt = (

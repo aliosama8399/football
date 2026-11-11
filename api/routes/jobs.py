@@ -83,6 +83,9 @@ class EvalTriggerRequest(BaseModel):
     rag_limit: int = Field(default=10, ge=1, le=100, description="Number of RAG golden samples to evaluate")
     pred_limit: int = Field(default=15, ge=1, le=200, description="Number of prediction matchups to evaluate")
     skip_scrape: bool = Field(default=False, description="Skip incremental scraping before evaluation")
+    skip_sync: bool = Field(default=False, description="Skip knowledge store synchronization")
+    judge: str = Field(default="gemini", description="Judge LLM mode ('gemini', 'google', 'openai', 'heuristic')")
+    samples: int = Field(default=15, ge=1, le=200, description="Evaluation samples override")
 
 
 class SchedulerConfigRequest(BaseModel):
@@ -195,7 +198,13 @@ async def trigger_single_step(
     teacher_samples: int = 0,
     gnn_model: str = "TEA-GNN",
     gnn_epochs: int = 100,
+    experiment: str = "football-gnn-training",
     sync_db: bool = True,
+    slm_steps: int = 150,
+    slm_epochs: int = 0,
+    slm_lr: float = 0.0,
+    force_hf_upload: bool = False,
+    repo_id: str = "aliosama8399/football-analysisN",
     _: None = Depends(_verify_supervisor_or_internal),
 ):
     """
@@ -205,12 +214,14 @@ async def trigger_single_step(
       3: Team Tactics & Multi-Store Sync (PostgreSQL, Neo4j, FAISS, pgvector)
       4: Teacher LLM Generation
       5: Train/Val Re-splitting
-      6: GNN Retraining with MLflow
+      6: GNN Retraining with MLflow & Production Promotion
       7: ONNX Model Export
       8: API Singleton Hot-Reload
+      9: SLM Unsloth QLoRA Fine-Tuning & MLflow Tracking
+      10: Champion SLM Hugging Face Upload (aliosama8399/football-analysisN)
     """
-    if step_id not in range(1, 9):
-        raise HTTPException(status_code=400, detail="step_id must be an integer between 1 and 8.")
+    if step_id not in range(1, 11):
+        raise HTTPException(status_code=400, detail="step_id must be an integer between 1 and 10.")
 
     try:
         job = job_manager.trigger_pipeline(
@@ -218,9 +229,15 @@ async def trigger_single_step(
             model_name=model_name,
             gnn_model=gnn_model,
             gnn_epochs=gnn_epochs,
+            experiment=experiment,
             sync_db=sync_db,
             teacher_samples=teacher_samples,
             specific_step=step_id,
+            slm_steps=slm_steps,
+            slm_epochs=slm_epochs,
+            slm_lr=slm_lr,
+            force_hf_upload=force_hf_upload,
+            repo_id=repo_id,
         )
         return {
             "job_id": job.job_id,
@@ -248,6 +265,9 @@ async def trigger_eval_job(
             rag_limit=payload.rag_limit,
             pred_limit=payload.pred_limit,
             skip_scrape=payload.skip_scrape,
+            skip_sync=payload.skip_sync,
+            judge=payload.judge,
+            samples=payload.samples,
         )
         return {
             "job_id": job.job_id,

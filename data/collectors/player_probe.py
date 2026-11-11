@@ -47,7 +47,7 @@ TRACKED_FIELDS = [
 def main():
     parser = argparse.ArgumentParser(description="Player provider coverage probe")
     parser.add_argument("providers", nargs="*",
-                        help="provider names (default: all of %s)" % list_providers())
+                        help=f"provider names (default: all of {list_providers()})")
     args = parser.parse_args()
 
     providers = args.providers or list_providers()
@@ -126,8 +126,8 @@ def main():
         for g in ("identity", "attack", "defense", "GK"):
             gsum = sum(totals[f] for f in groups[g])
             gbase = base * len(groups[g])
-            row += " %.0f%% |" % (100.0 * gsum / gbase)
-        row += " %.0f%% |" % all_pct
+            row += f" {100.0 * gsum / gbase:.0f}% |"
+        row += f" {all_pct:.0f}% |"
         report_lines.append(row)
 
     report_lines += [

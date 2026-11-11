@@ -23,7 +23,7 @@ services:
       context: .
       args:
         GPU: "1"
-    profiles: ["fastapi-standalone"]
+    profiles: [ "fastapi-standalone" ]
     container_name: football-api
     gpus: all # requires nvidia-container-toolkit
     environment:
@@ -42,7 +42,7 @@ services:
       AUTO_SCHEDULER_INTERVAL_HOURS: "24"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    entrypoint: ["/usr/bin/tini", "--", "/bin/bash", "-c", "sed 's/\\r$//' /app/entrypoint.sh | /bin/bash -s -- \"$@\"", "--"]
+    entrypoint: [ "/usr/bin/tini", "--", "/bin/bash", "-c", "sed 's/\\r$//' /app/entrypoint.sh | /bin/bash -s -- \"$@\"", "--" ]
     volumes:
       - ./entrypoint.sh:/app/entrypoint.sh:ro
       - ./models:/app/models
@@ -88,7 +88,7 @@ services:
       PYTHONUNBUFFERED: "1"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    entrypoint: ["/usr/bin/tini", "--", "/bin/bash", "-c", "sed 's/\\r$//' /app/entrypoint.sh | /bin/bash -s -- \"$@\"", "--"]
+    entrypoint: [ "/usr/bin/tini", "--", "/bin/bash", "-c", "sed 's/\\r$//' /app/entrypoint.sh | /bin/bash -s -- \"$@\"", "--" ]
     volumes:
       - ./entrypoint.sh:/app/entrypoint.sh:ro
       - ./models:/app/models
@@ -99,7 +99,7 @@ services:
       - ./data:/app/data
       - ./eval:/app/eval
       - ./mlruns:/app/mlruns
-    command: ["bentoml", "serve", "serving.bentoml.service:FootballBentoService", "--host", "0.0.0.0", "--port", "8001"]
+    command: [ "bentoml", "serve", "serving.bentoml.service:FootballBentoService", "--host", "0.0.0.0", "--port", "8001" ]
     networks:
       default:
         aliases:
@@ -118,6 +118,9 @@ services:
     pull_policy: never
     container_name: football-auto-eval
     gpus: all # NVIDIA GPU acceleration for GNN training & Ollama inference
+    env_file:
+      - path: .env
+        required: false
     environment:
       POSTGRES_DSN: postgresql://postgres:123@postgres:5432/football_rag
       NEO4J_URI: bolt://neo4j:7687
@@ -132,9 +135,15 @@ services:
       USE_TORCH: "1"
       TF_ENABLE_ONEDNN_OPTS: "0"
       PYTHONUNBUFFERED: "1"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    entrypoint: ["/usr/bin/tini", "--"]
+    entrypoint: [ "/usr/bin/tini", "--" ]
     volumes:
       - ./data:/app/data
       - ./eval:/app/eval
@@ -142,7 +151,8 @@ services:
       - ./models:/app/models
       - ./rag:/app/rag
       - ./mlruns:/app/mlruns
-    command: ["python", "data/auto_scrape_and_eval.py", "--interval-hours", "24", "--judge", "heuristic"]
+      - ./api:/app/api
+    command: [ "python", "data/auto_scrape_and_eval.py", "--interval-hours", "24", "--judge", "heuristic" ]
     healthcheck:
       disable: true
     depends_on:
@@ -267,7 +277,7 @@ services:
   # ── 7. APACHE AIRFLOW (Orchestrator - Optional Profile) ───────────────────
   airflow-webserver:
     image: apache/airflow:2.10.2
-    profiles: ["airflow"]
+    profiles: [ "airflow" ]
     container_name: football-airflow-webserver
     restart: unless-stopped
     depends_on:
@@ -275,6 +285,9 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_started
+    env_file:
+      - path: .env
+        required: false
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:123@postgres:5432/airflow
@@ -293,6 +306,8 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_POOL_SIZE: '10'
       AIRFLOW__DATABASE__SQL_ALCHEMY_MAX_OVERFLOW: '20'
       PROJECT_ROOT: /workspace
+      API_URL: http://bento:8001
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./data/dags:/opt/airflow/dags
     ports:
@@ -310,7 +325,7 @@ services:
 
   airflow-scheduler:
     image: apache/airflow:2.10.2
-    profiles: ["airflow"]
+    profiles: [ "airflow" ]
     container_name: football-airflow-scheduler
     restart: unless-stopped
     depends_on:
@@ -318,6 +333,9 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_started
+    env_file:
+      - path: .env
+        required: false
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:123@postgres:5432/airflow
@@ -335,9 +353,15 @@ services:
       KG_PROVIDER: neo4j
       POSTGRES_DSN: postgresql://postgres:123@postgres:5432/football_rag
       VECTOR_PROVIDER: pgvector
-      API_URL: http://fastapi:8001
+      API_URL: http://bento:8001
       MLFLOW_TRACKING_URI: http://mlflow:5000
       PROJECT_ROOT: /workspace
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
     volumes:
       - ./data/dags:/opt/airflow/dags
       - ./data:/workspace/data
@@ -346,6 +370,7 @@ services:
       - ./models:/workspace/models
       - ./monitoring:/workspace/monitoring
       - ./mlruns:/workspace/mlruns
+      - ./api:/workspace/api
     command:
       - bash
       - -c

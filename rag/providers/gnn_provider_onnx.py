@@ -117,6 +117,26 @@ class ONNXPredictionProvider(BasePredictionProvider):
             if io_path.exists():
                 self._io_spec = json.loads(io_path.read_text())
 
+            # Ensure ONNX artifact matches the latest MLflow 'production'-tagged GNN model
+            prod_info = None
+            try:
+                from models.mlflow_config import resolve_production_gnn_info
+
+                prod_info = resolve_production_gnn_info()
+                if prod_info and self._io_spec:
+                    prod_run_id = prod_info.get("run_id")
+                    onnx_run_id = self._io_spec.get("mlflow_run_id")
+                    if prod_run_id and onnx_run_id and prod_run_id != onnx_run_id:
+                        logger.info(
+                            "Detected newer MLflow 'production'-tagged GNN run (%s != %s); re-exporting ONNX...",
+                            prod_run_id,
+                            onnx_run_id,
+                        )
+                        if self._auto_export_if_missing() and io_path.exists():
+                            self._io_spec = json.loads(io_path.read_text())
+            except Exception as e:
+                logger.debug("MLflow production sync check skipped: %s", e)
+
             builder = FootballGraphBuilder(
                 data_path=str(BASE_DIR / "data" / "processed" / "processed_matches.csv")
             )
@@ -138,9 +158,13 @@ class ONNXPredictionProvider(BasePredictionProvider):
             self.session = sess
             self.graph["is_tea_gnn"] = True
             self._loaded = True
+            mlflow_tag = (prod_info or {}).get("tag") or (self._io_spec or {}).get("mlflow_tag") or "production"
+            mlflow_run = (prod_info or {}).get("run_id") or (self._io_spec or {}).get("mlflow_run_id") or "local"
             logger.info(
-                "Loaded ONNX GNN (Expert 1) from %s (dynamic_edges=%s, providers=%s)",
+                "Loaded ONNX GNN (Expert 1) from %s [mlflow_tag=%s, run_id=%s, dynamic_edges=%s, providers=%s]",
                 self.model_path,
+                mlflow_tag,
+                mlflow_run,
                 self._is_dynamic_edges,
                 sess.get_providers(),
             )
