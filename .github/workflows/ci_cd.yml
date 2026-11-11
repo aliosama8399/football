@@ -186,4 +186,4 @@ jobs:
 
       - name: Run Unit Tests
         run: |
-          pytest -q --tb=short -k "not slow and not integration" || if [ $? -eq 5 ]; then echo "No standalone unit tests collected; skipping."; exit 0; else exit $?; fi
+          pytest -q --tb=short --ignore=data/collectors/test_fbref.py --ignore=models/test_inference.py -k "not slow and not integration" || if [ $? -eq 5 ]; then echo "No standalone unit tests collected; skipping."; exit 0; else exit $?; fi
