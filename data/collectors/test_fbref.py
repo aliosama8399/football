@@ -1,8 +1,9 @@
-import ScraperFC
-import pandas as pd
-import sys
+__test__ = False
+
 
 def main():
+    import ScraperFC
+
     fbref = ScraperFC.FBref()
     try:
         print("Scraping UEFA Champions League 2023...")

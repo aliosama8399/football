@@ -25,36 +25,49 @@ import enum
 import json
 import sys
 from pathlib import Path
-import torch.utils._pytree as _pytree
+
+__test__ = False
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-# PyTorch 2.7+ natively supports Enum subclasses in torch.compile; skip redundant registration
-_orig_reg = getattr(_pytree, "register_constant", None)
-if _orig_reg is not None and not getattr(_orig_reg, "_enum_guarded", False):
-    def _safe_register_constant(cls):
-        if isinstance(cls, type) and issubclass(cls, enum.Enum):
-            return cls
-        return _orig_reg(cls)
-    _safe_register_constant._enum_guarded = True  # type: ignore[attr-defined]
-    _pytree.register_constant = _safe_register_constant
+try:
+    import torch.utils._pytree as _pytree
 
-# CRITICAL: import unsloth first to suppress warnings and enable fast Triton kernels
-import unsloth  # noqa: F401, E402
-from unsloth import FastLanguageModel  # noqa: E402
-import transformers  # noqa: E402
+    # PyTorch 2.7+ natively supports Enum subclasses in torch.compile; skip redundant registration
+    _orig_reg = getattr(_pytree, "register_constant", None)
+    if _orig_reg is not None and not getattr(_orig_reg, "_enum_guarded", False):
+        def _safe_register_constant(cls):
+            if isinstance(cls, type) and issubclass(cls, enum.Enum):
+                return cls
+            return _orig_reg(cls)
+        _safe_register_constant._enum_guarded = True  # type: ignore[attr-defined]
+        _pytree.register_constant = _safe_register_constant
+except ImportError:
+    _pytree = None  # type: ignore[assignment]
 
-_orig_tok_from_pretrained = transformers.AutoTokenizer.from_pretrained
-if not getattr(_orig_tok_from_pretrained, "_mistral_regex_guarded", False):
-    def _safe_tok_from_pretrained(*args, **kwargs):
-        if "fix_mistral_regex" not in kwargs:
-            kwargs["fix_mistral_regex"] = True
-        return _orig_tok_from_pretrained(*args, **kwargs)
-    _safe_tok_from_pretrained._mistral_regex_guarded = True
-    transformers.AutoTokenizer.from_pretrained = _safe_tok_from_pretrained
+try:
+    # CRITICAL: import unsloth first to suppress warnings and enable fast Triton kernels
+    import unsloth  # noqa: F401, E402
+    from unsloth import FastLanguageModel  # noqa: E402
+except ImportError:
+    FastLanguageModel = None  # type: ignore[assignment]
+
+try:
+    import transformers  # noqa: E402
+
+    _orig_tok_from_pretrained = transformers.AutoTokenizer.from_pretrained
+    if not getattr(_orig_tok_from_pretrained, "_mistral_regex_guarded", False):
+        def _safe_tok_from_pretrained(*args, **kwargs):
+            if "fix_mistral_regex" not in kwargs:
+                kwargs["fix_mistral_regex"] = True
+            return _orig_tok_from_pretrained(*args, **kwargs)
+        _safe_tok_from_pretrained._mistral_regex_guarded = True
+        transformers.AutoTokenizer.from_pretrained = _safe_tok_from_pretrained
+except ImportError:
+    transformers = None  # type: ignore[assignment]
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:

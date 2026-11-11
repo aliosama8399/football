@@ -17,7 +17,7 @@ concurrency:
 env:
   PYTHON_VERSION: "3.12"
   PROJECT_PACKAGES: "api data rag eval serving"
-  MODEL_MODULES: "models/mlflow_config.py models/mlflow_bootstrap.py models/train_gnn.py models/tune_gnn.py models/export_gnn.py models/export_slm.py models/finetune_unsloth.py models/gnn_models.py models/tea_gnn.py models/explain_match.py models/plotting.py models/train_traditional.py models/tune_models.py models/llm_providers"
+  MODEL_MODULES: "models/mlflow_config.py models/mlflow_bootstrap.py models/upload_slm_hf.py models/train_gnn.py models/tune_gnn.py models/export_gnn.py models/export_slm.py models/finetune_unsloth.py models/gnn_models.py models/tea_gnn.py models/explain_match.py models/plotting.py models/train_traditional.py models/tune_models.py models/llm_providers"
 
 jobs:
   # ═══════════════════════════════════════════════════════════════════════════

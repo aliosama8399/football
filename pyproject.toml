@@ -227,3 +227,25 @@ disable = [
 line-length = 120
 aggressive = false
 transform-concats = false
+
+[tool.pytest.ini_options]
+norecursedirs = [
+    ".agent",
+    ".conda",
+    ".dvc",
+    ".git",
+    ".venv",
+    "cache_dir",
+    "catboost_info",
+    "logs",
+    "migrations",
+    "mlruns",
+    "models/LlamaFactory",
+    "models/catboost_info",
+    "models/export",
+    "models/model_storage",
+    "models/saved",
+    "notebooks",
+    "old",
+]
+addopts = "--ignore=data/collectors/test_fbref.py --ignore=data/collectors/_test_fbref.py --ignore=models/test_inference.py --ignore=models/LlamaFactory"
