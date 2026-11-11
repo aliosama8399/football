@@ -1,15 +1,13 @@
 """
-Apache Airflow Multi-Task Modular DAG: Football Master Pipeline
-================================================================
-Production DAG orchestrating the 8 sequential stages of the automated pipeline:
+Apache Airflow Multi-Task Modular DAG: Football Data Preparation Pipeline (GNN & LLM Datasets)
+==============================================================================================
+Production DAG orchestrating data preparation for both GNN and LLM fine-tuning datasets:
   [Task 1] Incremental Data Ingestion (Finished <= 2526 + Active 2627)
-  [Task 2] Preprocessing & Feature Engineering
-  [Task 3] Team Tactics Extraction & Knowledge/Vector Store Sync (Neo4j, Postgres, FAISS, pgvector)
-  [Task 4] Teacher LLM Tactical Annotation (Ollama)
-  [Task 5] Fine-Tuning Dataset Re-splitting (data/finetune & models/)
-  [Task 6] GNN Retraining with MLflow Tracking
-  [Task 7] GNN ONNX Runtime Export & Parity Validation
-  [Task 8] Live FastAPI Hot-Reload & Continuous Evaluation Suite
+  [Task 2] Preprocessing & Feature Engineering (GNN Dataset: data/processed/processed_matches.csv)
+  [Task 3] Teacher LLM Tactical Annotation via Ollama (LLM Dataset: data/finetune/football_tactical.jsonl)
+  [Task 4] Team Tactics Extraction & Knowledge/Vector Store Sync (Neo4j, Postgres, FAISS, pgvector)
+  [Task 5] Fine-Tuning Dataset Re-splitting (data/finetune/football_train.json & football_val.json)
+  [Task 6] Trigger Downstream GNN MLflow Training & Production Promotion DAG (football_gnn_mlflow_pipeline)
 
 Schedule: Daily at 02:00 UTC (0 2 * * *)
 Airflow Web UI: http://localhost:8080
@@ -22,8 +20,11 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 GPU_WORKER_CONTAINER = os.environ.get("GPU_WORKER_CONTAINER", "football-auto-eval")
+BASE_DIR = os.environ.get("PROJECT_ROOT", "/workspace")
+PYTHON_BIN = f"PYTHONPATH={BASE_DIR} {os.environ.get('PYTHON_BIN', 'python')}"
 
 
 def run_teacher_in_gpu_worker(**context):
@@ -43,6 +44,7 @@ def run_teacher_in_gpu_worker(**context):
     if not model_name:
         try:
             import yaml
+
             cfg_file = os.path.join(BASE_DIR, "models", "llm_config.yaml")
             if os.path.exists(cfg_file):
                 with open(cfg_file, "r", encoding="utf-8") as f:
@@ -108,7 +110,7 @@ def run_teacher_in_gpu_worker(**context):
 
     raise TimeoutError(f"Step 4 timed out after {max_wait}s on GPU worker ({api_url})")
 
-# Default task arguments
+
 default_args = {
     "owner": "football-mlops",
     "depends_on_past": False,
@@ -119,19 +121,15 @@ default_args = {
     "execution_timeout": timedelta(hours=3),
 }
 
-# Base project path inside container or host
-BASE_DIR = os.environ.get("PROJECT_ROOT", "/workspace")
-PYTHON_BIN = f"PYTHONPATH={BASE_DIR} {os.environ.get('PYTHON_BIN', 'python')}"
-
 with DAG(
     dag_id="football_master_pipeline",
     default_args=default_args,
-    description="Production 8-task pipeline: Ingestion -> Preprocessing -> Tactics/Vector/KG -> Teacher LLM -> Splits -> GNN MLflow -> ONNX Export -> API Reload & Eval",
+    description="Data Preparation DAG: Ingestion -> GNN Features -> Teacher LLM -> Tactics/KB Sync -> LLM Splits -> Triggers GNN MLflow DAG",
     schedule_interval="0 2 * * *",  # Daily at 02:00 UTC
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
-    tags=["football", "mlops", "gnn", "onnx", "llm-teacher", "finetune", "pipeline"],
+    tags=["football", "mlops", "data-prep", "llm-teacher", "finetune", "pipeline"],
     doc_md=__doc__,
 ) as dag:
 
@@ -146,7 +144,7 @@ with DAG(
         doc_md="Fetches finished seasons (<= 2526) from disk cache and active season (2627) incrementally.",
     )
 
-    # ── Task 2: Preprocessing & Feature Engineering ───────────────────────────
+    # ── Task 2: Preprocessing & Feature Engineering (GNN Dataset) ─────────────
     task_preprocess = BashOperator(
         task_id="step2_preprocess_features",
         bash_command=(
@@ -154,7 +152,7 @@ with DAG(
             f"{PYTHON_BIN} data/run_pipeline.py "
             "--skip-scrape --skip-tactics --skip-teacher --skip-split --skip-gnn --skip-export --skip-reload"
         ),
-        doc_md="Rebuilds processed_matches.csv with rolling form, Elo, H2H, chronological Referee strictness, and xG features.",
+        doc_md="Rebuilds processed_matches.csv (GNN dataset) with rolling form, Elo, H2H, Referee strictness, and xG features.",
     )
 
     # ── Task 3: Team Tactics Grounding & Knowledge/Vector Store Refresh ───────
@@ -169,17 +167,15 @@ with DAG(
     )
 
     # ── Task 4: Teacher LLM Tactical Generation (GNN + Ollama in GPU worker) ──
-    # The scheduler has no torch, so this task execs inside the GPU container.
-    # Any non-zero exit (no torch, Ollama unreachable, 0 analyses written) FAILS the task.
     task_teacher_llm = PythonOperator(
         task_id="step4_teacher_llm_annotation",
         python_callable=run_teacher_in_gpu_worker,
         execution_timeout=timedelta(hours=12),
-        doc_md="Runs TEA-GNN prediction + teacher LLM (Ollama, model from llm_config.yaml) for every "
-               "un-annotated match inside the GPU worker container. Fails loudly on any error.",
+        doc_md="Runs TEA-GNN prediction + teacher LLM (Ollama, model from llm_config.yaml) for "
+               "un-annotated matches inside the GPU worker container.",
     )
 
-    # ── Task 5: Train/Val Dataset Re-splitting ─────────────────────────────────
+    # ── Task 5: Train/Val Dataset Re-splitting (LLM Dataset) ──────────────────
     task_resplit = BashOperator(
         task_id="step5_resplit_finetune_data",
         bash_command=(
@@ -187,44 +183,24 @@ with DAG(
             f"{PYTHON_BIN} data/run_pipeline.py "
             "--skip-scrape --skip-preprocess --skip-tactics --skip-teacher --skip-gnn --skip-export --skip-reload"
         ),
-        doc_md="Re-splits clean tactical records into train/val sets and mirrors to data/finetune & models/.",
+        doc_md="Verifies/re-splits clean tactical records into train/val sets (data/finetune & models/).",
     )
 
-    # ── Task 6: Retrain GNN Model with MLflow Tracking ────────────────────────
-    task_train_gnn = BashOperator(
-        task_id="step6_retrain_gnn_mlflow",
-        bash_command=(
-            f"cd {BASE_DIR} && "
-            f"{PYTHON_BIN} data/run_pipeline.py "
-            "--skip-scrape --skip-preprocess --skip-tactics --skip-teacher --skip-split --skip-export --skip-reload "
-            "--gnn-model {{ dag_run.conf.get('gnn_model', 'TEA-GNN') }} "
-            "--gnn-epochs {{ dag_run.conf.get('gnn_epochs', 100) }} "
-            "--experiment {{ dag_run.conf.get('experiment', 'football-gnn-training') }}"
-        ),
-        doc_md="Trains GNN match prediction model and logs metrics, confusion matrix, and model weights to MLflow.",
-    )
-
-    # ── Task 7: Export GNN Checkpoint to ONNX Runtime ─────────────────────────
-    task_export_onnx = BashOperator(
-        task_id="step7_export_gnn_onnx",
-        bash_command=(
-            f"cd {BASE_DIR} && "
-            f"{PYTHON_BIN} data/run_pipeline.py "
-            "--skip-scrape --skip-preprocess --skip-tactics --skip-teacher --skip-split --skip-gnn --skip-reload"
-        ),
-        doc_md="Exports newly trained TEA-GNN checkpoint to ONNX Runtime format and validates PyTorch-ONNX parity.",
-    )
-
-    # ── Task 8: Hot-Reload API & Run Continuous Evaluation ────────────────────
-    task_reload_and_eval = BashOperator(
-        task_id="step8_reload_api_and_eval",
-        bash_command=(
-            f"cd {BASE_DIR} && "
-            f"{PYTHON_BIN} data/auto_scrape_and_eval.py --now --skip-scrape --skip-sync "
-            "--judge {{ dag_run.conf.get('judge', 'heuristic') }} "
-            "--samples {{ dag_run.conf.get('eval_samples', 15) }}"
-        ),
-        doc_md="Triggers POST /api/v1/admin/reload on the FastAPI backend and runs continuous RAG & Match Prediction evaluations.",
+    # ── Task 6: Trigger GNN MLflow Training & Production Promotion DAG ────────
+    trigger_gnn_mlflow_dag = TriggerDagRunOperator(
+        task_id="trigger_gnn_mlflow_dag",
+        trigger_dag_id="football_gnn_mlflow_pipeline",
+        conf={
+            "gnn_model": "{{ dag_run.conf.get('gnn_model', 'TEA-GNN') if dag_run and dag_run.conf else 'TEA-GNN' }}",
+            "gnn_epochs": "{{ dag_run.conf.get('gnn_epochs', 100) if dag_run and dag_run.conf else 100 }}",
+            "experiment": "{{ dag_run.conf.get('experiment', 'football-gnn-training') if dag_run and dag_run.conf else 'football-gnn-training' }}",
+            "selection_metric": "{{ dag_run.conf.get('selection_metric', 'composite') if dag_run and dag_run.conf else 'composite' }}",
+            "judge": "{{ dag_run.conf.get('judge', 'heuristic') if dag_run and dag_run.conf else 'heuristic' }}",
+            "eval_samples": "{{ dag_run.conf.get('eval_samples', 15) if dag_run and dag_run.conf else 15 }}",
+        },
+        wait_for_completion=False,
+        reset_dag_run=True,
+        doc_md="Triggers football_gnn_mlflow_pipeline once GNN and LLM datasets are prepared.",
     )
 
     # ── Sequential DAG Dependency Flow ────────────────────────────────────────
@@ -235,7 +211,5 @@ with DAG(
         >> task_teacher_llm
         >> task_tactics
         >> task_resplit
-        >> task_train_gnn
-        >> task_export_onnx
-        >> task_reload_and_eval
+        >> trigger_gnn_mlflow_dag
     )

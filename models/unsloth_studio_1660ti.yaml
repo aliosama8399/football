@@ -1,0 +1,66 @@
+# ============================================================================
+# Unsloth Studio Configuration — Tuned for NVIDIA GTX 1660 Ti (6 GB VRAM)
+# ============================================================================
+# Key optimizations for Turing (Compute Capability 7.5, 6 GB VRAM):
+#   1. batch_size: 1 + gradient_accumulation_steps: 8 (effective batch = 8)
+#      -> Keeps VRAM under ~3.8 GB so Windows NEVER spills to slow PCIe RAM.
+#   2. lora_dropout: 0.0 -> Unlocks Unsloth's fused Triton QLoRA kernels (~2x faster).
+#   3. max_seq_length: 2560 -> Covers full tactical analyses (~600-850 tokens)
+#      while halving attention activation memory vs 2048.
+#   4. gradient_checkpointing: unsloth -> Async host-RAM activation offloading.
+#   5. optim: adamw_8bit -> 75% smaller optimizer state footprint.
+#   6. eval_steps: 50 -> Avoids running validation 10x per run on a 6 GB GPU.
+# ============================================================================
+
+model:
+  model_name_or_path: "unsloth/Qwen3-0.6B-unsloth-bnb-4bit"
+  chat_template: "qwen-2.5"
+  load_in_4bit: true
+  dtype: "float16"  # GTX 1660 Ti (Turing sm_75) requires FP16 (no native BF16)
+
+dataset:
+  jsonl_path: "data/finetune/football_tactical.jsonl"
+  train_json: "data/finetune/football_train.json"
+  val_json: "data/finetune/football_val.json"
+  val_split: 0.10
+  max_eval_samples: 50  # Fast validation during training on 6 GB GPU
+
+training:
+  max_seq_length: 2560
+  num_epochs: 3
+  learning_rate: 0.0002
+  batch_size: 1
+  gradient_accumulation_steps: 8
+  warmup_steps: 10
+  max_steps: 150
+  save_steps: 50
+  eval_steps: 50
+  weight_decay: 0.01
+  random_seed: 3407
+  packing: false
+  group_by_length: true
+  train_on_completions: true
+  gradient_checkpointing: unsloth
+  optim: adamw_8bit
+  lr_scheduler_type: cosine
+  output_dir: "models/finetuned_qwen_unsloth"
+
+lora:
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.0
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  use_rslora: true
+  use_loftq: false
+  finetune_vision_layers: false
+  finetune_language_layers: true
+  finetune_attention_modules: true
+  finetune_mlp_modules: true
+

@@ -70,6 +70,32 @@ dependencies = [
     "langfuse>=2.50.0",
     "ragas>=0.2.0",
     "langchain-core>=0.3.0",
+
+    # ── Code Quality, Linting & CI/CD ────────────────────────────────────────
+    "ruff>=0.9.0",
+    "pylint>=3.2.0",
+    "flynt>=1.0.1",
+    "flint>=0.0.2",
+    "pytest>=8.0.0",
+    "onnxscript>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.9.0",
+    "pylint>=3.0.0",
+    "flynt>=1.0.1",
+    "flint>=0.0.2",
+    "pytest>=8.0.0",
+]
+finetune = [
+    "unsloth>=2026.11.0",
+    "unsloth_zoo>=2026.11.0",
+    "trl>=0.15.0",
+    "peft>=0.14.0",
+    "bitsandbytes>=0.45.0",
+    "datasets>=3.0.0",
+    "accelerate>=1.0.0",
 ]
 
 [tool.uv]
@@ -83,3 +109,121 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LINTER & CI/CD CONFIGURATION (Ruff, Pylint, Flynt / Flint)
+# ══════════════════════════════════════════════════════════════════════════════
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = [
+    ".agent",
+    ".conda",
+    ".dvc",
+    ".git",
+    ".pytest_cache",
+    ".venv",
+    ".vscode",
+    "__pycache__",
+    "cache_dir",
+    "catboost_info",
+    "logs",
+    "migrations",
+    "mlruns",
+    "models/LlamaFactory",
+    "models/catboost_info",
+    "models/export",
+    "models/model_storage",
+    "models/saved",
+    "notebooks",
+    "old",
+    "*.ipynb",
+]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+ignore = ["F821"]
+
+[tool.pylint.main]
+py-version = "3.12"
+jobs = 1
+ignore-paths = [
+    "^\\.agent/.*$",
+    "^\\.conda/.*$",
+    "^\\.venv/.*$",
+    "^models/LlamaFactory/.*$",
+    "^mlruns/.*$",
+    "^old/.*$",
+    "^notebooks/.*$",
+    "^migrations/.*$",
+]
+
+[tool.pylint.typecheck]
+ignored-modules = [
+    "airflow",
+    "alembic",
+    "asyncpg",
+    "bentoml",
+    "catboost",
+    "datasets",
+    "faiss",
+    "fastapi",
+    "httpx",
+    "langchain_core",
+    "langfuse",
+    "lightgbm",
+    "matplotlib",
+    "mlflow",
+    "neo4j",
+    "numpy",
+    "onnx",
+    "onnxruntime",
+    "onnxruntime_genai",
+    "openai",
+    "optimum",
+    "optuna",
+    "pandas",
+    "passlib",
+    "peft",
+    "pgvector",
+    "psycopg2",
+    "pydantic",
+    "pydantic_settings",
+    "ragas",
+    "rank_bm25",
+    "scipy",
+    "seaborn",
+    "sentence_transformers",
+    "sklearn",
+    "sqlalchemy",
+    "starlette",
+    "strawberry",
+    "torch",
+    "torch_geometric",
+    "transformers",
+    "trl",
+    "unsloth",
+    "uvicorn",
+    "xgboost",
+]
+
+[tool.pylint."messages control"]
+disable = [
+    "C",      # convention checks (handled by ruff)
+    "R",      # refactoring/design complexity checks
+    "W",      # stylistic warnings (handled by ruff)
+    "E0401",  # import-error (optional/container-only deps in CI)
+    "E0611",  # no-name-in-module
+    "E1101",  # no-member (dynamic torch/pandas/sqlalchemy attributes)
+    "E1102",  # not-callable (torch.tensor / dynamic callables)
+    "E1120",  # no-value-for-parameter
+    "E1121",  # too-many-function-args
+    "E1123",  # unexpected-keyword-arg
+    "E1136",  # unsubscriptable-object
+]
+
+[tool.flynt]
+line-length = 120
+aggressive = false
+transform-concats = false

@@ -326,11 +326,17 @@ class PipelineJobManager:
         model_name: str = "",
         gnn_model: str = "TEA-GNN",
         gnn_epochs: int = 100,
+        experiment: str = "football-gnn-training",
         skip_scrape: bool = False,
         force_scrape: bool = False,
         sync_db: bool = True,
         teacher_samples: int = 0,
         specific_step: Optional[int] = None,
+        slm_steps: int = 150,
+        slm_epochs: int = 0,
+        slm_lr: float = 0.0,
+        force_hf_upload: bool = False,
+        repo_id: str = "aliosama8399/football-analysisN",
     ) -> JobRunRecord:
         """Launches the 8-stage pipeline (or a single step) in a background worker thread."""
         with self.state_lock:
@@ -346,11 +352,17 @@ class PipelineJobManager:
                 "model_name": model_name,
                 "gnn_model": gnn_model,
                 "gnn_epochs": gnn_epochs,
+                "experiment": experiment,
                 "skip_scrape": skip_scrape,
                 "force_scrape": force_scrape,
                 "sync_db": sync_db,
                 "teacher_samples": teacher_samples,
                 "specific_step": specific_step,
+                "slm_steps": slm_steps,
+                "slm_epochs": slm_epochs,
+                "slm_lr": slm_lr,
+                "force_hf_upload": force_hf_upload,
+                "repo_id": repo_id,
             }
 
             self.active_job = JobRunRecord(
@@ -379,6 +391,9 @@ class PipelineJobManager:
         rag_limit: int = 10,
         pred_limit: int = 15,
         skip_scrape: bool = False,
+        skip_sync: bool = False,
+        judge: str = "gemini",
+        samples: int = 15,
     ) -> JobRunRecord:
         """
         Launches `data/auto_scrape_and_eval.py` in a background worker thread to perform
@@ -396,6 +411,9 @@ class PipelineJobManager:
                 "rag_limit": rag_limit,
                 "pred_limit": pred_limit,
                 "skip_scrape": skip_scrape,
+                "skip_sync": skip_sync,
+                "judge": judge,
+                "samples": samples,
             }
 
             self.active_job = JobRunRecord(
@@ -434,50 +452,99 @@ class PipelineJobManager:
         self._log_line("==================================================")
 
         run_script = BASE_DIR / "data" / "run_pipeline.py"
-        if not run_script.exists():
-            with self.state_lock:
-                if self.active_job:
-                    self.active_job.status = "FAILED"
-                    self.active_job.error = f"Pipeline script not found: {run_script}"
-                    self.active_job.ended_at = datetime.now().isoformat()
-            return
-
-        cmd = [sys.executable, "-u", str(run_script)]
-
         specific_step = params.get("specific_step")
-        step_skip_flags = {
-            1: "--skip-scrape",
-            2: "--skip-preprocess",
-            3: "--skip-tactics",
-            4: "--skip-teacher",
-            5: "--skip-split",
-            6: "--skip-gnn",
-            7: "--skip-export",
-            8: "--skip-reload",
-        }
-        if specific_step:
-            for s, flag in step_skip_flags.items():
-                if s != specific_step:
-                    cmd.append(flag)
-            if specific_step == 3 and params.get("sync_db", True):
-                cmd.append("--sync-db")
-        else:
-            if params.get("skip_scrape"):
-                cmd.append("--skip-scrape")
-            if params.get("force_scrape"):
-                cmd.append("--force-scrape")
-            if params.get("sync_db", True):
-                cmd.append("--sync-db")
 
-        cmd.extend(["--provider", params.get("provider", "ollama")])
-        if params.get("model_name"):
-            cmd.extend(["--model-name", params["model_name"]])
-        if params.get("teacher_samples", 0) > 0:
-            cmd.extend(["--teacher-samples", str(params["teacher_samples"])])
-        if params.get("gnn_model"):
-            cmd.extend(["--gnn-model", params["gnn_model"]])
-        if params.get("gnn_epochs"):
-            cmd.extend(["--gnn-epochs", str(params["gnn_epochs"])])
+        if specific_step == 9:
+            slm_script = BASE_DIR / "models" / "finetune_unsloth.py"
+            if not slm_script.exists():
+                with self.state_lock:
+                    if self.active_job:
+                        self.active_job.status = "FAILED"
+                        self.active_job.error = f"SLM fine-tuning script not found: {slm_script}"
+                        self.active_job.ended_at = datetime.now().isoformat()
+                return
+
+            cmd = [
+                sys.executable,
+                "-u",
+                str(slm_script),
+                "--save-merged-16bit",
+                "--export-onnx",
+                "--promote-production",
+            ]
+            if params.get("slm_steps", 0) > 0:
+                cmd.extend(["--max-steps", str(params["slm_steps"])])
+            if params.get("slm_epochs", 0) > 0:
+                cmd.extend(["--epochs", str(params["slm_epochs"])])
+            if params.get("slm_lr", 0.0) > 0.0:
+                cmd.extend(["--lr", str(params["slm_lr"])])
+            if params.get("model_name"):
+                cmd.extend(["--model-name", str(params["model_name"])])
+        elif specific_step == 10:
+            upload_script = BASE_DIR / "models" / "upload_slm_hf.py"
+            if not upload_script.exists():
+                with self.state_lock:
+                    if self.active_job:
+                        self.active_job.status = "FAILED"
+                        self.active_job.error = f"SLM Hugging Face upload script not found: {upload_script}"
+                        self.active_job.ended_at = datetime.now().isoformat()
+                return
+
+            cmd = [
+                sys.executable,
+                "-u",
+                str(upload_script),
+                "--repo-id",
+                str(params.get("repo_id") or "aliosama8399/football-analysisN"),
+            ]
+            if params.get("force_hf_upload"):
+                cmd.append("--force")
+        else:
+            if not run_script.exists():
+                with self.state_lock:
+                    if self.active_job:
+                        self.active_job.status = "FAILED"
+                        self.active_job.error = f"Pipeline script not found: {run_script}"
+                        self.active_job.ended_at = datetime.now().isoformat()
+                return
+
+            cmd = [sys.executable, "-u", str(run_script)]
+
+            step_skip_flags = {
+                1: "--skip-scrape",
+                2: "--skip-preprocess",
+                3: "--skip-tactics",
+                4: "--skip-teacher",
+                5: "--skip-split",
+                6: "--skip-gnn",
+                7: "--skip-export",
+                8: "--skip-reload",
+            }
+            if specific_step:
+                for s, flag in step_skip_flags.items():
+                    if s != specific_step:
+                        cmd.append(flag)
+                if specific_step == 3 and params.get("sync_db", True):
+                    cmd.append("--sync-db")
+            else:
+                if params.get("skip_scrape"):
+                    cmd.append("--skip-scrape")
+                if params.get("force_scrape"):
+                    cmd.append("--force-scrape")
+                if params.get("sync_db", True):
+                    cmd.append("--sync-db")
+
+            cmd.extend(["--provider", params.get("provider", "ollama")])
+            if params.get("model_name"):
+                cmd.extend(["--model-name", params["model_name"]])
+            if params.get("teacher_samples", 0) > 0:
+                cmd.extend(["--teacher-samples", str(params["teacher_samples"])])
+            if params.get("gnn_model"):
+                cmd.extend(["--gnn-model", params["gnn_model"]])
+            if params.get("gnn_epochs"):
+                cmd.extend(["--gnn-epochs", str(params["gnn_epochs"])])
+            if params.get("experiment"):
+                cmd.extend(["--experiment", params["experiment"]])
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
@@ -506,7 +573,21 @@ class PipelineJobManager:
                 6: "GNN Model Retraining",
                 7: "ONNX Model Export",
                 8: "API Singleton Hot-Reload",
+                9: "SLM Unsloth QLoRA Fine-Tuning & MLflow Tracking",
+                10: "Champion SLM Hugging Face Upload",
             }
+            if specific_step == 9:
+                with self.state_lock:
+                    if self.active_job:
+                        self.active_job.step = 9
+                        self.active_job.step_name = step_names[9]
+                        self.active_job.progress_pct = 20
+            elif specific_step == 10:
+                with self.state_lock:
+                    if self.active_job:
+                        self.active_job.step = 10
+                        self.active_job.step_name = step_names[10]
+                        self.active_job.progress_pct = 50
 
             for line in process.stdout:
                 line_str = line.strip()
@@ -577,13 +658,16 @@ class PipelineJobManager:
             sys.executable,
             "-u",
             str(eval_script),
-            "--rag-limit",
-            str(params.get("rag_limit", 10)),
-            "--pred-limit",
-            str(params.get("pred_limit", 15)),
+            "--now",
+            "--samples",
+            str(params.get("samples", params.get("rag_limit", 15))),
+            "--judge",
+            str(params.get("judge", "gemini")),
         ]
         if params.get("skip_scrape"):
             cmd.append("--skip-scrape")
+        if params.get("skip_sync"):
+            cmd.append("--skip-sync")
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"

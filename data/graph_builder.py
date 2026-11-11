@@ -215,10 +215,8 @@ class FootballGraphBuilder:
             if len(matches) == 0:
                 continue
             last_match = matches.iloc[-1]
-            if last_match['HomeTeam'] == team:
-                vals = last_match[home_cols].fillna(0.0).values.astype(np.float32)
-            else:
-                vals = last_match[away_cols].fillna(0.0).values.astype(np.float32)
+            target_cols = home_cols if last_match['HomeTeam'] == team else away_cols
+            vals = pd.to_numeric(last_match[target_cols], errors='coerce').fillna(0.0).to_numpy(dtype=np.float32)
             node_feats[idx] = vals
 
         return torch.tensor(node_feats, dtype=torch.float)

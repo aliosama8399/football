@@ -1,0 +1,189 @@
+name: Football MLOps CI/CD (Ruff, Pylint & Flint)
+
+on:
+  push:
+    branches: ["main", "master", "develop"]
+  pull_request:
+    branches: ["main", "master", "develop"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  PROJECT_PACKAGES: "api data rag eval serving"
+  MODEL_MODULES: "models/mlflow_config.py models/mlflow_bootstrap.py models/train_gnn.py models/tune_gnn.py models/export_gnn.py models/export_slm.py models/finetune_unsloth.py models/gnn_models.py models/tea_gnn.py models/explain_match.py models/plotting.py models/train_traditional.py models/tune_models.py models/llm_providers"
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 1: RUFF LINTING & AST VALIDATION
+  # ═══════════════════════════════════════════════════════════════════════════
+  ruff:
+    name: Ruff Linter & Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Ruff
+        run: python -m pip install --upgrade pip "ruff>=0.9.0"
+
+      - name: Run Ruff Check Across Entire Project
+        run: |
+          ruff --version
+          ruff check ${{ env.PROJECT_PACKAGES }} ${{ env.MODEL_MODULES }} --config pyproject.toml
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 2: PYLINT STATIC CODE ANALYSIS
+  # ═══════════════════════════════════════════════════════════════════════════
+  pylint:
+    name: Pylint Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Pylint
+        run: python -m pip install --upgrade pip "pylint>=3.0.0" pyyaml pydantic
+
+      - name: Run Pylint Across Project Packages
+        run: |
+          pylint --version
+          pylint --rcfile=pyproject.toml ${{ env.PROJECT_PACKAGES }} ${{ env.MODEL_MODULES }}
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 3: FLINT & FLYNT LINTING (F-STRING & PROJECT STRUCTURE AUDIT)
+  # ═══════════════════════════════════════════════════════════════════════════
+  flint:
+    name: Flint & Flynt Project Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Flint & Flynt
+        run: python -m pip install --upgrade pip "flynt>=1.0.1" pyyaml tomli
+
+      - name: Run Flynt String Formatting Audit
+        run: |
+          flynt --version
+          flynt --dry-run --fail-on-change --line-length 120 ${{ env.PROJECT_PACKAGES }} ${{ env.MODEL_MODULES }}
+
+      - name: Run Flint Repository & Configuration Audit
+        run: |
+          python - << 'EOF'
+          import ast
+          import pathlib
+          import sys
+          import tomllib
+          import yaml
+
+          root = pathlib.Path(".")
+          required_files = [
+              "README.md",
+              "pyproject.toml",
+              "Dockerfile",
+              "docker-compose.yml",
+              "models/llm_config.yaml",
+              "data/dags/football_master_pipeline_dag.py",
+              "data/dags/football_gnn_mlflow_dag.py",
+          ]
+          missing = [f for f in required_files if not (root / f).exists()]
+          if missing:
+              print(f"[FLINT FAIL] Missing required repository files: {missing}")
+              sys.exit(1)
+
+          # Validate pyproject.toml
+          with open(root / "pyproject.toml", "rb") as f:
+              pyproject = tomllib.load(f)
+          assert "project" in pyproject, "Missing [project] table in pyproject.toml"
+          assert "ruff" in pyproject.get("tool", {}), "Missing [tool.ruff] in pyproject.toml"
+          assert "pylint" in pyproject.get("tool", {}), "Missing [tool.pylint] in pyproject.toml"
+
+          # Validate YAML configs
+          for yml in ["docker-compose.yml", "models/llm_config.yaml", "data/config.yaml", "eval/thresholds.yaml"]:
+              p = root / yml
+              if p.exists():
+                  with open(p, "r", encoding="utf-8") as yf:
+                      yaml.safe_load(yf)
+
+          # Validate AST of all project Python files
+          packages = ["api", "data", "rag", "eval", "serving"]
+          py_files = []
+          for pkg in packages:
+              py_files.extend((root / pkg).rglob("*.py"))
+          for mf in (root / "models").glob("*.py"):
+              py_files.append(mf)
+          for mf in (root / "models" / "llm_providers").rglob("*.py"):
+              py_files.append(mf)
+
+          for py_file in sorted(set(py_files)):
+              source = py_file.read_text(encoding="utf-8")
+              ast.parse(source, filename=str(py_file))
+
+          print(f"[FLINT OK] Audited {len(py_files)} Python modules, YAML configs, and pyproject.toml.")
+          EOF
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 4: AIRFLOW DAG VALIDATION & TEST SUITE
+  # ═══════════════════════════════════════════════════════════════════════════
+  validate-and-test:
+    name: Airflow DAG Validation & Pytest
+    runs-on: ubuntu-latest
+    needs: [ruff, pylint, flint]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Test & Validation Dependencies
+        run: |
+          python -m pip install --upgrade pip pytest pyyaml pydantic fastapi httpx numpy pandas scikit-learn mlflow
+
+      - name: Bytecode Compile All Project Modules
+        run: |
+          python -m compileall -q ${{ env.PROJECT_PACKAGES }} ${{ env.MODEL_MODULES }}
+
+      - name: Validate Airflow DAG Definitions (AST & Task Graph)
+        run: |
+          python - << 'EOF'
+          import ast
+          import pathlib
+
+          dag_dir = pathlib.Path("data/dags")
+          dag_files = sorted(dag_dir.glob("*_dag.py"))
+          assert len(dag_files) >= 2, f"Expected at least 2 DAG files, found {dag_files}"
+          for df in dag_files:
+              tree = ast.parse(df.read_text(encoding="utf-8"), filename=str(df))
+              print(f"[DAG OK] {df.name} parsed cleanly ({len(tree.body)} top-level nodes)")
+          EOF
+
+      - name: Run Unit Tests
+        run: |
+          pytest -q --tb=short --ignore=data/collectors/test_fbref.py --ignore=models/test_inference.py -k "not slow and not integration" || if [ $? -eq 5 ]; then echo "No standalone unit tests collected; skipping."; exit 0; else exit $?; fi

@@ -52,6 +52,18 @@ from optimum.utils.normalized_config import (
 
 NormalizedConfigManager._conf["qwen3"] = NormalizedTextConfigWithGQA
 
+# ── Bypass diffusers import in optimum exporters ──────────────────────────────
+# optimum.exporters.onnx.model_patcher tries to patch diffusers if available,
+# which triggers hub_utils ImportError when diffusers is installed alongside
+# transformers 4.57. Causal LM exports don't need diffusers.
+try:
+    import optimum.utils.import_utils as _opt_utils
+
+    _opt_utils._diffusers_available = False
+    _opt_utils.is_diffusers_available = lambda: False
+except Exception:
+    pass
+
 # ── MemoryError fix for tied-weight dedup post-process ────────────────────────
 # optimum's check_and_save_model() calls model.ByteSize() which serializes the
 # whole ~2.4GB proto in RAM -> MemoryError before its own external-data branch.
@@ -108,6 +120,19 @@ def main() -> None:
     print(f"[export_slm] dtype={args.dtype}")
     print(f"[export_slm] out={out.resolve()}")
 
+    import enum
+    import torch.utils._pytree as _pytree
+
+    # PyTorch 2.7+ natively supports Enum subclasses in torch.compile; skip redundant registration
+    _orig_reg = getattr(_pytree, "register_constant", None)
+    if _orig_reg is not None and not getattr(_orig_reg, "_enum_guarded", False):
+        def _safe_register_constant(cls):
+            if isinstance(cls, type) and issubclass(cls, enum.Enum):
+                return cls
+            return _orig_reg(cls)
+        _safe_register_constant._enum_guarded = True  # type: ignore[attr-defined]
+        _pytree.register_constant = _safe_register_constant
+
     from transformers import AutoTokenizer
     from optimum.exporters.onnx import main_export
 
@@ -127,7 +152,11 @@ def main() -> None:
         args.model_id,
         trust_remote_code=True,
         token=hf_token,
+        fix_mistral_regex=True,
     )
+    if hasattr(tokenizer, "init_kwargs") and isinstance(tokenizer.init_kwargs, dict):
+        tokenizer.init_kwargs["fix_mistral_regex"] = True
+    setattr(tokenizer, "fix_mistral_regex", True)
     tokenizer.save_pretrained(out)
 
     # Verify expected files

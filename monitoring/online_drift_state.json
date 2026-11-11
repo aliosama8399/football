@@ -1,5 +1,5 @@
 {
-  "updated_at": 1793219644.8992064,
+  "updated_at": 1793831966.4421496,
   "window_size": 30,
   "query_lengths": [
     16
@@ -13,7 +13,8 @@
   "prediction_outcomes": [
     "H",
     "H",
-    "H"
+    "H",
+    "D"
   ],
   "override_history": []
 }

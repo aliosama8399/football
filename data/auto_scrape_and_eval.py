@@ -233,8 +233,12 @@ def main():
     parser.add_argument("--skip-sync", action="store_true", help="Skip Postgres/Neo4j/Vector store synchronization")
     parser.add_argument("--skip-vectors", action="store_true", help="Sync Postgres/Neo4j only; skip FAISS/pgvector rebuild")
     parser.add_argument("--with-players", action="store_true", help="Also refresh Understat per-match player stats")
-    parser.add_argument("--judge", default="heuristic", choices=["heuristic", "vllm", "gemini"],
-                        help="LLM judge mode for RAG evaluation (default: heuristic for 0-quota)")
+    parser.add_argument(
+        "--judge",
+        default="gemini",
+        choices=["gemini", "google", "openai", "vllm", "heuristic"],
+        help="LLM judge mode for RAG evaluation (default: gemini)",
+    )
     parser.add_argument("--samples", type=int, default=15, help="Number of evaluation samples to evaluate (default: 15)")
     parser.add_argument("--interval-hours", type=float, default=24.0,
                         help="Hours between automated pipeline runs (default: 24.0)")

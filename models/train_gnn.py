@@ -22,6 +22,21 @@ except Exception:
     pass
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+if "--promote-only" in sys.argv:
+    import argparse as _ap
+
+    _p = _ap.ArgumentParser(add_help=False)
+    _p.add_argument("--experiment", type=str, default="football-gnn-training")
+    _p.add_argument("--selection-metric", type=str, default="composite")
+    _known, _ = _p.parse_known_args()
+    from models.mlflow_config import promote_best_gnn_to_production
+
+    promote_best_gnn_to_production(
+        experiment=_known.experiment,
+        selection_metric=_known.selection_metric,
+    )
+    sys.exit(0)
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -333,13 +348,19 @@ def train_one_model(model_name, graph_data, experiment_name="football-gnn-traini
     if mlflow:
         mlflow.log_param("epochs_run", epoch)
         mlflow.log_param("train_time_s", round(train_time, 2))
+        mlflow.set_tag("model", model_name)
+        mlflow.set_tag("checkpoint_path", f"models/saved/gnn_{model_name.lower()}.pt")
         metric_keys = ["accuracy", "f1_macro", "f1_weighted", "log_loss", "rps", "auc_macro"]
-        mlflow.log_metrics({k: float(metrics[k]) for k in metric_keys if metrics.get(k) is not None})
+        logged_metrics = {k: float(metrics[k]) for k in metric_keys if metrics.get(k) is not None}
+        for cls_label, cls_f1 in metrics.get("per_class_f1", {}).items():
+            logged_metrics[f"f1_{cls_label}"] = float(cls_f1)
+        mlflow.log_metrics(logged_metrics)
         try:
             mlflow.log_artifact(str(model_path))
             run = mlflow.active_run()
             if run:
                 run_id = run.info.run_id
+                metrics["mlflow_run_id"] = run_id
                 reg_name = f"football-gnn-{model_name.lower().replace(' ', '-')}"
                 mlflow.register_model(f"runs:/{run_id}/{model_path.name}", reg_name)
         except Exception as e:
@@ -464,14 +485,26 @@ def plot_vs_traditional(gnn_df):
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Train GNN models with MLflow tracking")
+    parser = argparse.ArgumentParser(description="Train GNN models with MLflow tracking and production promotion")
     parser.add_argument('--model', type=str, default='all',
                         help="Specific model to train (TEA-GNN, Hybrid, EdgeConv, GAT, GCN, GraphSAGE, GIN) or 'all'")
     parser.add_argument('--epochs', type=int, default=300,
                         help="Number of epochs (default: 300)")
     parser.add_argument('--experiment', type=str, default='football-gnn-training',
                         help="MLflow experiment name (default: football-gnn-training)")
+    parser.add_argument('--selection-metric', type=str, default='composite',
+                        choices=['composite', 'rps', 'f1_macro', 'accuracy', 'log_loss'],
+                        help="Metric used to promote the best model to 'production' tag in MLflow")
+    parser.add_argument('--promote-only', action='store_true',
+                        help="Only evaluate existing MLflow runs and tag the best model as 'production'")
     args = parser.parse_args()
+
+    if args.promote_only:
+        from models.mlflow_config import promote_best_gnn_to_production
+        return promote_best_gnn_to_production(
+            experiment=args.experiment,
+            selection_metric=args.selection_metric,
+        )
 
     global EPOCHS
     EPOCHS = args.epochs
@@ -580,7 +613,7 @@ def main():
     print(f"{'=' * 70}\n")
 
     try:
-        from models.mlflow_config import setup_mlflow, safe_end_run
+        from models.mlflow_config import setup_mlflow, safe_end_run, promote_best_gnn_to_production
         safe_end_run()
         mlflow = setup_mlflow(args.experiment)
         with mlflow.start_run(run_name="Zoo-Summary"):
@@ -597,8 +630,13 @@ def main():
                 if p.exists():
                     mlflow.log_artifact(str(p))
             print(f"  [mlflow] Zoo summary run logged to '{args.experiment}'")
+
+        promote_best_gnn_to_production(
+            experiment=args.experiment,
+            selection_metric=args.selection_metric,
+        )
     except Exception as e:
-        print(f"  [mlflow] summary logging note: {e}")
+        print(f"  [mlflow] summary/promotion logging note: {e}")
     
     print("✓ GNN pipeline complete!")
     return df, all_results
