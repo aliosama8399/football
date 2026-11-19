@@ -21,7 +21,13 @@ from typing import Dict, List, Optional
 from fastapi import HTTPException, status
 
 from api.schemas import LivePredictionRequest, LivePredictionResponse
-from api.utils import extract_json_object, strip_markdown, get_phase_logger
+from api.utils import (
+    clean_slm_output,
+    extract_json_object,
+    get_phase_logger,
+    is_rag_fallback_payload,
+    strip_markdown,
+)
 from api.async_rag import AsyncRAGWrapper
 from rag.live_adjustment import (
     rates_from_probs,
@@ -382,10 +388,16 @@ class LivePredictionService:
                 raw = await self.rag_wrapper.predict_live_match(
                     payload.home_team, payload.away_team, live_context
                 )
-                breakdown = extract_json_object(raw)
-                analysis_text = strip_markdown(raw)
-                if breakdown is None and analysis_text:
-                    breakdown = extract_json_object(analysis_text)
+                cleaned_raw = clean_slm_output(raw or "")
+                breakdown = extract_json_object(cleaned_raw)
+                if is_rag_fallback_payload(breakdown):
+                    err_hint = breakdown.get("error") or breakdown.get("note") or "SLM unavailable"
+                    breakdown = None
+                    analysis_text = f"Live coach advisor SLM unavailable ({err_hint})."
+                else:
+                    analysis_text = strip_markdown(cleaned_raw)
+                    if breakdown is None and analysis_text:
+                        breakdown = extract_json_object(analysis_text)
                 source = "live_model+llm"
                 logger.info("[service] LLM live narrative done in %.1fs (%d chars, breakdown=%s)",
                             time.perf_counter() - t_llm, len(analysis_text or ""),

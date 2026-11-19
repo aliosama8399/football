@@ -69,7 +69,7 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
     def __init__(self, api_key: Optional[str] = None,
                  host: Optional[str] = None,
                  cache_dir: Path = _CACHE_DIR,
-                 timeout: int = 60):
+                 timeout: int = 10):
         self.api_key = (api_key or "").strip()
         self.host = (host or "v3.football.api-sports.io").strip()
         self.timeout = timeout
@@ -77,8 +77,9 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
         self.base = f"https://{self.host}"
         self._rate_lock = threading.Lock()
         self._last_request_ts = 0.0
-        # polite minimum spacing between live calls (free plan = 10/min).
-        self._min_spacing_seconds = 6.0
+        self._rate_limited_until = 0.0
+        # polite minimum spacing between live calls without stalling interactive latency
+        self._min_spacing_seconds = 1.5
         if not self.api_key:
             logger.warning("API_FOOTBALL_KEY not set — ApiFootballPlayerProvider "
                            "will return [] / {} (scouting stats unavailable)")
@@ -95,18 +96,33 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
     def _cache_path(self, key: str) -> Path:
         return self.cache_dir / f"{key}.json"
 
-    def _read_cache(self, key: str, refresh: bool) -> Optional[dict]:
+    @classmethod
+    def _is_historical_season(cls, season_or_year: str | int) -> bool:
+        """Completed past seasons never change and can be served permanently from disk cache."""
+        from datetime import datetime
+
+        now = datetime.now()
+        active_start_year = now.year if now.month >= 7 else now.year - 1
+        return 0 < cls._season_year(season_or_year) < active_start_year
+
+    def _read_cache(self, key: str, refresh: bool, ignore_ttl: bool = False) -> Optional[dict]:
         path = self._cache_path(key)
         if refresh or not path.exists():
             return None
-        age = time.time() - path.stat().st_mtime
-        if age > _CACHE_TTL_SECONDS:
-            return None
+        if not ignore_ttl:
+            age = time.time() - path.stat().st_mtime
+            if age > _CACHE_TTL_SECONDS:
+                return None
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except Exception as e:
             logger.warning("scout cache read failed (%s): %s", path.name, e)
             return None
+
+    def read_cached_only(self, cache_key: str) -> Optional[list]:
+        """Read disk cache immediately without TTL expiry or network I/O."""
+        cached = self._read_cache(cache_key, refresh=False, ignore_ttl=True)
+        return cached if isinstance(cached, list) else None
 
     def _write_cache(self, key: str, payload: dict) -> None:
         try:
@@ -117,7 +133,7 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
             logger.warning("scout cache write failed (%s): %s", key, e)
 
     def _throttle(self) -> None:
-        """Be polite: never more than 1 live call per ~6s (≤10/min)."""
+        """Space consecutive live calls conservatively."""
         with self._rate_lock:
             dt = time.time() - self._last_request_ts
             if dt < self._min_spacing_seconds:
@@ -125,7 +141,7 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
             self._last_request_ts = time.time()
 
     def _request(self, path: str, params: dict) -> Optional[dict]:
-        if not self.api_key:
+        if not self.api_key or time.time() < self._rate_limited_until:
             return None
         self._throttle()
         url = f"{self.base}{path}"
@@ -133,21 +149,27 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
             r = requests.get(url, headers={"x-apisports-key": self.api_key},
                              params=params, timeout=self.timeout)
             if r.status_code == 429:
-                logger.warning("API-Football rate-limited (429) — backing off")
-                time.sleep(60.0)
-                r = requests.get(url, headers={"x-apisports-key": self.api_key},
-                                 params=params, timeout=self.timeout)
+                logger.warning("API-Football rate-limited (429) — entering 60s cooldown")
+                self._rate_limited_until = time.time() + 60.0
+                return None
             if r.status_code != 200:
                 logger.warning("API-Football %s -> %s: %s", path,
                                r.status_code, r.text[:200])
                 return None
-            return r.json()
+            payload = r.json()
+            errs = payload.get("errors")
+            if errs and any(tok in str(errs).lower() for tok in ("ratelimit", "requests", "limit")):
+                logger.warning("API-Football quota/rate error (%s) — entering 60s cooldown", errs)
+                self._rate_limited_until = time.time() + 60.0
+                return None
+            return payload
         except Exception as e:
             logger.warning("API-Football request failed (%s %s): %s", path, params, e)
             return None
 
     def _request_all_pages(self, path: str, params: dict, cache_key: str,
-                           refresh: bool, max_pages: int = 200) -> List[dict]:
+                           refresh: bool, max_pages: int = 200,
+                           ignore_ttl: bool = False) -> List[dict]:
         """Fetch every page of a paginated endpoint and concatenate; cache
         the assembled list when complete so later reads cost zero API calls.
 
@@ -155,7 +177,7 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
         reports `paging.total > 1` (some endpoints like /teams return
         everything on a single page AND reject the page param).
         """
-        cached = self._read_cache(cache_key, refresh)
+        cached = self._read_cache(cache_key, refresh, ignore_ttl=ignore_ttl)
         if cached is not None and isinstance(cached, list):
             return cached
         merged: List[dict] = []
@@ -185,7 +207,8 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
             merged.extend(chunk)
             if data.get("errors"):
                 break
-        self._write_cache(cache_key, merged)
+        if merged:
+            self._write_cache(cache_key, merged)
         return merged
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -214,7 +237,9 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
         season_year = self._season_year(season)
         rows = self._request_all_pages(
             "/teams", {"league": league_id, "season": season_year},
-            cache_key=f"teams_{league_code}_{season}", refresh=refresh,
+            cache_key=f"teams_{league_code}_{season}",
+            refresh=refresh,
+            ignore_ttl=self._is_historical_season(season_year),
         )
         # each row: {"team": {...}, "venue": {...}} — flatten to {"id","name"}
         out = []
@@ -225,7 +250,7 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
         return out
 
     def fetch_team_players(self, team_id: int, season_year: int,
-                          refresh: bool = False) -> List[dict]:
+                          refresh: bool = False, max_pages: int = 20) -> List[dict]:
         """One team's full squad with season stats — paginated & cached.
         Returns the raw API-Football `response` list of player objects.
         Refuses team_id=None to prevent cross-team bleed / league-defaults.
@@ -236,7 +261,9 @@ class ApiFootballPlayerProvider(BasePlayerProvider):
         return self._request_all_pages(
             "/players", {"team": team_id, "season": season_year},
             cache_key=f"players_team_{team_id}_{season_year}",
-            refresh=refresh, max_pages=20,
+            refresh=refresh,
+            max_pages=max_pages,
+            ignore_ttl=self._is_historical_season(season_year),
         )
 
     def fetch_team_transfers(self, team_id: int, refresh: bool = False) -> List[dict]:

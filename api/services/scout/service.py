@@ -17,8 +17,13 @@ from typing import Dict, List, Optional, Tuple
 
 from data.player_providers.schema import PlayerRecord
 
-from .strategies.scoring import ScoringStrategy, make_scoring_strategy, \
-    STYLE_METRICS
+from .strategies.scoring import (
+    MIN_MINUTES_SENIOR,
+    MIN_MINUTES_YOUTH,
+    ScoringStrategy,
+    make_scoring_strategy,
+    STYLE_METRICS,
+)
 
 logger = logging.getLogger("scout.service")
 
@@ -30,7 +35,7 @@ class ScoutService:
     # candidates, and only then spend API-Football calls on the unique teams
     # in that top slice. Keeps a big pool cheap while still letting late
     # movers re-rank after the rating/transfer enrichment.
-    SHORTLIST_FACTOR = 3
+    SHORTLIST_FACTOR = 2
 
     def __init__(self, repository, scoring_strategy_factory=None):
         self.repository = repository
@@ -65,16 +70,19 @@ class ScoutService:
         shortlist_size = max(top, top * self.SHORTLIST_FACTOR)
 
         # 1. identity pool — fused squad cache (no network)
-        candidates = self.repository.identity_pool(
+        raw_candidates = self.repository.identity_pool(
             league_codes, season, position, youth=youth,
             exclude_team=team_needing)
-        if not candidates:
+        if not raw_candidates:
             return {
                 "season": season, "position": position, "youth": youth,
                 "leagues": list(league_codes), "pool_size": 0, "top": top,
                 "candidates": [], "notes": [
                     "no candidates matched the position/age filter"],
             }
+
+        candidates, applied_min, dropped_low_mins = self._apply_minutes_gate(
+            raw_candidates, youth=youth, top=top)
 
         # 2. style template — your own club's per-position per-90 average.
         style: Optional[Dict[str, Optional[float]]] = None
@@ -96,28 +104,24 @@ class ScoutService:
         ranked = sorted(zip(candidates, scored),
                         key=lambda kv: kv[1].record_score, reverse=True)
         shortlist_recs = [c for c, _ in ranked[:shortlist_size]]
-        shortlist_scores = {id(r): s for r, s in ranked[:shortlist_size]}
 
-        # 4. enrich the shortlist only — at most top*N unique teams.
-        if self.repository.stats_provider.api_key:
-            self.repository.enrich_with_stats(
-                shortlist_recs, season, refresh=refresh)
-            # 5. re-score the enriched shortlist (rating now filled in).
-            scored = strategy.score(shortlist_recs, style=style)
-            shortlist_scores = {id(r): s for r, s in
-                                zip(shortlist_recs, scored)}
+        # 4. enrich the shortlist — uses 0ms disk cache by default; live HTTP only if refresh=True.
+        self.repository.enrich_with_stats(shortlist_recs, season, refresh=refresh)
+
+        # 5. re-score across the full gated pool so P5..P95 normalization stays globally consistent.
+        full_scored = strategy.score(candidates, style=style)
+        full_scores_by_id = {id(r): s for r, s in zip(candidates, full_scored)}
         final_ranked = sorted(
             shortlist_recs,
-            key=lambda r: shortlist_scores[id(r)].record_score,
+            key=lambda r: full_scores_by_id[id(r)].record_score,
             reverse=True)[:top]
 
-        # 6. transfers — one /transfers?team= call per unique team in the
-        # already-trimmed top list.
-        transfers_map = self.repository.attach_transfers(final_ranked)
+        # 6. transfers — cached 24h on disk; live HTTP only if refresh=True.
+        transfers_map = self.repository.attach_transfers(final_ranked, refresh=refresh)
 
         out_candidates = []
         for rank, rec in enumerate(final_ranked, start=1):
-            sc = shortlist_scores[id(rec)]
+            sc = full_scores_by_id[id(rec)]
             xfer = transfers_map.get(_normalize(rec), {})
             out_candidates.append({
                 "rank": rank,
@@ -154,6 +158,7 @@ class ScoutService:
         notes = [
             f"pool: {len(candidates)} {position} candidates across "
             f"{len(league_codes)} league(s)",
+            f"minutes gate: >={int(applied_min)} min (filtered {dropped_low_mins} low-minute cameo(s))",
             f"youth filter (≤19): {youth}",
         ]
         if style and any(v is not None for v in style.values()):
@@ -181,6 +186,32 @@ class ScoutService:
         }
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _apply_minutes_gate(
+        candidates: List[PlayerRecord],
+        youth: bool,
+        top: int,
+    ) -> Tuple[List[PlayerRecord], float, int]:
+        """Exclude tiny-sample cameo appearances while gracefully relaxing only on tiny pools."""
+        thresholds = (
+            (MIN_MINUTES_YOUTH, 180.0, 90.0)
+            if youth
+            else (MIN_MINUTES_SENIOR, 270.0, 90.0)
+        )
+        min_keep = min(len(candidates), max(top * 2, 10))
+        for thr in thresholds:
+            filtered = [r for r in candidates if float(r.minutes or 0.0) >= thr]
+            if len(filtered) >= min_keep:
+                return filtered, thr, len(candidates) - len(filtered)
+        for thr in thresholds:
+            filtered = [r for r in candidates if float(r.minutes or 0.0) >= thr]
+            if len(filtered) >= min(top, len(candidates)):
+                return filtered, thr, len(candidates) - len(filtered)
+        non_zero = [r for r in candidates if float(r.minutes or 0.0) >= 90.0]
+        if non_zero:
+            return non_zero, 90.0, len(candidates) - len(non_zero)
+        return candidates, 0.0, 0
 
     def _resolve_coach_team(self, team: str,
                             league_codes: Tuple[str, ...],

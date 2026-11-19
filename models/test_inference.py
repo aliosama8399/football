@@ -33,30 +33,28 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-try:
-    import torch.utils._pytree as _pytree
 
-    # PyTorch 2.7+ natively supports Enum subclasses in torch.compile; skip redundant registration
-    _orig_reg = getattr(_pytree, "register_constant", None)
-    if _orig_reg is not None and not getattr(_orig_reg, "_enum_guarded", False):
-        def _safe_register_constant(cls):
-            if isinstance(cls, type) and issubclass(cls, enum.Enum):
-                return cls
-            return _orig_reg(cls)
-        _safe_register_constant._enum_guarded = True  # type: ignore[attr-defined]
-        _pytree.register_constant = _safe_register_constant
-except ImportError:
-    _pytree = None  # type: ignore[assignment]
+def _init_inference_backends():
+    """Lazily initialize PyTorch, Unsloth, and Transformers patching in required order."""
+    try:
+        import torch.utils._pytree as _pytree
 
-try:
-    # CRITICAL: import unsloth first to suppress warnings and enable fast Triton kernels
-    import unsloth  # noqa: F401, E402
-    from unsloth import FastLanguageModel  # noqa: E402
-except ImportError:
-    FastLanguageModel = None  # type: ignore[assignment]
+        # PyTorch 2.7+ natively supports Enum subclasses in torch.compile; skip redundant registration
+        _orig_reg = getattr(_pytree, "register_constant", None)
+        if _orig_reg is not None and not getattr(_orig_reg, "_enum_guarded", False):
+            def _safe_register_constant(cls):
+                if isinstance(cls, type) and issubclass(cls, enum.Enum):
+                    return cls
+                return _orig_reg(cls)
+            _safe_register_constant._enum_guarded = True  # type: ignore[attr-defined]
+            _pytree.register_constant = _safe_register_constant
+    except ImportError:
+        pass
 
-try:
-    import transformers  # noqa: E402
+    # CRITICAL: import unsloth before transformers to enable fast Triton kernels
+    import unsloth  # noqa: F401
+    from unsloth import FastLanguageModel as _FastLanguageModel
+    import transformers
 
     _orig_tok_from_pretrained = transformers.AutoTokenizer.from_pretrained
     if not getattr(_orig_tok_from_pretrained, "_mistral_regex_guarded", False):
@@ -66,8 +64,8 @@ try:
             return _orig_tok_from_pretrained(*args, **kwargs)
         _safe_tok_from_pretrained._mistral_regex_guarded = True
         transformers.AutoTokenizer.from_pretrained = _safe_tok_from_pretrained
-except ImportError:
-    transformers = None  # type: ignore[assignment]
+
+    return _FastLanguageModel
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
@@ -154,6 +152,7 @@ def parse_args() -> argparse.Namespace:
 
 def load_model_and_tokenizer(model_path: str):
     """Load the fine-tuned model and tokenizer with fast inference optimizations."""
+    fast_language_model = _init_inference_backends()
     import torch
 
     path_obj = Path(model_path)
@@ -169,7 +168,7 @@ def load_model_and_tokenizer(model_path: str):
             )
 
     print(f"[INFO] Loading fine-tuned model from: {model_path} (4-bit inference, max_seq_len=2048)...")
-    model, tokenizer = FastLanguageModel.from_pretrained(
+    model, tokenizer = fast_language_model.from_pretrained(
         model_name=model_path,
         max_seq_length=2048,
         dtype=torch.float16,
@@ -178,7 +177,7 @@ def load_model_and_tokenizer(model_path: str):
     if hasattr(tokenizer, "init_kwargs") and isinstance(tokenizer.init_kwargs, dict):
         tokenizer.init_kwargs["fix_mistral_regex"] = True
     setattr(tokenizer, "fix_mistral_regex", True)
-    FastLanguageModel.for_inference(model)
+    fast_language_model.for_inference(model)
     return model, tokenizer
 
 

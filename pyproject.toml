@@ -229,23 +229,10 @@ aggressive = false
 transform-concats = false
 
 [tool.pytest.ini_options]
-norecursedirs = [
-    ".agent",
-    ".conda",
-    ".dvc",
-    ".git",
-    ".venv",
-    "cache_dir",
-    "catboost_info",
-    "logs",
-    "migrations",
-    "mlruns",
-    "models/LlamaFactory",
-    "models/catboost_info",
-    "models/export",
-    "models/model_storage",
-    "models/saved",
-    "notebooks",
-    "old",
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests requiring external services",
 ]
-addopts = "--ignore=data/collectors/test_fbref.py --ignore=data/collectors/_test_fbref.py --ignore=models/test_inference.py --ignore=models/LlamaFactory"

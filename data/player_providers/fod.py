@@ -64,8 +64,10 @@ class FodPlayerProvider(BasePlayerProvider):
         comp = _LEAGUE_CODES.get(league_code)
         if not comp:
             raise ValueError(f"football-data.org league code not mapped: {league_code}")
-        # v4 competition teams endpoint returns the squad inline.
-        data = self._get(f"/competitions/{comp}/teams", params={"season": "2024"})
+        # v4 competition teams endpoint returns the squad inline for the requested season.
+        s = str(season).strip()
+        season_year = s if len(s) == 4 and s.startswith("20") else f"20{s[:2]}"
+        data = self._get(f"/competitions/{comp}/teams", params={"season": season_year})
         if not data:
             return []
         want = team.lower()

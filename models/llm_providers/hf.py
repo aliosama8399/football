@@ -9,13 +9,39 @@ Model: aliosama8399/football-analysisN  (merged fine-tune of Qwen3-0.6B)
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
+import shutil
+import threading
 from pathlib import Path
 
+from api.utils import clean_slm_output
 from models.llm_providers.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
+
+
+def disable_triton_if_no_compiler() -> None:
+    """Disable PyTorch 2.13+ torch._native Triton overrides when no C compiler is present."""
+    if shutil.which(os.getenv("CC", "gcc")) or shutil.which("cc"):
+        return
+    try:
+        import torch._native.registry as _native_reg
+
+        dsl_map = getattr(_native_reg, "_dsl_name_to_lib_graph", {})
+        triton_dsls = [k for k in dsl_map if "triton" in str(k).lower()] or ["triton"]
+        _native_reg.deregister_op_overrides(disable_dsl_names=triton_dsls)
+        logger.info("Disabled PyTorch _native Triton overrides (%s) — no C compiler in runtime image.", triton_dsls)
+    except Exception:
+        pass
+
+DEFAULT_HF_SYSTEM_PROMPT = (
+    "You are an expert football tactical analyst. "
+    "Analyze the match, predict the most likely outcome, and deliver "
+    "a detailed tactical report covering both teams' strengths, "
+    "weaknesses, and key strategic factors."
+)
 
 
 class HuggingFaceProvider(BaseLLMProvider):
@@ -37,8 +63,8 @@ class HuggingFaceProvider(BaseLLMProvider):
         else:
             self.model_id = model_id or cfg.get("model_id", "aliosama8399/football-analysisN")
 
-        self.max_new_tokens = cfg.get("max_new_tokens", 2048)
-        self.temperature    = cfg.get("temperature", 0.7)
+        self.max_new_tokens = cfg.get("max_new_tokens", 1024)
+        self.temperature    = cfg.get("temperature", 0.2)
 
         # Resolve HF token: config file → env var → None (public repos only)
         self.hf_token = (
@@ -50,6 +76,7 @@ class HuggingFaceProvider(BaseLLMProvider):
         self._model     = None
         self._tokenizer = None
         self._loaded    = False
+        self._gen_lock  = threading.Lock()
 
     @staticmethod
     def _load_hf_cfg() -> dict:
@@ -72,6 +99,8 @@ class HuggingFaceProvider(BaseLLMProvider):
         import torch
         import torch.utils._pytree as _pytree
 
+        disable_triton_if_no_compiler()
+
         # PyTorch 2.7+ natively supports Enum subclasses in torch.compile; skip redundant registration
         _orig_reg = getattr(_pytree, "register_constant", None)
         if _orig_reg is not None and not getattr(_orig_reg, "_enum_guarded", False):
@@ -86,34 +115,45 @@ class HuggingFaceProvider(BaseLLMProvider):
 
         logger.info("Loading model: %s", self.model_id)
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_id,
-            trust_remote_code=True,
-            token=self.hf_token,
-            fix_mistral_regex=True,
-        )
+        try:
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                self.model_id,
+                trust_remote_code=True,
+                token=self.hf_token,
+                fix_mistral_regex=True,
+            )
+        except TypeError:
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                self.model_id,
+                trust_remote_code=True,
+                token=self.hf_token,
+            )
 
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self.model_id,
-            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None,
-            trust_remote_code=True,
-            token=self.hf_token,
-        )
+        has_accelerate = importlib.util.find_spec("accelerate") is not None
+        load_kwargs = {
+            "dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+            "trust_remote_code": True,
+            "token": self.hf_token,
+        }
+        if torch.cuda.is_available() and has_accelerate:
+            load_kwargs["device_map"] = "auto"
 
-        # Force move to CUDA if loaded on CPU but CUDA is available
+        self._model = AutoModelForCausalLM.from_pretrained(self.model_id, **load_kwargs)
+
+        # Force move to CUDA if loaded on CPU (or when accelerate is absent)
         if torch.cuda.is_available() and next(self._model.parameters()).device.type == "cpu":
-            logger.info("Forcing model to CUDA device...")
+            logger.info("Moving model to CUDA device...")
             self._model = self._model.to("cuda")
 
         self._model.eval()
+        self._backend = "hf"
 
         self._loaded = True
         logger.info("HuggingFace provider ready. Device: %s",
                     next(self._model.parameters()).device)
 
     # ── Core generation ───────────────────────────────────────────────────────
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, system_prompt: str | None = None) -> str:
         """
         Generate a response for a plain text prompt.
         Compatible with the existing BaseLLMProvider interface.
@@ -125,38 +165,51 @@ class HuggingFaceProvider(BaseLLMProvider):
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "You are an expert football tactical analyst. "
-                    "Analyze the match, predict the most likely outcome, and deliver "
-                    "a detailed tactical report covering both teams' strengths, "
-                    "weaknesses, and key strategic factors."
-                ),
+                "content": system_prompt or DEFAULT_HF_SYSTEM_PROMPT,
             },
             {"role": "user", "content": prompt},
         ]
 
         try:
             text = self._tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
+                messages, tokenize=False, add_generation_prompt=True,
+                enable_thinking=False,
             )
         except Exception:
-            text = prompt  # fallback for models without chat template
+            try:
+                text = self._tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+            except Exception:
+                text = prompt  # fallback for models without chat template
 
         inputs = self._tokenizer(text, return_tensors="pt").to(self._model.device)
+        do_sample = self.temperature > 0
+        gen_kwargs = {
+            "max_new_tokens": self.max_new_tokens,
+            "do_sample": do_sample,
+            "repetition_penalty": 1.15,
+            "no_repeat_ngram_size": 4,
+            "pad_token_id": self._tokenizer.eos_token_id,
+        }
+        if do_sample:
+            gen_kwargs["temperature"] = self.temperature
+            gen_kwargs["top_p"] = 0.85
 
-        with torch.no_grad():
-            outputs = self._model.generate(
-                **inputs,
-                max_new_tokens=self.max_new_tokens,
-                temperature=self.temperature,
-                do_sample=self.temperature > 0,
-                pad_token_id=self._tokenizer.eos_token_id,
-            )
+        with self._gen_lock, torch.no_grad():
+            outputs = self._model.generate(**inputs, **gen_kwargs)
 
         new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
-        return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        raw = self._tokenizer.decode(new_tokens, skip_special_tokens=True)
+        return clean_slm_output(raw)
 
-    def generate_with_context(self, prompt: str, kg_context: str = "", vector_context: str = "") -> str:
+    def generate_with_context(
+        self,
+        prompt: str,
+        kg_context: str = "",
+        vector_context: str = "",
+        system_prompt: str | None = None,
+    ) -> str:
         """RAG-aware generation: inject retrieved context before the user prompt."""
         rag_prompt = ""
         if kg_context:
@@ -164,7 +217,7 @@ class HuggingFaceProvider(BaseLLMProvider):
         if vector_context:
             rag_prompt += f"## Retrieved Historical Analyses\n{vector_context}\n\n"
         rag_prompt += f"## User Question\n{prompt}"
-        return self.generate(rag_prompt)
+        return self.generate(rag_prompt, system_prompt=system_prompt)
 
     # ── Interface compatibility ───────────────────────────────────────────────
     def _call_api(self, prompt: str) -> str:

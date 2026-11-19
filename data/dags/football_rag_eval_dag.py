@@ -58,12 +58,16 @@ def reload_api_singletons(**_context) -> dict:
 
     api_url = os.environ.get("API_URL", "http://bento:8001").rstrip("/")
     reload_url = f"{api_url}/api/v1/admin/reload"
+    internal_token = os.environ.get("INTERNAL_JOB_TOKEN", "football_internal_secret_token_2026")
     print(f"[RAG Eval] Requesting API singleton reload at {reload_url}...")
     try:
         req = urllib.request.Request(
             reload_url,
             data=b"{}",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Token": internal_token,
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -83,6 +87,8 @@ def run_rag_eval_on_worker(**context) -> dict:
 
     conf = (context.get("dag_run").conf or {}) if context.get("dag_run") else {}
     judge = str(conf.get("judge", "gemini"))
+    skip_scrape = bool(conf.get("skip_scrape", True))
+    skip_sync = bool(conf.get("skip_sync", True))
     try:
         samples = int(conf.get("samples", conf.get("rag_samples", 15)))
     except (ValueError, TypeError):
@@ -92,12 +98,12 @@ def run_rag_eval_on_worker(**context) -> dict:
     trigger_url = f"{api_url}/api/v1/jobs/eval/trigger"
     headers = {
         "Content-Type": "application/json",
-        "X-Internal-Token": "football_internal_secret_token_2026",
+        "X-Internal-Token": os.environ.get("INTERNAL_JOB_TOKEN", "football_internal_secret_token_2026"),
     }
     payload = json.dumps(
         {
-            "skip_scrape": True,
-            "skip_sync": True,
+            "skip_scrape": skip_scrape,
+            "skip_sync": skip_sync,
             "judge": judge,
             "samples": samples,
         }

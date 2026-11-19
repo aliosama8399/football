@@ -6,10 +6,13 @@ Fast local execution for exported SLM weights.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 from pathlib import Path
 import yaml
+
+from api.utils import clean_slm_output
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +157,9 @@ class OnnxLLMProvider:
         # Fallback to HF torch (huggingface)
         import torch
         from transformers import AutoTokenizer, AutoModelForCausalLM
+        from models.llm_providers.hf import disable_triton_if_no_compiler
+
+        disable_triton_if_no_compiler()
 
         cfg_path = Path(__file__).resolve().parent.parent / "llm_config.yaml"
         hf_id = "aliosama8399/football-analysisN"
@@ -170,13 +176,15 @@ class OnnxLLMProvider:
 
         logger.info("Loading fallback HF model: %s", hf_id)
         self._tokenizer = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=True, token=hf_token)
-        self._model = AutoModelForCausalLM.from_pretrained(
-            hf_id,
-            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None,
-            trust_remote_code=True,
-            token=hf_token,
-        )
+        has_accelerate = importlib.util.find_spec("accelerate") is not None
+        load_kwargs = {
+            "dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+            "trust_remote_code": True,
+            "token": hf_token,
+        }
+        if torch.cuda.is_available() and has_accelerate:
+            load_kwargs["device_map"] = "auto"
+        self._model = AutoModelForCausalLM.from_pretrained(hf_id, **load_kwargs)
         if torch.cuda.is_available() and next(self._model.parameters()).device.type == "cpu":
             self._model = self._model.to("cuda")
         self._model.eval()
@@ -185,18 +193,19 @@ class OnnxLLMProvider:
         logger.info("Fallback HF LLM ready on %s", next(self._model.parameters()).device)
 
     # ── Core generation ───────────────────────────────────────────────────────
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, system_prompt: str | None = None) -> str:
         self._load()
 
+        default_sys = (
+            "You are an expert football tactical analyst. "
+            "Base your analysis strictly on the provided factual match data, head-to-head records, and tactical profiles. "
+            "When tactical data is complete, ground your reasoning in the numbers; if specific historical data points are absent, "
+            "use balanced analytical football reasoning without fabricating false scores, player names, or statistics."
+        )
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "You are an expert football tactical analyst. "
-                    "Base your analysis strictly on the provided factual match data, head-to-head records, and tactical profiles. "
-                    "When tactical data is complete, ground your reasoning in the numbers; if specific historical data points are absent, "
-                    "use balanced analytical football reasoning without fabricating false scores, player names, or statistics."
-                ),
+                "content": system_prompt or default_sys,
             },
             {"role": "user", "content": prompt},
         ]
@@ -266,7 +275,8 @@ class OnnxLLMProvider:
                 raise
 
         new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
-        return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        raw = self._tokenizer.decode(new_tokens, skip_special_tokens=True)
+        return clean_slm_output(raw)
 
     def _generate_genai(self, text: str) -> str:
         og, np = self._og, self._np
@@ -291,9 +301,15 @@ class OnnxLLMProvider:
         while not generator.is_done():
             generator.generate_next_token()
             out += self._gtok.decode(np.asarray(generator.get_next_tokens(), dtype=np.int32))
-        return out.strip()
+        return clean_slm_output(out)
 
-    def generate_with_context(self, prompt: str, kg_context: str = "", vector_context: str = "") -> str:
+    def generate_with_context(
+        self,
+        prompt: str,
+        kg_context: str = "",
+        vector_context: str = "",
+        system_prompt: str | None = None,
+    ) -> str:
         kg_budget = int(os.getenv("FOOTBALL_ONNX_KG_CTX", 0)) or 2000
         vec_budget = int(os.getenv("FOOTBALL_ONNX_VEC_CTX", 0)) or 1200
         try:
@@ -317,7 +333,7 @@ class OnnxLLMProvider:
         if vector_context:
             rag_prompt += f"## Retrieved Historical Analyses\n{vector_context}\n\n"
         rag_prompt += f"## User Question\n{prompt}"
-        return self.generate(rag_prompt)
+        return self.generate(rag_prompt, system_prompt=system_prompt)
 
     # ── Compatibility shims ───────────────────────────────────────────────────
     def _call_api(self, prompt: str) -> str:

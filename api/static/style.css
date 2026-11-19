@@ -1688,3 +1688,83 @@ body.tech-theme {
     line-height: 1.45;
     color: var(--text);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Enterprise SaaS UI Additions (SSE Chat, Simulator/Dossier, Keys, Ledger)
+   ───────────────────────────────────────────────────────────────────────────── */
+.sse-stage-pill {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(0, 255, 102, 0.08);
+    border: 1px solid var(--accent-dim);
+    padding: 2px 8px;
+    margin-bottom: 6px;
+}
+
+.citation-chip {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    color: var(--text-bright);
+    background: var(--bg-input);
+    border: 1px solid var(--border-hover);
+    padding: 2px 7px;
+    margin: 2px 4px 2px 0;
+}
+
+.delta-pos {
+    color: var(--accent);
+    font-weight: 700;
+    font-family: var(--font-mono);
+}
+
+.delta-neg {
+    color: #ff6600;
+    font-weight: 700;
+    font-family: var(--font-mono);
+}
+
+.key-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    margin-bottom: 8px;
+}
+
+.dossier-pre {
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    line-height: 1.5;
+    color: var(--text-bright);
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    padding: 12px;
+    max-height: 460px;
+    overflow-y: auto;
+}
+
+.ledger-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+}
+
+.ledger-table th,
+.ledger-table td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ledger-table th {
+    color: var(--text-muted);
+    font-weight: 700;
+}

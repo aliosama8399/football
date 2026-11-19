@@ -1,8 +1,9 @@
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from strawberry.fastapi import GraphQLRouter
@@ -31,6 +32,7 @@ from api.routes import (
     scout_router,
     jobs_router
 )
+from api.routes.jobs import _verify_supervisor_or_internal
 from api.services.job_runner import job_manager
 from api.graphql import schema
 
@@ -168,6 +170,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def enterprise_observability_and_security_headers(request: Request, call_next):
+    """Attach correlation IDs, enforce B2B API quotas, latency metrics, and OWASP security headers."""
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    start = time.perf_counter()
+
+    quota_info = None
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key and request.url.path.startswith("/api/v1/"):
+        from api.services.saas_tenant_service import saas_tenant_manager
+
+        key_meta = saas_tenant_manager.verify_api_key(api_key)
+        if key_meta is not None:
+            quota_info = saas_tenant_manager.check_and_consume_quota(key_meta["username"])
+            request.state.quota_checked = True
+            if not quota_info["allowed"]:
+                resp_429 = JSONResponse(
+                    status_code=429,
+                    content={"detail": f"SaaS rate/daily quota exceeded ({quota_info['reason']})"},
+                )
+                resp_429.headers["X-Request-ID"] = request_id
+                resp_429.headers["X-RateLimit-Tier"] = str(quota_info["tier"])
+                resp_429.headers["X-RateLimit-Limit"] = str(quota_info["daily_limit"])
+                resp_429.headers["X-RateLimit-Remaining"] = str(quota_info["daily_remaining"])
+                return resp_429
+
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.2f}"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if quota_info is not None:
+        response.headers["X-RateLimit-Tier"] = str(quota_info["tier"])
+        response.headers["X-RateLimit-Limit"] = str(quota_info["daily_limit"])
+        response.headers["X-RateLimit-Remaining"] = str(quota_info["daily_remaining"])
+    return response
+
 # Register REST Routers
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
@@ -198,8 +241,25 @@ async def root():
     }
 
 
+@app.get("/health/live", tags=["Health Check"])
+async def health_live():
+    """Kubernetes liveness probe."""
+    return {"status": "alive", "version": "1.0.0"}
+
+
+@app.get("/health/ready", tags=["Health Check"])
+async def health_ready(request: Request):
+    """Kubernetes readiness probe validating core ML/RAG runtime initialization."""
+    rag_loaded = getattr(request.app.state, "rag_system", None) is not None
+    return {
+        "status": "ready" if rag_loaded else "degraded",
+        "rag_loaded": rag_loaded,
+        "kg_provider": settings.kg_provider,
+    }
+
+
 @app.post("/api/v1/admin/reload", tags=["Administration"])
-async def reload_api_state(request: Request):
+async def reload_api_state(request: Request, _: None = Depends(_verify_supervisor_or_internal)):
     """
     Hot-reload FootballRAGSystem, ONNX/PyTorch GNN graph snapshots, FAISS/pgvector
     handles, and KnowledgeBase caches after an automated scrape/retrain cycle.
@@ -260,7 +320,7 @@ async def metrics_endpoint():
 
 
 @app.post("/api/v1/monitoring/live-metrics", tags=["Monitoring"])
-async def receive_live_metrics(payload: dict):
+async def receive_live_metrics(payload: dict, _: None = Depends(_verify_supervisor_or_internal)):
     """
     Ingest real-time evaluation metrics over HTTP from live test suites
     (run_rag_eval.py, run_prediction_eval.py) and update Prometheus Gauges directly in memory.

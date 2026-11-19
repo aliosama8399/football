@@ -710,6 +710,7 @@ def promote_best_slm_to_production(
         "experiment_name": experiment,
         "tracking_uri": mlflow.get_tracking_uri(),
         "run_id": best_run_id,
+        "previous_run_id": previous_run_id,
         "model_name": best_model_name,
         "registered_model_name": prod_reg_name,
         "model_specific_registry": reg_name,

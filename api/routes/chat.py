@@ -1,6 +1,8 @@
 import json
-from fastapi import APIRouter, Depends, BackgroundTasks
 from typing import List
+
+from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi.responses import StreamingResponse
 
 from api.schemas import ConversationCreate, ConversationResponse, MessageCreate, MessageResponse
 from api.dependencies import get_chat_service
@@ -81,3 +83,26 @@ async def post_message(
         pass
 
     return resp
+
+
+@router.post("/conversations/{conversation_id}/messages/stream")
+async def stream_post_message(
+    conversation_id: int,
+    payload: MessageCreate,
+    current_user: User = Depends(get_current_user),
+    chat_service=Depends(get_chat_service),
+):
+    """Stream real-time RAG/GNN execution stages, tactical analysis tokens, and citations via SSE."""
+    return StreamingResponse(
+        chat_service.stream_post_message(
+            conversation_id=conversation_id,
+            user_id=current_user.id,
+            content=payload.content,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

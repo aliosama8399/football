@@ -27,7 +27,7 @@ from data.player_form import (cumulative_player_stats, h2h_player_stats,
 from data.player_providers.factory import get_player_provider
 from data.player_providers.schema import PlayerRecord
 from data.team_registry import normalize_team_name
-from data.team_totals import find_latest_team_season, load_team_totals
+from data.team_totals import find_latest_team_season, find_team_seasons, load_team_totals
 
 logger = logging.getLogger("best11.repository")
 
@@ -71,9 +71,18 @@ class Best11Repository:
             logger.warning("get_player_provider(%s) failed for %s %s %s: %s",
                            prov, team, league_code, season, e)
 
-        # Offline fallback: synthesize squad from data/raw/player_match/ if available
+        # Offline fallback 1: synthesize squad from data/raw/player_match/ if available
         if not squad:
             squad = self._synthesize_from_player_match(team, league_code, season)
+
+        # Online fallback 2: public ESPN JSON API (top-5 leagues + 2nd/3rd divisions)
+        if not squad and prov != "espn":
+            try:
+                espn_obj = get_player_provider("espn")
+                squad = espn_obj.fetch_team_squad(team, league_code, season)
+            except Exception as e:
+                logger.warning("ESPN squad fallback failed for %s %s %s: %s",
+                               team, league_code, season, e)
 
         if squad:
             try:
@@ -135,6 +144,23 @@ class Best11Repository:
     def find_latest_season_for_team(self, team: str, league_code: str) -> Optional[str]:
         """Find the latest season in processed_matches.csv where `team` played in `league_code`."""
         return find_latest_team_season(team, league_code)
+
+    def find_team_seasons(self, team: str, league_code: str) -> List[str]:
+        """Return all active season codes for `team` in `league_code` sorted newest-first."""
+        return find_team_seasons(team, league_code)
+
+    def find_cached_seasons(self, team: str, league_code: str, provider: str = "all") -> List[str]:
+        """Return cached season codes for `team` in `self.cache_dir`, sorted newest-first."""
+        if not self.cache_dir.exists():
+            return []
+        safe = team.replace(" ", "_")
+        prefix = f"{provider}_{safe}_{league_code}_"
+        seasons = []
+        for path in self.cache_dir.glob(f"{prefix}*.json"):
+            season_code = path.stem[len(prefix):]
+            if season_code.isdigit():
+                seasons.append(season_code)
+        return sorted(seasons, key=int, reverse=True)
 
     # ── Per-match player form ────────────────────────────────────────────────
 

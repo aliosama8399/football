@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, Field
 
 from api.schemas import UserActivate, UserResponse, TokenResponse, UserRegister, UserChangePassword
 from api.dependencies import get_user_repo
@@ -7,6 +10,7 @@ from api.auth import (
     verify_password, get_password_hash, create_access_token, get_current_user
 )
 from api.database import User
+from api.services.saas_tenant_service import saas_tenant_manager
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -169,3 +173,59 @@ async def change_password(
     hashed_password = get_password_hash(payload.new_password)
     updated_user = await user_repo.update_password(current_user, hashed_password)
     return updated_user
+
+
+class TenantTierUpdateRequest(BaseModel):
+    tier: str = Field(..., description="Subscription tier: 'free', 'pro', or 'club_enterprise'")
+    organization: Optional[str] = Field(default=None, description="Optional workspace/club name")
+
+
+class ApiKeyCreateRequest(BaseModel):
+    label: str = Field(default="B2B Integration", min_length=1, max_length=80)
+
+
+@router.get("/usage")
+async def get_tenant_usage(current_user: User = Depends(get_current_user)):
+    """Retrieve the authenticated tenant's SaaS tier, enabled features, and daily/RPM quotas."""
+    return saas_tenant_manager.get_tenant_profile(current_user.username, default_role=current_user.role)
+
+
+@router.post("/tier")
+async def update_tenant_tier(
+    payload: TenantTierUpdateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Update the authenticated tenant's subscription tier or workspace organization."""
+    try:
+        return saas_tenant_manager.update_tenant_tier(
+            username=current_user.username,
+            tier=payload.tier,
+            organization=payload.organization,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/api-keys")
+async def create_b2b_api_key(
+    payload: Optional[ApiKeyCreateRequest] = Body(default=None),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate a new B2B `X-API-Key` (`fk_live_...`) for headless server-to-server access."""
+    label = payload.label if payload else "B2B Integration"
+    return saas_tenant_manager.create_api_key(username=current_user.username, label=label)
+
+
+@router.get("/api-keys")
+async def list_b2b_api_keys(current_user: User = Depends(get_current_user)):
+    """List non-secret metadata for the authenticated user's B2B API keys."""
+    return {"keys": saas_tenant_manager.list_api_keys(current_user.username)}
+
+
+@router.delete("/api-keys/{key_id}")
+async def revoke_b2b_api_key(key_id: str, current_user: User = Depends(get_current_user)):
+    """Revoke an existing B2B API key owned by the authenticated user."""
+    revoked = saas_tenant_manager.revoke_api_key(username=current_user.username, key_id=key_id)
+    if not revoked:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+    return {"status": "revoked", "key_id": key_id}

@@ -20,6 +20,7 @@ calls on those teams — usually 1-3 per scout query.
 """
 
 import logging
+import time
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
@@ -149,32 +150,56 @@ class ScoutRepository:
 
     # ── Stats enrichment: API-Football only for teams in the shortlist ───────
 
+    def _lookup_cached_team_id(self, team_name: str, league_code: str, year: int) -> Optional[int]:
+        """Resolve API-Football team ID purely from disk cache without network calls."""
+        rows = self.stats_provider.read_cached_only(f"teams_{league_code}_{year}")
+        if not rows:
+            return None
+        want = _normalize(team_name)
+        for row in rows:
+            tm = row.get("team") or {}
+            tname = tm.get("name") or ""
+            if _normalize(tname) == want or _normalize(tname.replace(" ", "_")) == want:
+                return tm.get("id")
+        for row in rows:
+            tm = row.get("team") or {}
+            tname = tm.get("name") or ""
+            if want and _normalize(tname).startswith(want):
+                return tm.get("id")
+        return None
+
     def enrich_with_stats(self, candidates: List[PlayerRecord],
                           season: str,
-                          refresh: bool = False) -> List[PlayerRecord]:
-        """Fetch per-player season stats from API-Football for the unique
-        teams in `candidates`. Updates each candidate's PlayerRecord in
-        place (returns the same list).
-        """
-        if not self.stats_provider.api_key:
-            logger.warning("API_FOOTBALL_KEY missing — stats skipped")
-            return candidates
+                          refresh: bool = False,
+                          max_live_seconds: float = 5.0) -> List[PlayerRecord]:
+        """Enrich shortlist candidates with API-Football stats (disk cache first, bounded live HTTP)."""
         year = _season_year(season)
+        deadline = time.monotonic() + max_live_seconds
         by_team: Dict[str, List[PlayerRecord]] = defaultdict(list)
         for rec in candidates:
             by_team[_normalize(rec.team)].append(rec)
-        for team_norm, recs in by_team.items():
+
+        for recs in by_team.values():
             rec = recs[0]
             team_name = rec.team
             league_code = self._to_league_code(rec.league) or rec.league
-            team_id = self.stats_provider.lookup_team_id(
-                team_name, league_code, year)
-            if not team_id:
-                logger.info("team_id not resolved for %s %s — stats skipped",
-                            team_name, league_code)
-                continue
-            raw = self.stats_provider.fetch_team_players(
-                team_id, year, refresh=refresh)
+
+            team_id = self._lookup_cached_team_id(team_name, league_code, year)
+            raw = (
+                self.stats_provider.read_cached_only(f"players_team_{team_id}_{year}")
+                if (team_id and not refresh)
+                else None
+            )
+
+            if raw is None and refresh and self.stats_provider.api_key:
+                if time.monotonic() >= deadline:
+                    logger.info("enrichment time budget reached — using fused squad cache for remaining teams")
+                    break
+                team_id = team_id or self.stats_provider.lookup_team_id(team_name, league_code, year)
+                if team_id:
+                    raw = self.stats_provider.fetch_team_players(
+                        team_id, year, refresh=True, max_pages=2)
+
             if not raw:
                 continue
             api_records = self.stats_provider._normalise(
@@ -183,8 +208,6 @@ class ScoutRepository:
             for candidate in recs:
                 api_rec = api_by_name.get(_normalize(candidate.name))
                 if not api_rec:
-                    # loose contains-match (e.g. "Lamine Yamal" in
-                    # "Lamine Yamal Nasraoui Ebana")
                     cn = _normalize(candidate.name)
                     for k, v in api_by_name.items():
                         if cn and (cn in k or k in cn):
@@ -196,21 +219,28 @@ class ScoutRepository:
 
     # ── Transfers for the final top-N (cheap: ≤ top transfers) ──────────────
 
-    def attach_transfers(self, candidates: List[PlayerRecord]) -> Dict[str, Dict]:
-        """For each top-N candidate whose team has API-Football transfer
-        data, attach a {player_name: transfer_info_dict} block. Uses
-        /transfers?team=... (single call, cached 24h).
-        """
+    def attach_transfers(self, candidates: List[PlayerRecord],
+                         refresh: bool = False,
+                         max_live_seconds: float = 3.0) -> Dict[str, Dict]:
+        """Attach cached or bounded-live transfer history for shortlisted top-N candidates."""
         out: Dict[str, Dict] = {}
-        if not self.stats_provider.api_key:
-            return out
+        deadline = time.monotonic() + max_live_seconds
         seen_teams: set = set()
         for rec in candidates:
             tid = (rec.extra or {}).get("team_api_id") if rec.extra else None
             if not tid or tid in seen_teams:
                 continue
             seen_teams.add(tid)
-            transfers = self.stats_provider.fetch_team_transfers(tid)
+            transfers = (
+                self.stats_provider.read_cached_only(f"transfers_team_{tid}")
+                if not refresh
+                else None
+            )
+            if transfers is None and refresh and self.stats_provider.api_key:
+                if time.monotonic() >= deadline:
+                    logger.info("transfers time budget reached — skipping remaining transfer lookups")
+                    break
+                transfers = self.stats_provider.fetch_team_transfers(tid, refresh=True)
             for entry in transfers or []:
                 pl = entry.get("player") or {}
                 name = pl.get("name")
@@ -222,8 +252,6 @@ class ScoutRepository:
                 out[_normalize(name)] = {
                     "date": latest.get("date"),
                     "type": latest.get("type"),
-                    # API-Football: teams.out = club the player left,
-                    # teams.in = club he joined.
                     "from_team": (teams.get("out") or {}).get("name"),
                     "to_team": (teams.get("in") or {}).get("name"),
                 }
