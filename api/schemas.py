@@ -1,8 +1,15 @@
 import json
+from datetime import date, datetime
+from typing import Annotated, List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from datetime import datetime, date
-from typing import Optional, List
+from pydantic import BaseModel, Field, StringConstraints, field_validator
+
+try:
+    import email_validator  # noqa: F401
+    from pydantic import EmailStr
+except ImportError:
+    # Graceful fallback when email-validator is not installed in the environment
+    EmailStr = Annotated[str, StringConstraints(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")]  # type: ignore[misc,assignment]
 
 # ── Auth Schemas ─────────────────────────────────────────────────────────────
 

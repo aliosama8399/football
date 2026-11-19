@@ -60,7 +60,7 @@ jobs:
           cache: "pip"
 
       - name: Install Pylint
-        run: python -m pip install --upgrade pip "pylint>=3.0.0" pyyaml pydantic
+        run: python -m pip install --upgrade pip "pylint>=3.0.0" pyyaml "pydantic[email]" email-validator greenlet "sqlalchemy[asyncio]"
 
       - name: Run Pylint Across Project Packages
         run: |
@@ -164,7 +164,7 @@ jobs:
 
       - name: Install Test & Validation Dependencies
         run: |
-          python -m pip install --upgrade pip pytest pyyaml pydantic pydantic-settings fastapi httpx numpy pandas scikit-learn mlflow "python-jose[cryptography]" bcrypt sqlalchemy asyncpg alembic
+          python -m pip install --upgrade pip pytest pyyaml "pydantic[email]" email-validator pydantic-settings fastapi httpx numpy pandas scikit-learn mlflow "python-jose[cryptography]" bcrypt "sqlalchemy[asyncio]" greenlet asyncpg alembic
 
       - name: Bytecode Compile All Project Modules
         run: |

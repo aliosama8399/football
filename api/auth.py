@@ -5,7 +5,10 @@ from jose import JWTError, jwt
 import bcrypt
 from sqlalchemy.future import select
 from sqlalchemy import func
-from sqlalchemy.ext.asyncio import AsyncSession
+try:
+    from sqlalchemy.ext.asyncio import AsyncSession
+except (ImportError, Exception):  # pragma: no cover
+    AsyncSession = object  # type: ignore[misc,assignment]
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
