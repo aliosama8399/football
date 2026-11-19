@@ -7,6 +7,7 @@ from api.utils import strip_markdown
 from api.repositories.chat_repo import ChatRepository
 from api.repositories.kb_repo import KnowledgeBaseRepository
 from api.config import rag_cfg
+from models.llm_providers import resolve_default_provider
 
 
 class ChatService:
@@ -28,7 +29,8 @@ class ChatService:
         self.kb_repo = knowledge_base_repo
         # Same key the RAG orchestrator uses; missing/empty → none-safe
         # structured answers (no LLM).
-        self._llm_name = (rag_cfg.get("llm_provider") or "").strip() or None
+        raw_llm = str(rag_cfg.get("llm_provider") or "").strip()
+        self._llm_name = None if raw_llm.lower() == "none" else (raw_llm or resolve_default_provider())
 
     async def create_conversation(self, user_id: int, title: str, mode: str):
         if mode not in ("prediction", "general"):
@@ -90,4 +92,74 @@ class ChatService:
             sender="assistant",
             content=reply_content,
             sources=sources_json,
+        )
+
+    @staticmethod
+    def _format_sse(event: str, payload: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    async def stream_post_message(self, conversation_id: int, user_id: int, content: str):
+        """Stream pipeline stages, generated tactical tokens, citations, and completion as SSE."""
+        conversation = await self.chat_repo.get_conversation(conversation_id, user_id=user_id)
+        if not conversation:
+            yield self._format_sse("error", {"detail": "Conversation not found", "status": 404})
+            return
+
+        past_messages = await self.chat_repo.get_recent_messages(conversation_id=conversation_id, limit=6)
+        memory_lines = [f"{msg.sender.upper()}: {msg.content}" for msg in past_messages]
+        memory_context = "\n".join(memory_lines) or None
+
+        await self.chat_repo.save_message(conversation_id=conversation_id, sender="user", content=content)
+        yield self._format_sse(
+            "stage",
+            {
+                "stage": "context_loaded",
+                "memory_turns": len(past_messages),
+                "mode": conversation.mode,
+            },
+        )
+        yield self._format_sse(
+            "stage",
+            {"stage": "hybrid_rag_and_gnn", "status": "executing"},
+        )
+
+        answer = await asyncio.to_thread(
+            self.kb_repo.ask,
+            content,
+            llm_name=self._llm_name,
+            prefer_prediction=(conversation.mode == "prediction"),
+            memory=memory_context,
+        )
+
+        reply_content = answer.content
+        if answer.provider != "none" or not reply_content.lstrip().startswith("{"):
+            reply_content = strip_markdown(reply_content)
+
+        words = reply_content.split(" ")
+        chunk_size = 4
+        for idx in range(0, len(words), chunk_size):
+            piece = " ".join(words[idx : idx + chunk_size])
+            if idx + chunk_size < len(words):
+                piece += " "
+            yield self._format_sse("token", {"delta": piece})
+
+        sources_list = []
+        if answer.bundle and answer.bundle.sources:
+            sources_list = [s.to_json() for s in answer.bundle.sources]
+        sources_json = json.dumps(sources_list, ensure_ascii=False) if sources_list else None
+
+        saved_msg = await self.chat_repo.save_message(
+            conversation_id=conversation_id,
+            sender="assistant",
+            content=reply_content,
+            sources=sources_json,
+        )
+        yield self._format_sse("citations", {"sources": sources_list})
+        yield self._format_sse(
+            "done",
+            {
+                "message_id": getattr(saved_msg, "id", None),
+                "conversation_id": conversation_id,
+                "provider": answer.provider,
+            },
         )

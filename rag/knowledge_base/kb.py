@@ -22,6 +22,7 @@ from typing import List, Optional
 
 import yaml
 
+from api.utils import clean_slm_output
 from models.llm_providers import get_llm_provider
 from rag.knowledge_base.config import kb_settings
 from rag.knowledge_base.context import ContextBundle, SourceRef
@@ -443,7 +444,7 @@ class KnowledgeBase:
             f"{bundle.render()}\n\nQUESTION: {question}"
         )
         try:
-            content = _llm_generate(llm, prompt)
+            content = clean_slm_output(_llm_generate(llm, prompt))
             provider = getattr(llm, "provider_name", str(llm_name))
             return Answer(content=content, provider=provider, bundle=bundle)
         except Exception as e:

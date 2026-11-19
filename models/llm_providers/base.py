@@ -53,6 +53,17 @@ def _gen_cfg() -> dict:
     return _load_config().get("generation", {})
 
 
+def resolve_default_provider() -> str:
+    """Return the single canonical LLM provider from env or models/llm_config.yaml."""
+    env_prov = os.environ.get("LLM_PROVIDER", "").strip()
+    if env_prov:
+        return env_prov
+    cfg = _load_config()
+    rag_prov = str((cfg.get("rag") or {}).get("llm_provider") or "").strip()
+    top_prov = str(cfg.get("default_provider") or "").strip()
+    return top_prov or rag_prov or "vllm"
+
+
 def _resolve_api_key(provider_name: str, env_var: str, override: str | None) -> str:
     """
     Resolve API key with priority: override arg -> env var -> config file.

@@ -68,6 +68,24 @@ class AsyncRAGWrapper:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self.rag.kg.get_team_profile, team_name)
 
+    async def generate_direct(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        teams: Optional[List[str]] = None,
+        include_kg: bool = False,
+    ) -> dict:
+        """Asynchronously invoke the fine-tuned SLM directly for simulator/dossier generation."""
+        loop = asyncio.get_running_loop()
+        fn = partial(
+            self.rag.generate_direct,
+            prompt,
+            system_prompt=system_prompt,
+            teams=teams,
+            include_kg=include_kg,
+        )
+        return await loop.run_in_executor(self._executor, fn)
+
     def get_available_teams(self) -> List[str]:
         """Fetch available team list (runs fast in-memory, no offloading needed)."""
         return self.rag.get_available_teams()

@@ -45,10 +45,18 @@ function initTabNavigation() {
             }
             if (currentTab === 'best11-tab') {
                 const best11League = document.getElementById('best11-league-select').value;
-                loadBest11Teams(best11League);
+                const best11Season = document.getElementById('best11-season-select')?.value || null;
+                loadBest11Teams(best11League, best11Season);
             }
             if (currentTab === 'scout-tab') {
                 // Nothing to preload — the scout tab only needs user criteria.
+            }
+            if (currentTab === 'simulator-tab') {
+                const simLeague = document.getElementById('sim-league-select').value;
+                loadSimulatorTeams(simLeague);
+            }
+            if (currentTab === 'saas-tab') {
+                loadSaasWorkspace();
             }
             if (currentTab === 'supervisor-tab') {
                 fetchSupervisorQueue();
@@ -92,6 +100,19 @@ async function checkAuthStatus() {
                 } else {
                     hideSupervisorElements();
                 }
+                const tierBadge = document.getElementById('hud-tier-badge');
+                if (tierBadge) {
+                    try {
+                        const usageRes = await fetch(`${API_BASE}/auth/usage`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (usageRes.ok) {
+                            const usage = await usageRes.json();
+                            tierBadge.textContent = String(usage.tier || 'pro').replace(/_/g, ' ').toUpperCase();
+                            tierBadge.style.display = '';
+                        }
+                    } catch (_) { /* optional badge */ }
+                }
                 return;
             }
         } catch (e) {
@@ -103,6 +124,8 @@ async function checkAuthStatus() {
     localStorage.removeItem('access_token');
     token = null;
     userDisplay.textContent = 'UNAUTHENTICATED';
+    const tierBadge = document.getElementById('hud-tier-badge');
+    if (tierBadge) tierBadge.style.display = 'none';
     userDisplay.classList.remove('user-display-link');
     authBtn.textContent = 'LOGIN / REGISTER';
     authBtn.classList.remove('muted-btn');
@@ -310,8 +333,10 @@ function populateTeamSelects(teams) {
     const profileSelect = document.getElementById('profile-team-select');
     const liveHomeSelect = document.getElementById('live-home-team-select');
     const liveAwaySelect = document.getElementById('live-away-team-select');
+    const simHomeSelect = document.getElementById('sim-home-select');
+    const simAwaySelect = document.getElementById('sim-away-select');
     
-    const selects = [homeSelect, awaySelect, profileSelect, liveHomeSelect, liveAwaySelect];
+    const selects = [homeSelect, awaySelect, profileSelect, liveHomeSelect, liveAwaySelect, simHomeSelect, simAwaySelect];
     selects.forEach(select => {
         if (!select) return;
         select.innerHTML = '';
@@ -329,6 +354,8 @@ function populateTeamSelects(teams) {
         if (awaySelect) awaySelect.selectedIndex = 1;
         if (liveHomeSelect) liveHomeSelect.selectedIndex = 0;
         if (liveAwaySelect) liveAwaySelect.selectedIndex = 1;
+        if (simHomeSelect) simHomeSelect.selectedIndex = 0;
+        if (simAwaySelect) simAwaySelect.selectedIndex = 1;
     }
 }
 
@@ -425,10 +452,39 @@ function setupEventListeners() {
 
     // Best XI tab
     document.getElementById('best11-league-select').addEventListener('change', (e) => {
-        loadBest11Teams(e.target.value);
+        const season = document.getElementById('best11-season-select')?.value || null;
+        loadBest11Teams(e.target.value, season);
     });
+    const best11SeasonSel = document.getElementById('best11-season-select');
+    if (best11SeasonSel) {
+        best11SeasonSel.addEventListener('change', (e) => {
+            const league = document.getElementById('best11-league-select').value;
+            loadBest11Teams(league, e.target.value || null);
+        });
+    }
     document.getElementById('predict-best11-btn').addEventListener('click', predictBest11);
     document.getElementById('run-scout-btn').addEventListener('click', scoutCandidates);
+
+    // Simulator & Dossier tab
+    const simLeagueSel = document.getElementById('sim-league-select');
+    if (simLeagueSel) simLeagueSel.addEventListener('change', (e) => loadSimulatorTeams(e.target.value));
+    const impactSlider = document.getElementById('sim-player-impact');
+    if (impactSlider) {
+        impactSlider.addEventListener('input', (e) => {
+            const valEl = document.getElementById('sim-impact-val');
+            if (valEl) valEl.textContent = Number(e.target.value).toFixed(2);
+        });
+    }
+    const simBtn = document.getElementById('run-sim-btn');
+    if (simBtn) simBtn.addEventListener('click', runWhatIfSimulation);
+    const dossierBtn = document.getElementById('run-dossier-btn');
+    if (dossierBtn) dossierBtn.addEventListener('click', generateScoutingDossier);
+
+    // SaaS Workspace & API Keys tab
+    const saveTierBtn = document.getElementById('saas-save-tier-btn');
+    if (saveTierBtn) saveTierBtn.addEventListener('click', updateSaasTier);
+    const createKeyBtn = document.getElementById('saas-create-key-btn');
+    if (createKeyBtn) createKeyBtn.addEventListener('click', createSaasApiKey);
     
     // Contribute tab: league change → reload team selects
     document.getElementById('match-league-select').addEventListener('change', async (e) => {
@@ -512,12 +568,17 @@ async function runMatchPrediction() {
             if (p && typeof p === 'object') parsedJson = p;
         } catch (e) { /* plain-text narrative */ }
 
+        const isFallbackDump = parsedJson && (parsedJson.fallback === true || ('question' in parsedJson && 'kg_context' in parsedJson));
+        const cleanNarrativeText = isFallbackDump
+            ? 'Expert 2 SLM inference is temporarily unavailable. Showing Expert 1 (TEA-GNN) probabilities and Knowledge Graph scouting profiles.'
+            : (data.tactical_analysis || '');
+
         let analysis;
-        if (parsedJson || breakdown) {
+        if ((parsedJson && !isFallbackDump) || breakdown) {
             analysis = {
                 confidence_rating: confidenceRating,
-                tactical_matchup_summary: data.tactical_analysis,
-                ...(parsedJson || {}),
+                tactical_matchup_summary: (breakdown && breakdown.tactical_matchup_summary) || cleanNarrativeText,
+                ...(!isFallbackDump && parsedJson ? parsedJson : {}),
                 ...(breakdown || {}),
             };
             if (!analysis.prediction_verdict && parsedJson === null) {
@@ -527,7 +588,7 @@ async function runMatchPrediction() {
             analysis = {
                 prediction_verdict: '',
                 confidence_rating: confidenceRating,
-                tactical_matchup_summary: data.tactical_analysis
+                tactical_matchup_summary: cleanNarrativeText,
             };
         }
         
@@ -573,7 +634,7 @@ async function runMatchPrediction() {
                     <div class="card-title">EXPERT THESIS</div>
                     <div class="card-body">
                         <p style="font-weight: 600; margin-bottom: 8px;">Confidence: <span class="accent-text">${esc(analysis.confidence_rating || confidenceRating)}</span></p>
-                        <p>${analysis.prediction_verdict}</p>
+                        <p>${esc(analysis.prediction_verdict)}</p>
                     </div>
                 </div>` : ''}
 
@@ -583,7 +644,7 @@ async function runMatchPrediction() {
                 <div class="analysis-card full-width">
                     <div class="card-title">TACTICAL ENCOUNTER SUMMARY</div>
                     <div class="card-body">
-                        <p>${analysis.tactical_matchup_summary || 'Analysis details not parsed.'}</p>
+                        <p style="white-space: pre-wrap;">${esc(analysis.tactical_matchup_summary || 'Analysis details not parsed.')}</p>
                     </div>
                 </div>
             </div>
@@ -1033,7 +1094,7 @@ async function sendChatMessage() {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     
     try {
-        const res = await fetch(`${API_BASE}/chat/conversations/${activeConversationId}/messages`, {
+        const res = await fetch(`${API_BASE}/chat/conversations/${activeConversationId}/messages/stream`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1041,13 +1102,75 @@ async function sendChatMessage() {
             },
             body: JSON.stringify({ content })
         });
-        if (res.ok) {
-            const data = await res.json();
+        if (res.ok && res.body) {
             loaderDiv.classList.remove('typing-indicator');
-            loaderDiv.textContent = data.content;
+            loaderDiv.innerHTML = '';
+
+            const stageBanner = document.createElement('div');
+            stageBanner.className = 'sse-stage-pill';
+            stageBanner.textContent = 'STAGE: CONNECTING...';
+            const textBody = document.createElement('div');
+            const citationsBar = document.createElement('div');
+            citationsBar.style.marginTop = '8px';
+            loaderDiv.appendChild(stageBanner);
+            loaderDiv.appendChild(textBody);
+            loaderDiv.appendChild(citationsBar);
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const frames = buffer.split('\n\n');
+                buffer = frames.pop() || '';
+                for (const frame of frames) {
+                    let evtType = 'message';
+                    let dataLine = '';
+                    for (const line of frame.split('\n')) {
+                        if (line.startsWith('event:')) evtType = line.slice(6).trim();
+                        else if (line.startsWith('data:')) dataLine += line.slice(5).trim();
+                    }
+                    if (!dataLine) continue;
+                    try {
+                        const payload = JSON.parse(dataLine);
+                        if (evtType === 'stage') {
+                            stageBanner.textContent = `STAGE: ${String(payload.stage || '').toUpperCase().replace(/_/g, ' ')}`;
+                        } else if (evtType === 'token') {
+                            textBody.textContent += (payload.delta || '');
+                            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        } else if (evtType === 'citations' && Array.isArray(payload.sources)) {
+                            citationsBar.innerHTML = payload.sources
+                                .slice(0, 6)
+                                .map(s => `<span class="citation-chip">${esc(s.type || s.source || 'KB')}: ${esc(s.team || s.label || s.table || 'fact')}</span>`)
+                                .join('');
+                        } else if (evtType === 'done') {
+                            stageBanner.textContent = `STREAM COMPLETE · ${String(payload.provider || 'rag').toUpperCase()}`;
+                        } else if (evtType === 'error') {
+                            textBody.textContent = `[Error: ${payload.detail || 'Stream failure'}]`;
+                        }
+                    } catch (_) { /* ignore malformed SSE frame */ }
+                }
+            }
         } else {
+            // Fallback to synchronous POST if SSE stream unavailable
+            const syncRes = await fetch(`${API_BASE}/chat/conversations/${activeConversationId}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ content })
+            });
             loaderDiv.classList.remove('typing-indicator');
-            loaderDiv.textContent = "[Error: Failed to fetch response]";
+            if (syncRes.ok) {
+                const data = await syncRes.json();
+                loaderDiv.textContent = data.content;
+            } else {
+                loaderDiv.textContent = "[Error: Failed to fetch response]";
+            }
         }
     } catch (e) {
         console.error(e);
@@ -1196,9 +1319,10 @@ async function loadTeamProfile() {
 
 const BEST11_PREVIEW_LABEL = 'NEXT-SEASON PREVIEW';
 
-async function loadBest11Teams(league) {
-    const query = `query GetTeams($league: String!) { leagueTeams(league: $league) }`;
-    const data = await graphqlQuery(query, { league });
+async function loadBest11Teams(league, season = null) {
+    const query = `query GetTeams($league: String!, $season: String) { leagueTeams(league: $league, season: $season) }`;
+    const vars = season ? { league, season } : { league };
+    const data = await graphqlQuery(query, vars);
     const teams = data ? data.leagueTeams : [];
     ['best11-home-team-select', 'best11-away-team-select'].forEach(sid => {
         const sel = document.getElementById(sid);
@@ -1218,9 +1342,12 @@ async function loadBest11Teams(league) {
 
 async function predictBest11() {
     const league = document.getElementById('best11-league-select').value;
+    const seasonEl = document.getElementById('best11-season-select');
+    const season = seasonEl && seasonEl.value.trim() ? seasonEl.value.trim() : null;
     const home = document.getElementById('best11-home-team-select').value;
     const away = document.getElementById('best11-away-team-select').value;
-    const formation = 'auto';
+    const formationEl = document.getElementById('best11-formation-select');
+    const formation = formationEl && formationEl.value ? formationEl.value : 'auto';
     const container = document.getElementById('best11-result-container');
 
     if (!home || !away || home === away) {
@@ -1230,14 +1357,14 @@ async function predictBest11() {
     container.innerHTML = `
         <div class="empty-state">
             <div class="empty-icon">⏳</div>
-            <div>COMPUTING PREVIEW FOR ${home.replace(/_/g, ' ')} &amp; ${away.replace(/_/g, ' ')}</div>
-            <div class="empty-desc">Team-share player ratings · best-fit formation · latest completed season</div>
+            <div>COMPUTING LINEUPS FOR ${home.replace(/_/g, ' ')} &amp; ${away.replace(/_/g, ' ')}</div>
+            <div class="empty-desc">Season ${esc(season || 'AUTO')} · Formation ${esc(formation.toUpperCase())}</div>
         </div>
     `;
 
     const query = `
-        query Best11($team: String!, $league: String!, $formation: String!, $opponent: String) {
-            best11(team: $team, league: $league, formation: $formation, opponent: $opponent) {
+        query Best11($team: String!, $league: String!, $season: String, $formation: String!, $opponent: String) {
+            best11(team: $team, league: $league, season: $season, formation: $formation, opponent: $opponent) {
                 team leagueCode season formation error
                 lineup { slot name position rating minutes flex
                          season { goals assists xg xa shots }
@@ -1249,7 +1376,7 @@ async function predictBest11() {
         }
     `;
     try {
-        const baseVars = { team: home, league, formation, opponent: away };
+        const baseVars = { team: home, league, season, formation, opponent: away };
         const [homeData, awayData] = await Promise.all([
             graphqlQuery(query, baseVars),
             graphqlQuery(query, { ...baseVars, team: away, opponent: home }),
@@ -1274,6 +1401,7 @@ function renderBest11Panels(homeResult, awayResult, homeTeam, awayTeam, formatio
     const container = document.getElementById('best11-result-container');
     const homeStrength = xiStrength(homeResult);
     const awayStrength = xiStrength(awayResult);
+    const seasonTag = (homeResult && homeResult.season) || (awayResult && awayResult.season) || 'AUTO';
     let verdictLine = '';
     if (homeStrength != null && awayStrength != null) {
         const diff = homeStrength - awayStrength;
@@ -1289,11 +1417,11 @@ function renderBest11Panels(homeResult, awayResult, homeTeam, awayTeam, formatio
         <div class="pred-header-card">
             <div class="pred-title">
                 <span class="pred-vs">${homeTeam.replace(/_/g, ' ')} <span class="vs-divider">VS</span> ${awayTeam.replace(/_/g, ' ')}</span>
-                <span class="verdict-tag">${BEST11_PREVIEW_LABEL}</span>
+                <span class="verdict-tag">SEASON ${esc(seasonTag)} · ${BEST11_PREVIEW_LABEL}</span>
             </div>
             <div class="verdict-row">${verdictLine}</div>
             <div style="font-size:0.65rem; color: var(--text-muted); padding: 0 14px 8px;">
-                PREDICTED LINEUPS · AUTO-FIT FORMATIONS · TEAM-SHARE RATINGS · ★ CAPTAIN
+                STRICT SINGLE-SEASON SQUAD · FORMATION ${esc(String(formation || 'AUTO').toUpperCase())} · ★ CAPTAIN
             </div>
         </div>
     `;
@@ -1348,7 +1476,7 @@ function predictionPanel(result, teamName, opponent) {
         ? `<div class="xi-notes">${result.notes.map(n => `<div>• ${n}</div>`).join('')}</div>` : '';
     return `
         <div class="analysis-card">
-            <div class="card-title">${label} <span class="accent-text" style="font-weight:400;">· ${result.formation}</span></div>
+            <div class="card-title">${label} <span class="accent-text" style="font-weight:400;">· ${result.formation} · SEASON ${esc(result.season || '')}</span></div>
             <div class="card-body">
                 <div class="xi-grid">${slots}</div>
                 ${h2hHtml}
@@ -1397,6 +1525,8 @@ async function scoutCandidates() {
     const rawSeason = document.getElementById('scout-season').value.trim();
     const season = rawSeason || null;
     const youth = document.getElementById('scout-youth').checked;
+    const refreshEl = document.getElementById('scout-refresh');
+    const refresh = Boolean(refreshEl && refreshEl.checked);
     const top = Math.min(Math.max(parseInt(document.getElementById('scout-top').value, 10) || 5, 1), 20);
     const teamNeeding = document.getElementById('scout-exclude-team').value.trim() || null;
     const container = document.getElementById('scout-result-container');
@@ -1405,14 +1535,14 @@ async function scoutCandidates() {
         <div class="empty-state">
             <div class="empty-icon">🔭</div>
             <div>SCANNING ${SCOUT_LEAGUE_LABELS[league] || league} · ${position} ${youth ? '· YOUTH ≤ 19' : ''}</div>
-            <div class="empty-desc">Building identity pool → enriching shortlisted teams with season stats → scoring…</div>
+            <div class="empty-desc">${refresh ? 'Refreshing live API-Football shortlist stats…' : 'Instant scan from fused squad & disk scout cache…'}</div>
         </div>
     `;
 
     const query = `
-        query Scout($position: String!, $league: String!, $season: String, $youth: Boolean!, $top: Int!, $teamNeeding: String) {
+        query Scout($position: String!, $league: String!, $season: String, $youth: Boolean!, $top: Int!, $teamNeeding: String, $refresh: Boolean!) {
             scout(position: $position, league: $league, season: $season,
-                  youth: $youth, top: $top, teamNeeding: $teamNeeding) {
+                  youth: $youth, top: $top, teamNeeding: $teamNeeding, refresh: $refresh) {
                 position season youth leagues poolSize top error
                 candidates {
                     rank name team league position age nationality shirtNumber
@@ -1427,7 +1557,7 @@ async function scoutCandidates() {
         }
     `;
     try {
-        const data = await graphqlQuery(query, { position, league, season, youth, top, teamNeeding });
+        const data = await graphqlQuery(query, { position, league, season, youth, top, teamNeeding, refresh });
         renderScoutResults(container, data ? data.scout : null);
     } catch (e) {
         console.error(e);
@@ -1692,6 +1822,7 @@ async function submitTeamProfileEdit() {
 
 function initMlopsControlPanel() {
     refreshMlopsStatus();
+    loadShadowAndLedger();
     if (mlopsPollTimer) clearInterval(mlopsPollTimer);
     mlopsPollTimer = setInterval(refreshMlopsStatus, 3000);
 }
@@ -1954,5 +2085,335 @@ async function handleReview(submissionId, submissionType, status, cardEl) {
         errDiv.className = 'review-error';
         errDiv.textContent = `Error: ${e.message}`;
         cardEl.appendChild(errDiv);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enterprise SaaS: What-If Tactical Simulator & Pre-Match Scouting Dossier
+// ─────────────────────────────────────────────────────────────────────────────
+
+let latestDossierMarkdown = '';
+let latestDossierFilename = 'pre_match_dossier.md';
+
+async function loadSimulatorTeams(league) {
+    const query = `query GetTeams($league: String!) { leagueTeams(league: $league) }`;
+    try {
+        const data = await graphqlQuery(query, { league });
+        const teams = data ? data.leagueTeams : [];
+        ['sim-home-select', 'sim-away-select'].forEach((sid, idx) => {
+            const sel = document.getElementById(sid);
+            if (!sel) return;
+            sel.innerHTML = '';
+            teams.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t.replace(/_/g, ' ');
+                sel.appendChild(opt);
+            });
+            if (teams.length >= 2) sel.selectedIndex = idx;
+        });
+    } catch (e) {
+        console.error('Failed loading simulator teams:', e);
+    }
+}
+
+async function runWhatIfSimulation() {
+    if (!token) {
+        alert('Please authenticate to run simulations.');
+        showAuthModal();
+        return;
+    }
+    const container = document.getElementById('simulator-result-container');
+    const payload = {
+        home_team: document.getElementById('sim-home-select').value,
+        away_team: document.getElementById('sim-away-select').value,
+        home_formation: document.getElementById('sim-home-formation').value,
+        away_formation: document.getElementById('sim-away-formation').value,
+        tactical_preset: document.getElementById('sim-preset').value,
+        key_player_impact: parseFloat(document.getElementById('sim-player-impact').value || '0'),
+    };
+    if (!payload.home_team || !payload.away_team || payload.home_team === payload.away_team) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div>SELECT TWO DIFFERENT TEAMS</div></div>';
+        return;
+    }
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div>RUNNING FINE-TUNED SLM TACTICAL SYNTHESIS...</div><div class="empty-desc">Computing GNN log-odds shift and generating live tactical commentary from your SLM.</div></div>';
+    try {
+        const res = await fetch(`${API_BASE}/predictions/simulate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            container.innerHTML = `<div class="empty-state" style="color:#ff3333"><div>${esc(formatApiError(data))}</div></div>`;
+            return;
+        }
+        const sp = data.simulated_probabilities || {};
+        const dp = data.probability_deltas || {};
+        const deltaClass = data.expected_points_delta >= 0 ? 'delta-pos' : 'delta-neg';
+        const fmtPct = v => `${((Number(v) || 0) * 100).toFixed(1)}%`;
+        const fmtDelta = v => `${Number(v) >= 0 ? '+' : ''}${(Number(v) * 100).toFixed(1)}%`;
+
+        container.innerHTML = `
+            <div class="pred-header-card">
+                <div class="pred-title">
+                    <span class="pred-vs">${esc(data.home_team)} (${esc(data.home_formation)}) <span class="vs-divider">VS</span> ${esc(data.away_team)} (${esc(data.away_formation)})</span>
+                    <span class="verdict-tag">${esc(data.tactical_preset.toUpperCase())} · SLM (${esc((data.llm_provider || 'vllm').toUpperCase())})</span>
+                </div>
+                <div class="verdict-row">
+                    <span class="verdict-chip">${data.expected_points_simulated.toFixed(3)} xPts</span>
+                    <span class="${deltaClass}">Delta: ${data.expected_points_delta >= 0 ? '+' : ''}${data.expected_points_delta.toFixed(3)} xPts</span>
+                    <span class="verdict-margin">xG: ${data.expected_goals.home_xg} – ${data.expected_goals.away_xg}</span>
+                </div>
+                <div style="font-size:0.8rem; padding:6px 14px 10px; color:var(--text-bright);">${esc(data.recommendation)}</div>
+            </div>
+            <div class="analysis-grid">
+                <div class="analysis-card">
+                    <div class="card-title">COUNTERFACTUAL PROBABILITIES</div>
+                    <div class="card-body">
+                        <div class="detail-row"><span class="detail-key">HOME WIN (H)</span><span class="detail-val">${fmtPct(sp.H)} <small class="${dp.H >= 0 ? 'delta-pos' : 'delta-neg'}">(${fmtDelta(dp.H)})</small></span></div>
+                        <div class="detail-row"><span class="detail-key">DRAW (D)</span><span class="detail-val">${fmtPct(sp.D)} <small>(${fmtDelta(dp.D)})</small></span></div>
+                        <div class="detail-row"><span class="detail-key">AWAY WIN (A)</span><span class="detail-val">${fmtPct(sp.A)} <small>(${fmtDelta(dp.A)})</small></span></div>
+                    </div>
+                </div>
+                <div class="analysis-card">
+                    <div class="card-title">TACTICAL TRADE-OFFS</div>
+                    <div class="card-body">
+                        <p style="color:var(--accent); font-size:0.75rem; font-weight:700;">STRENGTHS GAINED</p>
+                        <ul class="card-list">${(data.tactical_tradeoffs.strengths_gained || []).map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+                        <p style="color:#ff6600; font-size:0.75rem; font-weight:700; margin-top:8px;">VULNERABILITIES EXPOSED</p>
+                        <ul class="card-list">${(data.tactical_tradeoffs.vulnerabilities_exposed || []).map(v => `<li>${esc(v)}</li>`).join('')}</ul>
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state" style="color:#ff3333"><div>${esc(e.message)}</div></div>`;
+    }
+}
+
+async function generateScoutingDossier() {
+    if (!token) {
+        alert('Please authenticate to generate dossiers.');
+        showAuthModal();
+        return;
+    }
+    const container = document.getElementById('simulator-result-container');
+    const payload = {
+        home_team: document.getElementById('sim-home-select').value,
+        away_team: document.getElementById('sim-away-select').value,
+        league: document.getElementById('sim-league-select').value,
+    };
+    if (!payload.home_team || !payload.away_team || payload.home_team === payload.away_team) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div>SELECT TWO DIFFERENT TEAMS</div></div>';
+        return;
+    }
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div>AUTHORING LIVE SLM SCOUTING DOSSIER...</div><div class="empty-desc">Running counterfactual formation sweep + fine-tuned SLM executive synthesis.</div></div>';
+    try {
+        const res = await fetch(`${API_BASE}/predictions/dossier`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            container.innerHTML = `<div class="empty-state" style="color:#ff3333"><div>${esc(formatApiError(data))}</div></div>`;
+            return;
+        }
+        latestDossierMarkdown = data.executive_markdown || '';
+        latestDossierFilename = `${payload.home_team}_vs_${payload.away_team}_dossier.md`.replace(/\s+/g, '_');
+        const opt = data.optimal_formation_simulation || {};
+
+        container.innerHTML = `
+            <div class="pred-header-card">
+                <div class="pred-title">
+                    <span class="pred-vs">PRE-MATCH DOSSIER: ${esc(data.home_team)} VS ${esc(data.away_team)}</span>
+                    <span class="verdict-tag">SLM · ${esc((data.llm_provider || 'vllm').toUpperCase())}</span>
+                    <button class="tech-btn accent-border" onclick="downloadDossierMarkdown()">⬇ DOWNLOAD .MD</button>
+                </div>
+                <div class="verdict-row">
+                    <span class="verdict-chip">OPTIMAL: ${esc(opt.home_formation || '4-3-3')} (${esc(opt.tactical_preset || 'balanced')})</span>
+                    <span class="delta-pos">${Number(opt.expected_points_simulated || 0).toFixed(3)} xPts</span>
+                </div>
+            </div>
+            <div class="analysis-card" style="margin-bottom:12px;">
+                <div class="card-title">EXECUTIVE MARKDOWN BRIEFING</div>
+                <div class="card-body">
+                    <pre class="dossier-pre">${esc(latestDossierMarkdown)}</pre>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state" style="color:#ff3333"><div>${esc(e.message)}</div></div>`;
+    }
+}
+
+function downloadDossierMarkdown() {
+    if (!latestDossierMarkdown) return;
+    const blob = new Blob([latestDossierMarkdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = latestDossierFilename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enterprise SaaS: Workspace Plan, Quota & B2B API Key Manager
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadSaasWorkspace() {
+    const usageCard = document.getElementById('saas-usage-card');
+    const keysList = document.getElementById('saas-keys-list');
+    if (!token) {
+        if (usageCard) usageCard.innerHTML = '<div class="card-title">ACTIVE PLAN TELEMETRY</div><div class="card-body"><div class="empty-desc">Login to manage your SaaS tier and API keys.</div></div>';
+        return;
+    }
+    try {
+        const [usageRes, keysRes] = await Promise.all([
+            fetch(`${API_BASE}/auth/usage`, { headers: { 'Authorization': `Bearer ${token}` } }),
+            fetch(`${API_BASE}/auth/api-keys`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        ]);
+        if (usageRes.ok && usageCard) {
+            const u = await usageRes.json();
+            document.getElementById('saas-tier-select').value = u.tier || 'pro';
+            document.getElementById('saas-org-input').value = u.organization || '';
+            usageCard.innerHTML = `
+                <div class="card-title">WORKSPACE: ${esc(String(u.organization || u.username).toUpperCase())}</div>
+                <div class="card-body">
+                    <div class="detail-row"><span class="detail-key">PLAN TIER</span><span class="detail-val accent-text">${esc(String(u.tier).toUpperCase())}</span></div>
+                    <div class="detail-row"><span class="detail-key">DAILY QUOTA</span><span class="detail-val">${u.daily_used} / ${u.daily_limit} (${u.daily_remaining} left)</span></div>
+                    <div class="detail-row"><span class="detail-key">RATE LIMIT</span><span class="detail-val">${u.rpm_limit} req / min</span></div>
+                    <div class="detail-row"><span class="detail-key">FEATURES</span><span class="detail-val">${esc((u.features || []).join(', '))}</span></div>
+                </div>
+            `;
+        }
+        if (keysRes.ok && keysList) {
+            const data = await keysRes.json();
+            const keys = data.keys || [];
+            if (!keys.length) {
+                keysList.innerHTML = '<div class="empty-state"><div class="empty-icon">🔑</div><div>NO B2B API KEYS MINTED</div></div>';
+            } else {
+                keysList.innerHTML = keys.map(k => `
+                    <div class="key-row">
+                        <div>
+                            <b>${esc(k.label)}</b> <code style="color:var(--accent);">${esc(k.key_prefix)}</code>
+                            <div style="font-size:0.7rem; color:var(--text-muted);">ID: ${esc(k.key_id)} · ${k.revoked ? '<span style="color:#ff3333">REVOKED</span>' : 'ACTIVE'}</div>
+                        </div>
+                        ${k.revoked ? '' : `<button class="tech-btn muted-btn" onclick="revokeSaasApiKey('${esc(k.key_id)}')">REVOKE</button>`}
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) {
+        console.error('Failed loading SaaS workspace:', e);
+    }
+}
+
+async function updateSaasTier() {
+    if (!token) { showAuthModal(); return; }
+    const tier = document.getElementById('saas-tier-select').value;
+    const org = document.getElementById('saas-org-input').value.trim() || null;
+    try {
+        const res = await fetch(`${API_BASE}/auth/tier`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ tier, organization: org }),
+        });
+        if (res.ok) {
+            await loadSaasWorkspace();
+            await checkAuthStatus();
+        } else {
+            const err = await res.json();
+            alert(formatApiError(err));
+        }
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+async function createSaasApiKey() {
+    if (!token) { showAuthModal(); return; }
+    const label = document.getElementById('saas-key-label').value.trim() || 'B2B Integration';
+    const banner = document.getElementById('saas-new-key-banner');
+    try {
+        const res = await fetch(`${API_BASE}/auth/api-keys`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ label }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+            banner.style.display = 'block';
+            banner.innerHTML = `✓ NEW API KEY MINTED (SAVE NOW — SHOWN ONCE):<br><code style="user-select:all; color:#00ff66;">${esc(data.api_key)}</code>`;
+            await loadSaasWorkspace();
+        } else {
+            alert(formatApiError(data));
+        }
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+async function revokeSaasApiKey(keyId) {
+    if (!token) return;
+    try {
+        const res = await fetch(`${API_BASE}/auth/api-keys/${encodeURIComponent(keyId)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (res.ok) await loadSaasWorkspace();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enterprise SaaS: Champion vs Challenger Shadow & Persistent Job Ledger
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadShadowAndLedger() {
+    if (!token) return;
+    const shadowBox = document.getElementById('shadow-metrics-box');
+    const ledgerBox = document.getElementById('job-ledger-box');
+    try {
+        const [shadowRes, ledgerRes] = await Promise.all([
+            fetch(`${API_BASE}/predictions/shadow/metrics`, { headers: { 'Authorization': `Bearer ${token}` } }),
+            fetch(`${API_BASE}/jobs/pipeline/ledger?limit=15`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        ]);
+        if (shadowRes.ok && shadowBox) {
+            const s = await shadowRes.json();
+            shadowBox.innerHTML = `
+                <div class="card-title">SHADOW DEPLOYMENT (PRODUCTION VS STAGING)</div>
+                <div class="card-body">
+                    <div class="detail-row"><span class="detail-key">EVALUATED</span><span class="detail-val">${s.total_evaluated}</span></div>
+                    <div class="detail-row"><span class="detail-key">AGREEMENT RATE</span><span class="detail-val accent-text">${(Number(s.agreement_rate || 0) * 100).toFixed(1)}%</span></div>
+                    <div class="detail-row"><span class="detail-key">AVG JSD / L1</span><span class="detail-val">${s.avg_js_divergence} / ${s.avg_l1_divergence}</span></div>
+                    <div class="detail-row"><span class="detail-key">PROMOTION READY</span><span class="detail-val">${s.promotion_ready ? 'YES ✓' : 'NO (GATHERING SAMPLES)'}</span></div>
+                </div>
+            `;
+        }
+        if (ledgerRes.ok && ledgerBox) {
+            const data = await ledgerRes.json();
+            const entries = data.entries || [];
+            if (!entries.length) {
+                ledgerBox.innerHTML = '<div class="card-title">PERSISTENT DISK JOB LEDGER</div><div class="card-body"><div class="empty-desc">No persisted job runs recorded yet.</div></div>';
+            } else {
+                ledgerBox.innerHTML = `
+                    <div class="card-title">PERSISTENT DISK JOB LEDGER (${entries.length})</div>
+                    <div class="card-body">
+                        <table class="ledger-table">
+                            <thead><tr><th>JOB ID</th><th>STATUS</th><th>DURATION</th></tr></thead>
+                            <tbody>
+                                ${entries.slice(0, 8).map(e => `<tr><td>${esc(e.job_id)}</td><td>${esc(e.status)}</td><td>${e.duration_s || 0}s</td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+        }
+    } catch (e) {
+        console.error('Failed loading shadow & job ledger:', e);
     }
 }

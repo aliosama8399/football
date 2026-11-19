@@ -22,7 +22,7 @@ from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
-GPU_WORKER_CONTAINER = os.environ.get("GPU_WORKER_CONTAINER", "football-auto-eval")
+GPU_WORKER_CONTAINER = os.environ.get("GPU_WORKER_CONTAINER", "football-bento")
 BASE_DIR = os.environ.get("PROJECT_ROOT", "/workspace")
 PYTHON_BIN = f"PYTHONPATH={BASE_DIR} {os.environ.get('PYTHON_BIN', 'python')}"
 

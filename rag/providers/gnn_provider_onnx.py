@@ -113,6 +113,13 @@ class ONNXPredictionProvider(BasePredictionProvider):
         try:
             import onnxruntime as ort
 
+            try:
+                ort.set_default_logger_severity(3)
+            except Exception:
+                pass
+            sess_opts = ort.SessionOptions()
+            sess_opts.log_severity_level = 3
+
             io_path = self.model_path.parent / "tea_gnn_io.json"
             if io_path.exists():
                 self._io_spec = json.loads(io_path.read_text())
@@ -144,7 +151,7 @@ class ONNXPredictionProvider(BasePredictionProvider):
 
             avail_providers = ort.get_available_providers()
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in avail_providers else ["CPUExecutionProvider"]
-            sess = ort.InferenceSession(str(self.model_path), providers=providers)
+            sess = ort.InferenceSession(str(self.model_path), sess_options=sess_opts, providers=providers)
 
             # Inspect whether edge_index second dimension is dynamic
             self._is_dynamic_edges = False

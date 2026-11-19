@@ -25,6 +25,7 @@ from models.llm_providers.base import (
     _gen_cfg,
     _resolve_api_key,
     _resolve_model,
+    resolve_default_provider,
 )
 from models.llm_providers.ollama import OllamaProvider
 from models.llm_providers.openai import OpenAIProvider
@@ -59,9 +60,9 @@ def get_llm_provider(provider_type: str = "", **kwargs: Any) -> Any:
     None-safe: passing "" / None / "none" returns None (LLM disabled).
     """
     if not provider_type or str(provider_type).strip().lower() in ("", "none", "null"):
-        # Check config default
-        cfg = _load_config()
-        provider_type = cfg.get("default_provider", "")
+        if str(provider_type).strip().lower() == "none":
+            return None
+        provider_type = resolve_default_provider()
         if not provider_type or str(provider_type).strip().lower() in ("", "none", "null"):
             return None
 
@@ -89,6 +90,7 @@ __all__ = [
     "HuggingFaceProvider",
     "LLM_REGISTRY",
     "get_llm_provider",
+    "resolve_default_provider",
     "_load_config",
     "_provider_cfg",
     "_gen_cfg",

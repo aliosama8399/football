@@ -15,13 +15,14 @@
         <div class="hud-logo">
             <span class="hud-icon">⚽</span>
             <span class="hud-title">FOOTBALL <span class="accent-text">RAG</span></span>
-            <span class="hud-badge">V1.0-LIVE</span>
+            <span class="hud-badge">V2.0-SAAS</span>
         </div>
         <div class="hud-status">
             <span class="status-indicator online"></span>
             <span id="connection-status">KG: POSTGRES | VECTOR: FAISS</span>
         </div>
         <div class="hud-auth" id="auth-section">
+            <span id="hud-tier-badge" class="hud-badge" style="display:none;">PRO</span>
             <span id="user-display" class="user-display-link" title="Account settings">UNAUTHENTICATED</span>
             <button id="auth-btn" class="tech-btn accent-border">LOGIN / REGISTER</button>
         </div>
@@ -38,6 +39,10 @@
             <button class="nav-item" data-tab="live-tab">
                 <span class="nav-icon">⚡</span>
                 <span class="nav-label">LIVE MATCH</span>
+            </button>
+            <button class="nav-item" data-tab="simulator-tab">
+                <span class="nav-icon">🎯</span>
+                <span class="nav-label">SIMULATOR &amp; DOSSIER</span>
             </button>
             <button class="nav-item" data-tab="chat-tab">
                 <span class="nav-icon">💬</span>
@@ -58,6 +63,10 @@
             <button class="nav-item" data-tab="contribute-tab">
                 <span class="nav-icon">📝</span>
                 <span class="nav-label">DATA CONTRIBUTE</span>
+            </button>
+            <button class="nav-item" data-tab="saas-tab">
+                <span class="nav-icon">🔑</span>
+                <span class="nav-label">WORKSPACE &amp; API</span>
             </button>
             <button class="nav-item supervisor-only" data-tab="supervisor-tab" style="display: none;">
                 <span class="nav-icon">⚡</span>
@@ -202,6 +211,92 @@
                 </div>
             </div>
 
+            <!-- TAB 1.8: What-If Tactical Simulator & Pre-Match Dossier -->
+            <div id="simulator-tab" class="tab-content">
+                <div class="split-view">
+                    <div class="form-panel">
+                        <div class="panel-header">COUNTERFACTUAL SIMULATOR &amp; DOSSIER</div>
+                        <div class="panel-body">
+                            <div class="form-group">
+                                <label for="sim-league-select">LEAGUE</label>
+                                <select id="sim-league-select" class="tech-select">
+                                    <option value="Premier_League">Premier League (England)</option>
+                                    <option value="La_Liga">La Liga (Spain)</option>
+                                    <option value="Serie_A">Serie A (Italy)</option>
+                                    <option value="Bundesliga">Bundesliga (Germany)</option>
+                                    <option value="Ligue_1">Ligue 1 (France)</option>
+                                </select>
+                            </div>
+                            <div class="matchup-selector">
+                                <div class="form-group">
+                                    <label for="sim-home-select">HOME TEAM</label>
+                                    <select id="sim-home-select" class="tech-select"></select>
+                                </div>
+                                <div class="vs-divider">VS</div>
+                                <div class="form-group">
+                                    <label for="sim-away-select">AWAY TEAM</label>
+                                    <select id="sim-away-select" class="tech-select"></select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="sim-home-formation">HOME FORMATION</label>
+                                    <select id="sim-home-formation" class="tech-select">
+                                        <option value="4-3-3">4-3-3</option>
+                                        <option value="4-2-3-1">4-2-3-1</option>
+                                        <option value="3-5-2">3-5-2</option>
+                                        <option value="4-4-2">4-4-2</option>
+                                        <option value="5-3-2">5-3-2</option>
+                                        <option value="3-4-3">3-4-3</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="sim-away-formation">AWAY FORMATION</label>
+                                    <select id="sim-away-formation" class="tech-select">
+                                        <option value="4-3-3">4-3-3</option>
+                                        <option value="4-2-3-1">4-2-3-1</option>
+                                        <option value="3-5-2">3-5-2</option>
+                                        <option value="4-4-2">4-4-2</option>
+                                        <option value="5-3-2">5-3-2</option>
+                                        <option value="3-4-3">3-4-3</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="sim-preset">TACTICAL PRESET</label>
+                                <select id="sim-preset" class="tech-select">
+                                    <option value="balanced">BALANCED</option>
+                                    <option value="high_press">HIGH PRESS</option>
+                                    <option value="low_block">LOW BLOCK</option>
+                                    <option value="counter_attack">COUNTER ATTACK</option>
+                                    <option value="possession_overload">POSSESSION OVERLOAD</option>
+                                    <option value="wing_play">WING PLAY</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="sim-player-impact">KEY PLAYER AVAILABILITY IMPACT: <b id="sim-impact-val">0.00</b></label>
+                                <input type="range" id="sim-player-impact" min="-0.25" max="0.25" step="0.01" value="0" style="width:100%;">
+                            </div>
+                            <div class="form-row" style="gap:8px;">
+                                <button id="run-sim-btn" class="tech-btn block-btn accent-fill">RUN WHAT-IF SIMULATION</button>
+                                <button id="run-dossier-btn" class="tech-btn block-btn accent-border">GENERATE PRE-MATCH DOSSIER</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="result-panel">
+                        <div class="panel-header">TACTICAL SIMULATION &amp; DOSSIER OUTPUT</div>
+                        <div class="panel-body" id="simulator-result-container">
+                            <div class="empty-state">
+                                <div class="empty-icon">🎯</div>
+                                <div>AWAITING SIMULATION PARAMETERS</div>
+                                <div class="empty-desc">Compare counterfactual formation matchups, pressing presets, and player availability impact, or generate a one-click Executive Pre-Match Scouting Dossier.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- TAB 2: Tactical Chat -->
             <div id="chat-tab" class="tab-content">
                 <div class="chat-layout">
@@ -269,17 +364,29 @@
                 <div class="split-view">
                     <!-- Left: Team Picker -->
                     <div class="form-panel">
-                        <div class="panel-header">NEXT-SEASON PREVIEW</div>
+                        <div class="panel-header">BEST XI LINEUP ENGINE</div>
                         <div class="panel-body">
-                            <div class="form-group">
-                                <label for="best11-league-select">LEAGUE</label>
-                                <select id="best11-league-select" class="tech-select">
-                                    <option value="Premier_League">Premier League (England)</option>
-                                    <option value="La_Liga">La Liga (Spain)</option>
-                                    <option value="Serie_A">Serie A (Italy)</option>
-                                    <option value="Bundesliga">Bundesliga (Germany)</option>
-                                    <option value="Ligue_1">Ligue 1 (France)</option>
-                                </select>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="best11-league-select">LEAGUE</label>
+                                    <select id="best11-league-select" class="tech-select">
+                                        <option value="Premier_League">Premier League (England)</option>
+                                        <option value="La_Liga">La Liga (Spain)</option>
+                                        <option value="Serie_A">Serie A (Italy)</option>
+                                        <option value="Bundesliga">Bundesliga (Germany)</option>
+                                        <option value="Ligue_1">Ligue 1 (France)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="best11-season-select">SEASON</label>
+                                    <select id="best11-season-select" class="tech-select">
+                                        <option value="">LATEST CACHED (AUTO)</option>
+                                        <option value="2627">2026/27 (2627)</option>
+                                        <option value="2526">2025/26 (2526)</option>
+                                        <option value="2425">2024/25 (2425)</option>
+                                        <option value="2324">2023/24 (2324)</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="matchup-selector">
                                 <div class="form-group">
@@ -294,11 +401,18 @@
                             </div>
                             <div class="form-group">
                                 <label for="best11-formation-select">FORMATION</label>
-                                <div class="tech-select" style="pointer-events:none; opacity:0.7;">AUTO · BEST-FIT SHAPE</div>
+                                <select id="best11-formation-select" class="tech-select">
+                                    <option value="auto">AUTO · BEST-FIT SHAPE</option>
+                                    <option value="4-3-3">4-3-3</option>
+                                    <option value="4-2-3-1">4-2-3-1</option>
+                                    <option value="3-5-2">3-5-2</option>
+                                    <option value="4-4-2">4-4-2</option>
+                                    <option value="3-4-3">3-4-3</option>
+                                </select>
                             </div>
-                            <button id="predict-best11-btn" class="tech-btn block-btn accent-fill">PREDICT NEXT-SEASON LINEUPS</button>
+                            <button id="predict-best11-btn" class="tech-btn block-btn accent-fill">PREDICT SEASON LINEUPS</button>
                             <div class="empty-state" style="padding:14px 0 0;">
-                                <div class="empty-desc">Prediction for their next-season meeting, computed from each team's latest completed season player ratings.</div>
+                                <div class="empty-desc">Lineups computed strictly from the selected season's verified squad stats (no cross-season squad mixing).</div>
                             </div>
                         </div>
                     </div>
@@ -358,6 +472,12 @@
                                 <label for="scout-youth" class="tech-check-label">
                                     <input type="checkbox" id="scout-youth" class="tech-check">
                                     YOUTH TARGETS ONLY (≤ 19 YRS)
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="scout-refresh" class="tech-check-label">
+                                    <input type="checkbox" id="scout-refresh" class="tech-check">
+                                    REFRESH LIVE API-FOOTBALL STATS (SLOWER)
                                 </label>
                             </div>
                             <div class="form-group">
@@ -537,6 +657,59 @@
                 </div>
             </div>
 
+            <!-- TAB 6.5: SaaS Workspace, Tier Quotas & B2B API Keys -->
+            <div id="saas-tab" class="tab-content">
+                <div class="split-view">
+                    <div class="form-panel">
+                        <div class="panel-header">WORKSPACE SUBSCRIPTION &amp; QUOTAS</div>
+                        <div class="panel-body">
+                            <div id="saas-usage-card" class="analysis-card" style="margin-bottom:14px;">
+                                <div class="card-title">ACTIVE PLAN TELEMETRY</div>
+                                <div class="card-body">
+                                    <div class="empty-desc">Authenticate to inspect tenant quota and rate limits.</div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="saas-org-input">WORKSPACE / CLUB NAME</label>
+                                <input type="text" id="saas-org-input" class="tech-input" placeholder="e.g. Arsenal Analytics">
+                            </div>
+                            <div class="form-group">
+                                <label for="saas-tier-select">SUBSCRIPTION TIER</label>
+                                <select id="saas-tier-select" class="tech-select">
+                                    <option value="free">FREE (50/day · 15 RPM)</option>
+                                    <option value="pro">PRO ANALYST (1,000/day · 120 RPM)</option>
+                                    <option value="club_enterprise">CLUB ENTERPRISE (50,000/day · 1,000 RPM)</option>
+                                </select>
+                            </div>
+                            <button id="saas-save-tier-btn" class="tech-btn block-btn accent-fill">UPDATE WORKSPACE PLAN</button>
+                        </div>
+                    </div>
+
+                    <div class="result-panel">
+                        <div class="panel-header">B2B HEADLESS API KEYS (`X-API-Key`)</div>
+                        <div class="panel-body">
+                            <div class="form-row" style="gap:8px; align-items:flex-end; margin-bottom:12px;">
+                                <div class="form-group" style="flex:3; margin-bottom:0;">
+                                    <label for="saas-key-label">NEW API KEY LABEL</label>
+                                    <input type="text" id="saas-key-label" class="tech-input" placeholder="e.g. scouting-erp-sync" value="scouting-erp">
+                                </div>
+                                <div class="form-group" style="flex:1; margin-bottom:0;">
+                                    <button id="saas-create-key-btn" class="tech-btn block-btn accent-border">+ MINT KEY</button>
+                                </div>
+                            </div>
+                            <div id="saas-new-key-banner" class="status-banner success" style="display:none; margin-bottom:12px;"></div>
+                            <div id="saas-keys-list">
+                                <div class="empty-state">
+                                    <div class="empty-icon">🔑</div>
+                                    <div>NO ACTIVE API KEYS LOADED</div>
+                                    <div class="empty-desc">Login and open Workspace &amp; API to manage B2B `fk_live_...` keys.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- TAB 7: Supervisor Queue & Automated MLOps Control Center -->
             <div id="supervisor-tab" class="tab-content">
                 <div class="supervisor-layout">
@@ -573,14 +746,16 @@
                                 <div class="form-group" style="flex: 3;">
                                     <label for="mlops-step-select">RUN INDIVIDUAL PIPELINE STAGE</label>
                                     <select id="mlops-step-select" class="tech-select">
-                                        <option value="1">Step 1/8 — Incremental Data Ingestion (UK CSV + Understat + Players)</option>
-                                        <option value="2">Step 2/8 — Preprocessing &amp; Temporal Feature Engineering</option>
-                                        <option value="3">Step 3/8 — Team Tactics &amp; Multi-Store Sync (PG + Neo4j + FAISS + pgvector)</option>
-                                        <option value="4">Step 4/8 — Teacher LLM Tactical Annotation Generation</option>
-                                        <option value="5">Step 5/8 — Chronological Train/Val Split (Golden Set Excluded)</option>
-                                        <option value="6">Step 6/8 — TEA-GNN Retraining with MLflow Tracking</option>
-                                        <option value="7">Step 7/8 — Dynamic ONNX Export (tea_gnn.onnx)</option>
-                                        <option value="8">Step 8/8 — Live API Singleton Hot-Reload</option>
+                                        <option value="1">Step 1/10 — Incremental Data Ingestion (UK CSV + Understat + Players)</option>
+                                        <option value="2">Step 2/10 — Preprocessing &amp; Temporal Feature Engineering</option>
+                                        <option value="3">Step 3/10 — Team Tactics &amp; Multi-Store Sync (PG + Neo4j + FAISS + pgvector)</option>
+                                        <option value="4">Step 4/10 — Teacher LLM Tactical Annotation Generation</option>
+                                        <option value="5">Step 5/10 — Chronological Train/Val Split (Golden Set Excluded)</option>
+                                        <option value="6">Step 6/10 — TEA-GNN Retraining with MLflow Tracking</option>
+                                        <option value="7">Step 7/10 — Dynamic ONNX Export (tea_gnn.onnx)</option>
+                                        <option value="8">Step 8/10 — Live API Singleton Hot-Reload</option>
+                                        <option value="9">Step 9/10 — SLM Unsloth QLoRA Fine-Tuning &amp; MLflow Tracking</option>
+                                        <option value="10">Step 10/10 — Champion SLM Hugging Face Hub Release</option>
                                     </select>
                                 </div>
                                 <div class="form-group" style="flex: 1;">
@@ -598,6 +773,25 @@
                                     <div id="mlops-job-progress-bar" class="prob-bar-fill" style="width: 0%;"></div>
                                 </div>
                                 <pre id="mlops-job-logs" style="max-height: 160px; overflow-y: auto; font-size: 0.68rem; color: var(--text-muted); margin: 0; white-space: pre-wrap;">Awaiting pipeline activity...</pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="contribute-section" style="margin-bottom: 18px;">
+                        <div class="section-header" onclick="toggleSection(this)">▼ CHAMPION VS. CHALLENGER SHADOW DEPLOYMENT &amp; PERSISTENT JOB LEDGER</div>
+                        <div class="section-body">
+                            <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+                                <button id="refresh-shadow-ledger-btn" class="tech-btn accent-border" onclick="loadShadowAndLedger()">↻ REFRESH TELEMETRY</button>
+                            </div>
+                            <div class="analysis-grid">
+                                <div id="shadow-metrics-box" class="analysis-card">
+                                    <div class="card-title">SHADOW DEPLOYMENT (PRODUCTION VS STAGING)</div>
+                                    <div class="card-body"><div class="empty-desc">Loading shadow metrics...</div></div>
+                                </div>
+                                <div id="job-ledger-box" class="analysis-card">
+                                    <div class="card-title">PERSISTENT DISK JOB LEDGER</div>
+                                    <div class="card-body"><div class="empty-desc">Loading ledger entries...</div></div>
+                                </div>
                             </div>
                         </div>
                     </div>

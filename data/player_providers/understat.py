@@ -111,10 +111,12 @@ class UnderstatPlayerProvider(BasePlayerProvider):
         want_raw = team.lower()
         records = []
         for p in rows:
-            # Understat team_title can be a comma-separated list if player transferred mid-season
+            # Understat team_title can be comma-separated if player transferred mid-season;
+            # match only against their latest club so departures are not duplicated on old teams.
             raw_titles = [t.strip() for t in str(p.get("team_title", "")).split(",") if t.strip()]
+            latest_titles = [raw_titles[-1]] if raw_titles else []
             matched_team = False
-            for t_title in raw_titles:
+            for t_title in latest_titles:
                 t_canon = normalize_team_name(t_title, league_code).lower()
                 if t_canon == want_canon or t_title.lower() == want_raw:
                     matched_team = True

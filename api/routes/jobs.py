@@ -8,6 +8,7 @@ status polling, log viewing, and lifecycle management of the automated
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -32,7 +33,10 @@ async def _verify_supervisor_or_internal(request: Request) -> None:
     """
     internal_expected = os.environ.get("INTERNAL_ADMIN_TOKEN", "football_internal_secret_token_2026")
     internal_header = request.headers.get("X-Internal-Token", "")
-    if internal_header and internal_header == internal_expected:
+    if internal_header and hmac.compare_digest(
+        internal_header.encode("utf-8"),
+        internal_expected.encode("utf-8"),
+    ):
         return
 
     auth_header = request.headers.get("Authorization", "")
@@ -321,6 +325,14 @@ async def get_pipeline_history():
     """Retrieve execution history of previous pipeline runs."""
     return {
         "history": job_manager.get_history(),
+    }
+
+
+@router.get("/pipeline/ledger")
+async def get_pipeline_ledger(limit: int = Query(default=50, ge=1, le=500)):
+    """Retrieve persistent disk-backed job execution ledger entries surviving API restarts."""
+    return {
+        "entries": job_manager.get_persistent_ledger(limit=limit),
     }
 
 

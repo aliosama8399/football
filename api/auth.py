@@ -6,16 +6,17 @@ import bcrypt
 from sqlalchemy.future import select
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from api.config import settings
 from api.database import User
+from api.services.saas_tenant_service import saas_tenant_manager
 
 logger = logging.getLogger(__name__)
 
 # OAuth2 Password Bearer Scheme pointing to our login route
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify plain password against its hash (truncated to 72 bytes for bcrypt)."""
@@ -56,34 +57,71 @@ def decode_access_token(token: str) -> Optional[dict]:
 # ── FastAPI Route Guard Dependencies ──────────────────────────────────────────
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request = None,
+    token: Optional[str] = Depends(oauth2_scheme),
 ) -> User:
     """
-    FastAPI dependency that decodes JWT, verifies user exists, and returns the User object.
-    Requires account to be activated.
+    FastAPI dependency authenticating via B2B `X-API-Key` or Bearer JWT,
+    enforcing account activation and SaaS tenant rate/daily quotas.
     """
     from api.dependencies import get_db  # Import inside to avoid circular reference
-    
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    api_key_header = request.headers.get("X-API-Key", "") if request is not None else ""
+    if api_key_header:
+        key_meta = saas_tenant_manager.verify_api_key(api_key_header)
+        if key_meta is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked X-API-Key",
+            )
+        username = key_meta["username"]
+        if request is not None and not getattr(request.state, "quota_checked", False):
+            quota = saas_tenant_manager.check_and_consume_quota(username)
+            request.state.quota_checked = True
+            if not quota["allowed"]:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"SaaS quota exceeded ({quota['reason']})",
+                )
+        try:
+            async for db in get_db():
+                stmt = select(User).where(User.username == username)
+                result = await db.execute(stmt)
+                user = result.scalar_one_or_none()
+                if user is not None:
+                    return user
+        except Exception:
+            pass
+        return User(
+            id=0,
+            username=username,
+            email=f"{username}@api.tenant",
+            role="user",
+            is_active=True,
+        )
+
+    if token is None:
+        raise credentials_exception
+
     payload = decode_access_token(token)
     if payload is None:
         raise credentials_exception
-    
+
     username: Optional[str] = payload.get("sub")
     if username is None:
         raise credentials_exception
-        
-    # Fetch user from db using an async session
-    # We obtain the db session context using get_db async generator
+
     async for db in get_db():
         stmt = select(User).where(User.username == username)
         result = await db.execute(stmt)
         user = result.scalar_one_or_none()
-        
+
         if user is None:
             raise credentials_exception
         if not user.is_active:
@@ -91,6 +129,15 @@ async def get_current_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Inactive user. Account must be activated first."
             )
+        if request is None or not getattr(request.state, "quota_checked", False):
+            quota = saas_tenant_manager.check_and_consume_quota(user.username, role=user.role)
+            if request is not None:
+                request.state.quota_checked = True
+            if not quota["allowed"]:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"SaaS quota exceeded ({quota['reason']})",
+                )
         return user
 
 async def require_supervisor(

@@ -112,10 +112,13 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # ── 1c. AUTOMATED SCRAPER & CONTINUOUS EVALUATION RUNNER (GPU Worker) ────
+  # ── 1c. STANDALONE SCRAPER & EVAL LOOP (Legacy Fallback; use Airflow DAGs instead)
+  # Evaluation & scraping are orchestrated by Airflow DAGs (`football_master_pipeline`
+  # and `football_rag_eval`) delegating to `bento`. Opt-in via `--profile standalone-eval`.
   auto-eval:
     image: football-fastapi:latest
     pull_policy: never
+    profiles: [ "standalone-eval" ]
     container_name: football-auto-eval
     gpus: all # NVIDIA GPU acceleration for GNN training & Ollama inference
     env_file:

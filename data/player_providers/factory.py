@@ -24,10 +24,12 @@ def _import_providers():
     from data.player_providers.fod import FodPlayerProvider
     from data.player_providers.understat import UnderstatPlayerProvider
     from data.player_providers.api_football import ApiFootballPlayerProvider
+    from data.player_providers.espn import EspnPlayerProvider
     _REGISTRY["fbref"] = FbrefPlayerProvider
     _REGISTRY["fod"] = FodPlayerProvider
     _REGISTRY["understat"] = UnderstatPlayerProvider
     _REGISTRY["api_football"] = ApiFootballPlayerProvider
+    _REGISTRY["espn"] = EspnPlayerProvider
 
 
 def get_player_provider(provider_type: str = "", **kwargs) -> BasePlayerProvider:
@@ -63,8 +65,13 @@ class _AllProvidersProxy(BasePlayerProvider):
                 logger.warning("player provider '%s' unavailable: %s", name, e)
 
     def fetch_team_squad(self, team: str, league_code: str, season: str):
+        import difflib
+
         merged = {}
-        for p in self._providers:
+        stats_providers = [p for p in self._providers if getattr(p, "provider_name", "") != "fod"]
+        fod_providers = [p for p in self._providers if getattr(p, "provider_name", "") == "fod"]
+
+        for p in stats_providers:
             try:
                 for rec in p.fetch_team_squad(team, league_code, season):
                     key = _norm_name(rec.name)
@@ -74,6 +81,37 @@ class _AllProvidersProxy(BasePlayerProvider):
                         merged[key] = _fuse(merged[key], rec)
             except Exception as e:
                 logger.warning("provider '%s' failed for %s: %s", p.provider_name, team, e)
+
+        has_stats_squad = bool(merged)
+        for p in fod_providers:
+            try:
+                for rec in p.fetch_team_squad(team, league_code, season):
+                    key = _norm_name(rec.name)
+                    if key in merged:
+                        merged[key] = _fuse(merged[key], rec)
+                        continue
+                    if has_stats_squad:
+                        # Enrich matching existing player without appending off-season/unplayed roster entries
+                        for base in merged.values():
+                            na, nb = _norm_name(base.name), key
+                            if na and nb and difflib.SequenceMatcher(None, na, nb).ratio() >= 0.80:
+                                _fuse(base, rec)
+                                break
+                    else:
+                        merged[key] = rec
+            except Exception as e:
+                logger.warning("provider '%s' failed for %s: %s", p.provider_name, team, e)
+
+        if not merged:
+            try:
+                espn_prov = get_player_provider("espn")
+                for rec in espn_prov.fetch_team_squad(team, league_code, season):
+                    key = _norm_name(rec.name)
+                    if key not in merged:
+                        merged[key] = rec
+            except Exception as e:
+                logger.warning("fallback provider 'espn' failed for %s: %s", team, e)
+
         squad = _dedup_squad(merged.values())
         # understat reports key passes in extra; promote to the schema field
         # so the ratings can use it (FBRef dropped its passing table).
@@ -97,7 +135,7 @@ def _fuse(primary: "PlayerRecord", other: "PlayerRecord"):
                        "tackles", "interceptions", "blocks", "clearances", "errors",
                        "key_passes", "progressive_passes",
                        "saves", "clean_sheets",
-                       "goals_conceded", "yellow_cards", "red_cards"):
+                       "goals_conceded", "yellow_cards", "red_cards", "shirt_number"):
         if getattr(primary, field_name) is None and getattr(other, field_name) is not None:
             setattr(primary, field_name, getattr(other, field_name))
     _merge_extra(primary, other)

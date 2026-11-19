@@ -15,7 +15,7 @@
 # ============================================================
 
 # ── Which provider to use by default ──────────────────────
-# Choices: ollama | huggingface | onnx | gemini | anthropic
+# Choices: vllm | trtllm | onnx | huggingface | ollama | gemini | anthropic | openai
 default_provider: vllm
 
 # ── Provider-specific settings ────────────────────────────
@@ -56,8 +56,8 @@ providers:
     hf_token:       ""
     # Fully merged fine-tuned football model (no LoRA adapter needed)
     model_id:       "aliosama8399/football-analysisN"
-    max_new_tokens: 512
-    temperature:    0.7
+    max_new_tokens: 2048
+    temperature:    0.2
 
   onnx:
     # onnxruntime-genai CUDA artifact (REAL-TIME: ~65 tok/s on GPU vs ~1 tok/s CPU)
@@ -67,7 +67,7 @@ providers:
     # Provider auto-detects genai_config.json -> GPU KV-cache backend.
     model_path:     "models/export/slm_gpu"
     max_new_tokens: 2048
-    temperature:    0.7
+    temperature:    0.2
 
   trtllm:
     # TensorRT-LLM sidecar server (OpenAI-compatible). Start it with:
@@ -89,8 +89,8 @@ providers:
 
 # ── LLM generation parameters ─────────────────────────────
 generation:
-  temperature: 0.4
-  max_tokens: 400
+  temperature: 0.2
+  max_tokens: 2048
 
   # ── RAG System Configuration ──────────────────────────────
 rag:
@@ -98,10 +98,9 @@ rag:
   kg_provider:     neo4j          # neo4j | postgres (neo4j is default)
   vector_provider: pgvector       # pgvector | faiss
   pgvector_table:  kb_vectors     # table name for pgvector
-  # LLM used by the RAG module (chat + /kb/ask narration).
-  #   openai | gemini | ollama | onnx | none (disabled)
-  # onnx is the ONNX export of the finetuned SLM (replaces huggingface for inference)
-  llm_provider:    huggingface
+  # LLM used across prediction, RAG chat, and simulator routes.
+  # Inherits default_provider above when omitted; set "none" to disable.
+  llm_provider:    vllm
 
   # GNN "Expert 1" prediction model — now ONNX (replaces torch checkpoint)
   # Export: conda run -n football python models/export_gnn.py

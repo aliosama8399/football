@@ -439,7 +439,7 @@ class KBAskRequest(BaseModel):
     llm_provider: Optional[str] = Field(
         default=None,
         description="None/empty → structured answer without any LLM. "
-                    "Or a registered provider: ollama, openai, gemini, anthropic, huggingface."
+                    "Or a registered provider: vllm, trtllm, onnx, huggingface, ollama, openai, gemini, anthropic."
     )
     prefer_prediction: bool = False
 
@@ -459,3 +459,56 @@ class KBAnswerResponse(BaseModel):
     provider: str
     error: Optional[str] = None
     sources: List[dict] = Field(default_factory=list)
+
+
+# ── Tactical Simulator & Scouting Dossier Schemas ──────────────────────────────
+
+class TacticalSimulationRequest(BaseModel):
+    home_team: str
+    away_team: str
+    home_formation: str = "4-3-3"
+    away_formation: str = "4-3-3"
+    tactical_preset: str = Field(
+        default="balanced",
+        description="Preset: balanced, high_press, low_block, counter_attack, possession_overload, wing_play",
+    )
+    key_player_impact: float = Field(default=0.0, ge=-0.25, le=0.25)
+
+
+class TacticalSimulationResponse(BaseModel):
+    home_team: str
+    away_team: str
+    home_formation: str
+    away_formation: str
+    tactical_preset: str
+    baseline_probabilities: dict
+    simulated_probabilities: dict
+    probability_deltas: dict
+    expected_points_baseline: float
+    expected_points_simulated: float
+    expected_points_delta: float
+    expected_goals: dict
+    tactical_tradeoffs: dict
+    recommendation: str
+    slm_generated: bool = True
+    llm_provider: str = "vllm"
+
+
+class PreMatchDossierRequest(BaseModel):
+    home_team: str
+    away_team: str
+    league: str = "Premier_League"
+
+
+class PreMatchDossierResponse(BaseModel):
+    home_team: str
+    away_team: str
+    league: str
+    generated_at: str
+    match_forecast: dict
+    optimal_formation_simulation: dict
+    tactical_profiles: dict
+    scouting_priorities: List[dict]
+    executive_markdown: str
+    slm_generated: bool = True
+    llm_provider: str = "vllm"

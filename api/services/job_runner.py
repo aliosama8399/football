@@ -17,6 +17,7 @@ Capabilities:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -69,6 +70,7 @@ class PipelineJobManager:
         self.active_process: Optional[subprocess.Popen] = None
         self.active_thread: Optional[threading.Thread] = None
         self.log_buffer: deque[str] = deque(maxlen=1000)
+        self.ledger_path: Path = BASE_DIR / "logs" / "pipeline_jobs_ledger.jsonl"
 
         # Reference to FastAPI app for direct in-process singleton hot-reloads
         self.app_ref: Any = None
@@ -301,6 +303,44 @@ class PipelineJobManager:
                 })
             return history
 
+    def _persist_job_to_ledger(self, record: JobRunRecord) -> None:
+        """Append completed or failed job execution summary to disk-backed JSONL ledger."""
+        try:
+            self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "job_id": record.job_id,
+                "status": record.status,
+                "step": record.step,
+                "step_name": record.step_name,
+                "progress_pct": record.progress_pct,
+                "started_at": record.started_at,
+                "ended_at": record.ended_at,
+                "duration_s": record.duration_s,
+                "error": record.error,
+                "parameters": record.parameters,
+            }
+            with open(self.ledger_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry) + "\n")
+        except Exception as exc:
+            logger.warning("Failed persisting job record %s to ledger %s: %s", record.job_id, self.ledger_path, exc)
+
+    def get_persistent_ledger(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Read persistent disk-backed job execution history surviving API restarts."""
+        if not self.ledger_path.exists():
+            return []
+        entries: List[Dict[str, Any]] = []
+        try:
+            for line in self.ledger_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped:
+                    entries.append(json.loads(stripped))
+        except Exception as exc:
+            logger.warning("Failed reading persistent job ledger %s: %s", self.ledger_path, exc)
+            return []
+        if limit <= 0:
+            return []
+        return list(reversed(entries[-limit:]))
+
     def cancel_job(self) -> bool:
         with self.state_lock:
             if not self.active_job or self.active_job.status != "RUNNING":
@@ -318,6 +358,7 @@ class PipelineJobManager:
             self.active_job.status = "CANCELLED"
             self.active_job.ended_at = datetime.now().isoformat()
             self._log_line("[JOB MANAGER] Job was cancelled by user request.")
+            self._persist_job_to_ledger(self.active_job)
             return True
 
     def trigger_pipeline(
@@ -626,6 +667,7 @@ class PipelineJobManager:
                     self.active_job.duration_s = duration
                     self.active_job.logs = list(self.log_buffer)
                     self.job_history.append(self.active_job)
+                    self._persist_job_to_ledger(self.active_job)
 
         except Exception as e:
             logger.error("Job execution exception: %s", e, exc_info=True)
@@ -636,6 +678,7 @@ class PipelineJobManager:
                     self.active_job.ended_at = datetime.now().isoformat()
                     self.active_job.duration_s = round(time.time() - start_time, 1)
                     self.job_history.append(self.active_job)
+                    self._persist_job_to_ledger(self.active_job)
 
     def _run_eval_worker(self, job_id: str, params: Dict[str, Any]):
         start_time = time.time()
@@ -734,6 +777,7 @@ class PipelineJobManager:
                     self.active_job.duration_s = duration
                     self.active_job.logs = list(self.log_buffer)
                     self.job_history.append(self.active_job)
+                    self._persist_job_to_ledger(self.active_job)
         except Exception as e:
             logger.error("Eval job exception: %s", e, exc_info=True)
             with self.state_lock:
@@ -743,6 +787,7 @@ class PipelineJobManager:
                     self.active_job.ended_at = datetime.now().isoformat()
                     self.active_job.duration_s = round(time.time() - start_time, 1)
                     self.job_history.append(self.active_job)
+                    self._persist_job_to_ledger(self.active_job)
 
 
 job_manager = PipelineJobManager()

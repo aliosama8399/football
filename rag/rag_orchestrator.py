@@ -26,7 +26,8 @@ try:
     from rag.providers.gnn_provider_onnx import ONNXPredictionProvider as GNNPredictionProvider
 except ImportError:
     from rag.providers.gnn_provider import GNNPredictionProvider  # fallback to torch if ONNX missing
-from models.llm_providers              import get_llm_provider
+from api.utils import clean_slm_output
+from models.llm_providers              import get_llm_provider, resolve_default_provider
 from eval.langfuse_client             import trace_step
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -90,7 +91,7 @@ class FootballRAGSystem:
         cfg = _load_rag_cfg()
         kg_name     = kg     or cfg.get("kg_provider",     "neo4j")
         vector_name = vector or cfg.get("vector_provider", "faiss")
-        llm_name    = llm if llm else cfg.get("llm_provider", "huggingface")
+        llm_name    = llm if llm else (cfg.get("llm_provider") or resolve_default_provider())
 
         logger.info("Initializing RAG — KG=%s | Vector=%s | LLM=%s",
                     kg_name, vector_name, llm_name)
@@ -253,10 +254,9 @@ class FootballRAGSystem:
 
         if self.llm is None:
             fallback_text = json.dumps({
-                "question": question,
+                "fallback": True,
                 "teams_detected": teams,
-                "kg_context": kg_context,
-                "vector_context": vec_context,
+                "error": "LLM not configured",
                 "note": "LLM not configured (set rag.llm_provider in llm_config.yaml).",
             }, ensure_ascii=False)
             return {
@@ -272,20 +272,13 @@ class FootballRAGSystem:
 
         with trace_step("llm_generation", as_type="generation", model=str(model_name), input=full_prompt, metadata={"llm_type": type(self.llm).__name__}) as span:
             try:
-                if hasattr(self.llm, "generate_with_context"):
-                    res = self.llm.generate_with_context(
-                        prompt=question,
-                        kg_context=kg_context,
-                        vector_context=vec_context,
-                    )
-                elif hasattr(self.llm, "generate"):
-                    res = self.llm.generate(full_prompt)
-                elif hasattr(self.llm, "_call_api"):
-                    res = self.llm._call_api(full_prompt)
-                else:
-                    raise AttributeError(
-                        f"LLM {type(self.llm).__name__} exposes neither generate() nor _call_api()."
-                    )
+                res = self._invoke_llm(
+                    prompt=question,
+                    full_prompt=full_prompt,
+                    kg_context=kg_context,
+                    vector_context=vec_context,
+                )
+                res = clean_slm_output(res)
                 span.update(output=res)
                 return {
                     "response": res,
@@ -295,12 +288,11 @@ class FootballRAGSystem:
                     "teams": teams,
                 }
             except Exception as e:
-                logger.error("LLM inference failed in query_with_context(): %s. Returning structured context fallback.", e)
+                logger.error("LLM inference failed in query_with_context(): %s. Returning compact fallback status.", e)
                 fallback_res = json.dumps({
-                    "question": question,
+                    "fallback": True,
                     "teams_detected": teams,
-                    "kg_context": kg_context,
-                    "vector_context": vec_context,
+                    "error": f"{type(e).__name__}: {e}",
                     "note": "LLM runtime failure; degraded to quantitative/context fallback.",
                 }, ensure_ascii=False)
                 span.update(output=fallback_res)
@@ -311,6 +303,85 @@ class FootballRAGSystem:
                     "vector_context": vec_context,
                     "teams": teams,
                 }
+
+    def _invoke_llm(
+        self,
+        prompt: str,
+        full_prompt: Optional[str] = None,
+        kg_context: str = "",
+        vector_context: str = "",
+        system_prompt: Optional[str] = None,
+    ) -> str:
+        """Call the configured LLM provider cleanly across heterogeneous provider signatures."""
+        if self.llm is None:
+            raise RuntimeError("SLM provider is not configured.")
+
+        if kg_context or vector_context:
+            if hasattr(self.llm, "generate_with_context"):
+                try:
+                    return self.llm.generate_with_context(
+                        prompt=prompt,
+                        kg_context=kg_context,
+                        vector_context=vector_context,
+                        system_prompt=system_prompt,
+                    )
+                except TypeError:
+                    return self.llm.generate_with_context(
+                        prompt=prompt,
+                        kg_context=kg_context,
+                        vector_context=vector_context,
+                    )
+
+        target_prompt = full_prompt if full_prompt is not None else prompt
+        if hasattr(self.llm, "generate"):
+            if system_prompt is not None:
+                try:
+                    return self.llm.generate(target_prompt, system_prompt=system_prompt)
+                except TypeError:
+                    return self.llm.generate(f"{system_prompt}\n\n{target_prompt}")
+            return self.llm.generate(target_prompt)
+        if hasattr(self.llm, "_call_api"):
+            combined = f"{system_prompt}\n\n{target_prompt}" if system_prompt else target_prompt
+            return self.llm._call_api(combined)
+        raise AttributeError(
+            f"LLM {type(self.llm).__name__} exposes neither generate() nor _call_api()."
+        )
+
+    def generate_direct(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        teams: Optional[list[str]] = None,
+        include_kg: bool = False,
+    ) -> dict:
+        """
+        Invoke the configured fine-tuned SLM directly (with optional KG context)
+        for dynamic synthesis (Simulator, Pre-Match Dossier, etc.). Raises on failure.
+        """
+        if self.llm is None:
+            raise RuntimeError("SLM provider is not configured (rag.llm_provider is disabled).")
+
+        kg_context = ""
+        if include_kg and teams:
+            kg_context = self._get_kg_context(teams, prompt)
+
+        provider_name = (
+            getattr(self.llm, "provider_name", None)
+            or getattr(self.llm, "_backend", None)
+            or type(self.llm).__name__
+        )
+        raw = self._invoke_llm(
+            prompt=prompt,
+            full_prompt=prompt if not kg_context else self._build_prompt(prompt, kg_context, ""),
+            kg_context=kg_context,
+            vector_context="",
+            system_prompt=system_prompt,
+        )
+        return {
+            "text": clean_slm_output(raw),
+            "provider": str(provider_name),
+            "kg_context": kg_context,
+        }
 
     def query(self, question: str, as_of: str = None, teams: list[str] = None) -> str:
         """General-purpose RAG query."""
@@ -354,9 +425,11 @@ class FootballRAGSystem:
 
         if self.llm is None:
             return json.dumps({
+                "fallback": True,
                 "home_team": home_team,
                 "away_team": away_team,
                 "gnn_prediction": gnn_result,
+                "error": "LLM not configured",
                 "note": "LLM not configured; returning Expert 1 (GNN) result only.",
             }, ensure_ascii=False)
 
@@ -365,16 +438,20 @@ class FootballRAGSystem:
             f"You are Expert 2 (Fine-tuned LLM). Analyze the upcoming match between {home_team} (Home) and {away_team} (Away).\n"
             f"Consider their recent form, head-to-head history, and tactical styles (attack and defense).\n"
             f"{gnn_pred_text}\n\n"
-            f"Provide your final match prediction with reasoning, integrating your analysis with Expert 1's prediction."
+            f"Provide your final match prediction with reasoning, integrating your analysis with Expert 1's prediction. "
+            f"Write clear tactical prose covering the match verdict, {home_team}'s strengths and weaknesses, "
+            f"{away_team}'s strengths and weaknesses, and the key tactical matchup."
         )
         try:
             return self.query(question, as_of=as_of, teams=[home_team, away_team])
         except Exception as e:
             logger.error("Expert 2 (LLM) failed in predict_match: %s. Returning Expert 1 GNN only.", e)
             return json.dumps({
+                "fallback": True,
                 "home_team": home_team,
                 "away_team": away_team,
                 "gnn_prediction": gnn_result,
+                "error": f"{type(e).__name__}: {e}",
                 "note": "LLM runtime failure; returning Expert 1 (GNN) result only.",
             }, ensure_ascii=False)
 
